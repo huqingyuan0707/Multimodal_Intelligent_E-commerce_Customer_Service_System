@@ -138,8 +138,9 @@ backend/app/
 
 frontend/src/
   app/                                   # 入口、全局配置、插件
-  features/<domain>/{api,components,composables,stores,types,views}
-  components/                            # AiButton / AiInput 等通用件
+  views/<domain>/{XxxView.vue}           # 页面按域分目录
+  {components,composables,stores,types}/ # 逻辑按层放顶层（无 features/）
+  shared/components/                     # AiButton / AiInput 等通用件
   api/index.ts                           # 唯一请求入口 request<T>
   mock/                                  # 后端不可用时的降级演示数据
 ```
@@ -295,12 +296,12 @@ Smoke 脚本（`backend/tests/smoke_*.py`）强制风格：头 docstring 写覆�
 
 - **页面方法一律箭头函数**（`func-style: expression` 硬拦截）：`const loadDocs = async () => {}`，注意箭头函数无提升，先定义后调用。
 - 页面**禁止直写 `fetch`**，一律走 `src/api/index.ts`；上传用 `FormData` 且不手设 `Content-Type`；GET 参数一律 `encodeURIComponent`。
-- 新业务建 `src/features/<domain>/`，存量 `src/views/*` **只修不扩**。
+- 页面建 `src/views/<domain>/` 下对应目录，逻辑按层放顶层 `src/{components,composables,stores,types}/`，不再建 `features/`。
 - Pinia 只用 setup 风格；可复用逻辑抽 `composables/useXxx.ts`，页面只做编排。
 - 优先 `AiButton` / `AiInput`；Element Plus 按需引入；样式用设计 token `var(--reai-primary / --reai-card / --reai-text-main / --reai-text-muted / --reai-border / --reai-shadow-*)`，**禁止硬编码主色**。
 - 成功 / 失败一律 `ElMessage`；删除 / 停用 / 归档先 `ElMessageBox.confirm`；枚举中文化走映射表。
 - 列表页 `onMounted` 调真实接口，`catch` 回退 `@/mock`，保证后端不可用时页面可用；新会话本地先建 `t-${Date.now()}` 占位。
-- 跨文件共享的消息形状统一取 `features/agent/types/agent.ts`，禁止各文件自造。
+- 跨文件共享的消息形状统一取 `src/types/agent.ts`，禁止各文件自造。
 
 ## 12. 后端编码红线（扼要）
 

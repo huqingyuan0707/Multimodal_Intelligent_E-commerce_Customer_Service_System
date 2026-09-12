@@ -19,9 +19,8 @@ enabled: true
 - 401（HTTP 或业务码 `1002`）走中央 `handle401()`，**禁止各页面自写跳转**。
 
 ## 3. 目录分层
-- 新业务建 `src/features/<domain>/{api,components,composables,stores,types,views}`。
-- 存量 `src/views/*` **只修不扩**。
-- 跨文件共享的消息形状一律取 `features/agent/types/agent.ts`，**禁止各文件自造**。
+- 页面建 `src/views/<domain>/` 下对应目录；逻辑按层放顶层 `src/{components,composables,stores,types}/`，不再建 `features/`。
+- 跨文件共享的消息形状一律取 `src/types/agent.ts`，**禁止各文件自造**。
 
 ## 4. 状态与逻辑
 - Pinia 只用 **setup 风格**（`defineStore('x', () => { ... })`）。

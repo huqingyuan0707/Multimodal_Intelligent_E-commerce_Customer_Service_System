@@ -81,5 +81,14 @@ export default tseslint.config(
     },
   },
 
+  {
+    files: ['**/*.cjs'],
+    languageOptions: {
+      globals: {
+        ...globals.node,
+      },
+    },
+  },
+
   prettier,
 );

@@ -29,7 +29,11 @@ def main() -> int:
     rules = [
         ("backend/app/api/", "API接口与SSE事件协议规范.md"),
         ("backend/app/modules/agent/rag/", "RAG知识库构建检索治理规范.md"),
-        ("frontend/src/features/", "页面设计.md"),
+        ("frontend/src/views/", "页面设计.md"),
+        ("frontend/src/components/", "页面设计.md"),
+        ("frontend/src/composables/", "页面设计.md"),
+        ("frontend/src/stores/", "页面设计.md"),
+        ("frontend/src/types/", "页面设计.md"),
         ("backend/app/db/", "数据模型与存储设计.md"),
     ]
     warned = False

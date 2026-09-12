@@ -21,11 +21,12 @@ async function loadDocs() { /* ... */ }
 
 ## 2. 目录（新代码必须落到新架构）
 ```
-src/features/<domain>/{api,components,composables,stores,types,views}
+src/views/<domain>/{AdminView,ChatView,LoginView,...}  # 页面按域分目录
+src/{components,composables,stores,types}              # 逻辑按层放顶层（无 features/）
 src/{entities,shared/{components,composables,utils,types,styles}}
 ```
-- 存量 `src/views/*` 只修不扩；新业务建 `features/<domain>`。
-- Agent 相关类型先行：`features/agent/types/agent.ts`（`Message/Reference/AgentEvent/...`），禁止各文件自造消息形状。
+- 页面建 `src/views/<domain>/` 下对应目录；逻辑按层放顶层 `components/composables/stores/types`，通用件下沉 `shared`。
+- Agent 相关类型先行：`src/types/agent.ts`（`Message/Reference/AgentEvent/...`），禁止各文件自造消息形状。
 
 ## 3. API 层唯一入口（`src/api/index.ts`，禁止页面直写 fetch）
 ```ts
@@ -46,7 +47,7 @@ fetch(`${BASE}/chat`, {
 - 401（HTTP 或业务码 `1002`）走中央 `handle401()` 清登录态跳登录页，**禁止各页面自写跳转**。
 
 ## 4. 状态与组合式函数
-- Pinia 只用 setup 风格：`defineStore('session', () => { refs + computed + functions })`（参考 `features/agent/stores/session.ts`），按业务域拆 store。
+- Pinia 只用 setup 风格：`defineStore('session', () => { refs + computed + functions })`（参考 `src/stores/session.ts`），按职责拆 store。
 - 可复用逻辑抽 `composables/useXxx.ts`（如 `useAgentStream` 管 SSE 重连，`useChat` 管发送/阶段/技能/反馈），页面只做编排。
 - SSE 解析固定范式：`event: / data:` 正则分帧 → `phase/message/done` 分支；`done` 的 `JSON.parse` 必须 try/catch。
 

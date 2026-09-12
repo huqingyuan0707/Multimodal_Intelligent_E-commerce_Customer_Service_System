@@ -1,0 +1,50 @@
+[
+  {
+    "id": "kb-return",
+    "tenant": "demo-tenant",
+    "title": "退换货政策",
+    "content": "支持 7 天无理由退货（吊牌完整、不影响二次销售）；质量问题 15 天内退换，运费由店铺承担；退款在质检通过后 1-3 个工作日原路返回。",
+    "security_level": "internal",
+    "channels": ["all"]
+  },
+  {
+    "id": "kb-size",
+    "tenant": "demo-tenant",
+    "title": "尺码指南",
+    "content": "上衣 S/M/L 对应胸围 84/88/92cm，偏大版型建议拍小一码；请提供身高体重与版型偏好（修身/常规/宽松），客服按指南推荐，不确定时给范围不给绝对值。",
+    "security_level": "internal",
+    "channels": ["all"]
+  },
+  {
+    "id": "kb-fabric",
+    "tenant": "demo-tenant",
+    "title": "面料与洗护",
+    "content": "纯棉款可机洗冷水，含羊毛款仅干洗；深浅色分开洗，洗后平铺晾干；起球属正常摩擦现象，可用毛球修剪器处理。",
+    "security_level": "internal",
+    "channels": ["all"]
+  },
+  {
+    "id": "kb-logistics",
+    "tenant": "demo-tenant",
+    "title": "物流与发货",
+    "content": "默认 48 小时内发货，新疆西藏顺延 1-2 天；发货后可在订单页查看物流节点，大促期间整体延迟 1 天左右，可催发货。",
+    "security_level": "internal",
+    "channels": ["all"]
+  },
+  {
+    "id": "kb-promo",
+    "tenant": "demo-tenant",
+    "title": "优惠叠加规则",
+    "content": "满减与店铺券可叠加，平台券以后台结算页为准；预售尾款可用券，不支持退款改价，差价以页面实时价为准。",
+    "security_level": "internal",
+    "channels": ["all"]
+  },
+  {
+    "id": "kb-complaint",
+    "tenant": "demo-tenant",
+    "title": "投诉与转人工",
+    "content": "对处理结果不满可回复“转人工”，坐席将在 30 秒内接管；辱骂与广告内容将被拦截并留痕，不影响正常售后权益。",
+    "security_level": "internal",
+    "channels": ["all"]
+  }
+]

@@ -1,0 +1,15 @@
+/* 设计 tokens（禁止硬编码主色，对齐前端 Skill §5 + 页面设计 §2） */
+:root {
+  --reai-primary: #4f6bff;
+  --reai-card: #fff;
+  --reai-text-main: #1f2430;
+  --reai-text-muted: #8a93a6;
+  --reai-border: #e6e9f0;
+  --reai-shadow-card: 0 2px 12px rgb(31 36 48 / 8%);
+}
+
+body {
+  margin: 0;
+  color: var(--reai-text-main);
+  background: #f5f7fb;
+}

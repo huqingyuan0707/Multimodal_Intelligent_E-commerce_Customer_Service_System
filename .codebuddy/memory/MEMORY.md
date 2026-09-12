@@ -3,7 +3,7 @@
 ## 项目：多模态智能电商客服系统（Agent + RAG 电商客服）
 
 - 工作区当前以**文档先行**为组织方式：`多模态智能电商客服系统需求文档-FRDv2.md`、`电商开发文档.md`、`前端工程化.md`、`后端工程化.md`、`部署工程化.md`、`数据模型与存储设计.md`、`API接口与SSE事件协议规范.md`、`RAG知识库构建检索治理规范.md`、`测试评估验收方案.md`。
-- 目标代码结构：`backend/`（FastAPI）+ `frontend/`（Vue3 + TS + Element Plus + Pinia，`frontend/src/features/<domain>/`）。
+- 目标代码结构：`backend/`（FastAPI）+ `frontend/`（Vue3 + TS + Element Plus + Pinia，页面 `frontend/src/views/<domain>/` + 逻辑顶层 `components/composables/stores/types/`，无 `features/`）。
 
 ## 工程约定：软约束 + 硬约束双层
 
@@ -38,6 +38,20 @@
 | 编辑器技能（用户级，跨项目） | `C:\Users\qingy\.claude\skills\<name>/SKILL.md` |
 | 常驻规则（alwaysApply，不依赖触发） | `.codebuddy/rules/*.mdc` |
 | 规则 frontmatter 字段 | `description` / `alwaysApply` / `enabled` |
+
+## 本地启动约定（已跑通）
+
+| 项 | 值 |
+|---|---|
+| 后端端口 | **8000**（`frontend/vite.config.ts` 的 `server.proxy` 把 `/api` 指向 `http://127.0.0.1:8000`；AGENTS.md 命令速查里写的 8010 是错的） |
+| 前端端口 | 5173 |
+| 后端 venv | `backend/.venv`，启动命令 `.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000` |
+| 前端启动 | `cd frontend; pnpm dev` |
+| 依赖 | `.env` 可不建（`Settings` 默认值够用）；后端依赖清单见 `backend/requirements.txt` |
+
+- 本机：Python 3.14.5 / Node v22.18.0 / pnpm 12.x（前端 `engines` 要求 Node `>=20.11 <21`，Node 22 只 WARN）。
+- 踩过的坑：`requirements.txt` 漏 `python-multipart` → 因 `documents.py` 用 `UploadFile`，FastAPI 在**导入路由阶段**就抛 `RuntimeError` 导致服务起不来。**新增上传/表单端点时必须同步补该依赖。**
+- 健康检查：`/health`、`/ready`；无 token 访问 `/api/v1/sessions` 应返回 401（路由级鉴权生效）。
 
 - `.codebuddy/` 下的 `skills/`、`rules/`、`memory/` 都要随仓库提交（不要加进 .gitignore）。
 - 有些 AI 工具不认 `.codebuddy/skills`，跨工具需各写一份（`.cursor/rules`、`.github/copilot-instructions.md`、`AGENTS.md`）。

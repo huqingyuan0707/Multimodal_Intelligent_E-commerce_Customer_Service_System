@@ -98,7 +98,7 @@ jobs:
       - uses: actions/setup-node@v4
         if: steps.guard.outputs.ok == 'true'
         with:
-          node-version: 20.11.0
+          node-version: 22.18.0
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
 
@@ -182,7 +182,7 @@ jobs:
           fail=0
           echo "$CHANGED" | grep -q "^backend/app/api/" && ! echo "$CHANGED" | grep -q "API接口与SSE事件协议规范.md" && { echo "::error::改了后端路由/schema 必须同 PR 改 API接口与SSE事件协议规范.md"; fail=1; }
           echo "$CHANGED" | grep -q "^backend/app/modules/agent/rag/" && ! echo "$CHANGED" | grep -q "RAG知识库构建检索治理规范.md" && { echo "::error::改了 RAG 必须同 PR 改 RAG规范"; fail=1; }
-          echo "$CHANGED" | grep -q "^frontend/src/features/" && ! echo "$CHANGED" | grep -q "页面设计.md" && { echo "::error::改了页面/组件/路由 必须同 PR 改 页面设计.md"; fail=1; }
+          echo "$CHANGED" | grep -Eq "^frontend/src/(views|components|composables|stores|types)/" && ! echo "$CHANGED" | grep -q "页面设计.md" && { echo "::error::改了页面/组件/路由 必须同 PR 改 页面设计.md"; fail=1; }
           echo "$CHANGED" | grep -q "^backend/app/db/" && ! echo "$CHANGED" | grep -q "数据模型与存储设计.md" && { echo "::error::改了表/迁移 必须同 PR 改 数据模型文档"; fail=1; }
           exit $fail
 

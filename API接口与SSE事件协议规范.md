@@ -111,7 +111,7 @@ async def chat_stream(payload: ChatRequest, user=Depends(get_current_user)):
 前端固定范式（箭头函数 + try/catch + 带头）：
 
 ```ts
-// features/agent/composables/useAgentStream.ts
+// src/composables/useAgentStream.ts
 export const useAgentStream = () => {
   const onStreamChat = async (p: { query: string; threadId: string }) => {
     const res = await fetch(`${BASE}/chat`, {
@@ -154,7 +154,7 @@ async def get_session(session_id: str) -> dict | None:
 
 前端页面只编排，逻辑进 `composables/useXxx`，跨页共享才进 Pinia setup 风格 store：
 ```ts
-// features/agent/stores/session.ts
+// src/stores/session.ts
 export const useSessionStore = defineStore('session', () => {
   const sessions = ref<Session[]>([]);
   const loadSessions = async () => {

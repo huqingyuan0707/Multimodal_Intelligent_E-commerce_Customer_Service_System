@@ -39,7 +39,7 @@
 
 - 基线：`pnpm`，`<script setup lang="ts">`，`@`= `src/`，Prettier（semi/singleQuote/2/printWidth 100/arrowParens avoid/lf），`pnpm lint` 0 errors。
 - **页面方法一律箭头函数**（`func-style: expression` 硬拦截）：`const loadDocs = async () => {}`，先定义后调用；禁 `function foo(){}`。
-- 目录：新业务 `src/features/<domain>/{api,components,composables,stores,types,views}`，存量 `src/views` 只修不扩；Agent 类型先行 `features/agent/types/agent.ts`。
+- 目录：页面 `src/views/<domain>/` 按域分目录，逻辑按层放顶层 `src/{components,composables,stores,types}/`（无 `features/`）；Agent 类型先行 `src/types/agent.ts`。
 - API 唯一入口 `src/api/index.ts`：JSON 走 `request<T>`（自动解包，`code!==0` 抛错）；上传 FormData 不手设 Content-Type；SSE fetch 必带 `Authorization`；GET 参数 `encodeURIComponent`；页面禁直写 `fetch`（ESLint 已拦，仅 `src/api` /测试/配置豁免）。
 - 状态：Pinia setup 风格按域拆；逻辑抽 `composables/useXxx`；SSE 按 `event:/data:` 分帧→`phase/message/done` 分支，`done` 的 `JSON.parse` 必 try/catch。
 - UI：优先 `AiButton/AiInput`；按需引入；样式用 `var(--reai-*)` + `scoped`；成功/失败 `ElMessage`，破坏操作先 `ElMessageBox.confirm`；枚举走映射表（如 `LEVEL_TAG`）；文案注释中文。

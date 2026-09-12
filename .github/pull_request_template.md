@@ -21,7 +21,7 @@
 ## 风格与安全自查
 
 - 后端：endpoint 薄封装 + `ok()/fail()` + ErrorCode 号段 + PEP604 全注解 + `governance.access_context()`（禁信请求体 tenant）+ 阻塞走 `to_thread` + `_record()` 可观测 + SSE `source/phase/message/done` 且 done 含 `references+guard+faithfulness+trace_id`
-- 前端：箭头函数 + `features/<domain>` + 类型先行 + 唯一入口 `src/api/index.ts` + SSE 带 `Authorization` 且 done try/catch + `AiButton/AiInput` + `var(--reai-*)` + `ElMessage/confirm` + 401 走 `handle401()` + mock 降级（`t-${Date.now()}`/404 回退）
+- 前端：箭头函数 + `views/<domain>` 页面 + 顶层 `components/composables/stores/types` + 类型先行 + 唯一入口 `src/api/index.ts` + SSE 带 `Authorization` 且 done try/catch + `AiButton/AiInput` + `var(--reai-*)` + `ElMessage/confirm` + 401 走 `handle401()` + mock 降级（`t-${Date.now()}`/404 回退）
 - 安全：鉴权 Scope + PII 脱敏 + 敏感先 confirm + 密钥不入库
 
 ## 验证（贴输出，不说“应该过了”）
