@@ -33,7 +33,7 @@ async def test_answer_ok_and_reject() -> None:
         assert ok_result["references"]
         assert ok_result["faithfulness"] == 1.0
         assert ok_result["trace_id"]
-        with pytest.raises(chat_service.NoEvidence):
+        with pytest.raises(chat_service.NoEvidenceError):
             await chat_service.answer("今天天气怎么样")
     finally:
         set_current_user(None)

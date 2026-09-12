@@ -3,7 +3,7 @@
 </template>
 
 <script setup lang="ts">
-// 根组件只做路由出口，布局由各 views 按页面设计 §3 组织
+// 根组件只做路由出口，系统壳由 AppLayout 提供（对齐页面设计 §2）
 </script>
 
 <style scoped>

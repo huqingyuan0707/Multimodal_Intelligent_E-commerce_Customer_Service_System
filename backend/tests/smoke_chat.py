@@ -1,8 +1,8 @@
 """登录→问答→流式冒烟（对齐测试方案 §4 smoke 风格）
 
 覆盖：POST /auth/login 取 token → GET /auth/me → POST /chat 有据/2001 拒答 → POST /chat/stream 解析 done 帧。
-用法：python tests/smoke_chat.py [http://127.0.0.1:8010]
-前置：后端已 init_db 并启动 uvicorn（demo/demo1234，SEED_PASSWORD 覆盖时改 LOGIN_PASS 环境变量）。
+用法：python tests/smoke_chat.py [http://127.0.0.1:8000]
+前置：后端已 init_db 并启动 uvicorn（默认 admin/admin123，SEED_* 覆盖时改 LOGIN_USER / LOGIN_PASS 环境变量）。
 """
 
 from __future__ import annotations
@@ -14,9 +14,9 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 import httpx  # noqa: E402
 
-BASE = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8010"
-USERNAME = os.getenv("LOGIN_USER", "demo")
-PASSWORD = os.getenv("LOGIN_PASS", "demo1234")
+BASE = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8000"
+USERNAME = os.getenv("LOGIN_USER", "admin")
+PASSWORD = os.getenv("LOGIN_PASS", "admin123")
 
 passed = 0
 failed = 0
@@ -64,11 +64,11 @@ def main() -> int:
     with client.stream(
         "POST", "/api/v1/chat/stream", json={"query": "退货政策是什么"}, headers=headers
     ) as s:
-        for line in s.iter_lines():
-            if line.startswith("event: done"):
-                data_line = next(s.iter_lines(), "")
-                done_payload = data_line.replace("data: ", "", 1)
-                break
+        lines = list(s.iter_lines())
+    for i, line in enumerate(lines):
+        if line.startswith("event: done") and i + 1 < len(lines):
+            done_payload = lines[i + 1].replace("data: ", "", 1)
+            break
     check("stream done has trace", '"trace_id"' in done_payload, done_payload[:200])
 
     print(f"RESULT: {passed} passed, {failed} failed")

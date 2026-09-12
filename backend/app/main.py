@@ -14,13 +14,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1.router import api_router
 from app.config import settings
 from app.core.middleware import TraceMiddleware
+from app.db.seed import seed_on_startup
 from app.db.session import init_models
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    """启动建表（幂等，防空库 500；种子用户走 scripts/init_db.py）。"""
+    """启动建表（幂等，防空库 500）+ 种子账号（SEED_ON_START=false 可关，生产必关）。"""
     await init_models()
+    if settings.SEED_ON_START:
+        await seed_on_startup()
     yield
 
 

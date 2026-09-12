@@ -7,9 +7,9 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, UploadFile
 
+from app.core.exceptions import ErrorCode
 from app.core.rbac import require_perm
 from app.core.responses import fail, ok
-from app.core.exceptions import ErrorCode
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 

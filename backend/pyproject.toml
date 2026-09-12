@@ -23,12 +23,17 @@ select = [
 ]
 ignore = [
   "E501",  # 行长交给 formatter
+  "RUF001",  # 中文用户文案必需全角标点，不适用英文混淆字符规则
+  "RUF002",  # 中文 docstring 必需全角标点，同上
+  "RUF003",  # 中文注释必需全角标点，同上
 ]
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
 "tests/**" = ["B011"]
-"scripts/**" = ["T201"]
+"scripts/**" = ["T201", "E402"]  # 脚本需先注入 sys.path 才能 import app.*
+"app/api/**/*.py" = ["B008"]  # FastAPI 官方写法：Depends 写在参数默认值
+"app/core/rbac.py" = ["B008"]  # 同上（get_current_user / require_perm）
 
 [tool.ruff.lint.isort]
 known-first-party = ["app"]
@@ -68,7 +73,8 @@ minversion = "8.0"
 testpaths = ["tests"]
 pythonpath = ["."]
 asyncio_mode = "auto"
-addopts = "-q --strict-markers --strict-config"
+# --basetemp 固定到项目内：Windows 下 %TEMP%\pytest-of-<user> 可能不可写，导致 tmp_path 用例 PermissionError
+addopts = "-q --strict-markers --strict-config --basetemp=.pytest-tmp"
 markers = [
   "smoke: 需要真实后端进程的联调脚本",
   "slow: 耗时用例（模型加载、向量库）",

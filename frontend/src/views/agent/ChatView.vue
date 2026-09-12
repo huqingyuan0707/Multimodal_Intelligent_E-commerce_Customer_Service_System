@@ -85,13 +85,16 @@ const transfer = (): void => {
 .bubble {
   max-width: 85%;
   padding: 8px 12px;
+  color: var(--reai-text-on-light);
+  background: var(--reai-bubble-agent);
   border: 1px solid var(--reai-border);
   border-radius: 8px;
-  background: var(--reai-card);
 }
 
 .bubble.user {
   align-self: flex-end;
+  color: var(--reai-nav-active);
+  background: var(--reai-bubble-user);
 }
 
 .refs,

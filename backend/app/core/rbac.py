@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 
 from fastapi import Depends, HTTPException
 from fastapi.security import OAuth2PasswordBearer
@@ -36,7 +36,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> CurrentUser:
     return user
 
 
-def require_perm(perm: str) -> Callable[[CurrentUser], CurrentUser]:
+def require_perm(perm: str) -> Callable[..., Awaitable[CurrentUser]]:
     """敏感端点二次鉴权，如 Depends(require_perm("kb"))。"""
 
     async def _check(user: CurrentUser = Depends(get_current_user)) -> CurrentUser:

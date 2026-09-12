@@ -1,6 +1,7 @@
 """认证端点（真实验密发 JWT，对齐 API 规范 §4.1）
 
-链路：POST /auth/login → auth_service.authenticate → ok({token, user})。
+链路：POST /auth/login → auth_service.authenticate → ok({token,user})；
+      GET /auth/me、POST /auth/logout 走路由级 get_current_user。
 """
 
 from __future__ import annotations
@@ -26,26 +27,42 @@ class LoginRequest(BaseModel):
     password: str
 
 
+def _user_payload(user: CurrentUser) -> dict[str, object]:
+    """用户载荷：本项目「角色即权限」（require_perm 直接查 roles），perms 与 roles 同源。
+
+    前端顶栏/菜单用 roles，按钮级与路由守卫用 perms，两字段同值便于对齐 API 规范 §4.1。
+    """
+    return {
+        "name": user.username,
+        "tenant": user.tenant,
+        "roles": user.roles,
+        "perms": user.roles,
+    }
+
+
 @router.post("/login")
 async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)) -> object:
-    """验密：通过发 JWT，失败 401 中文提示（前端 handle401 只处理 1002/HTTP401）。"""
+    """验密：空账号 400(1001)，验密失败 401(1002) 中文提示；成功发 JWT。
+
+    注：失败沿用 1002 与 HTTP 401（规范 §2），前端登录请求豁免中央 handle401，避免密码错就刷新页面。
+    """
+    username = payload.username.strip()
+    if not username or not payload.password.strip():
+        return fail(ErrorCode.PARAM_INVALID, "请输入用户名和密码", 400)
     try:
-        user = await auth_service.authenticate(db, payload.username, payload.password)
+        user = await auth_service.authenticate(db, username, payload.password)
     except ValueError as exc:
         return fail(ErrorCode.UNAUTHORIZED, str(exc), 401)
-    return ok(
-        {
-            "token": auth_service.to_token(user),
-            "user": {"name": user.username, "tenant": user.tenant, "roles": user.roles},
-        },
-        "登录成功",
-    )
+    return ok({"token": auth_service.to_token(user), "user": _user_payload(user)}, "登录成功")
 
 
 @router.get("/me")
 async def me(user: CurrentUser = Depends(get_current_user)) -> dict[str, object]:
     """返回 Token 解析出的当前用户（路由级依赖已鉴权，此处显式取人）。"""
-    return ok(
-        {"name": user.username, "tenant": user.tenant, "roles": user.roles},
-        "获取成功",
-    )
+    return ok(_user_payload(user), "获取成功")
+
+
+@router.post("/logout")
+async def logout(_user: CurrentUser = Depends(get_current_user)) -> dict[str, object]:
+    """登出：JWT 无状态，服务端仅确认身份并留痕，登录态清理由前端完成（规范 §4.1）。"""
+    return ok(None, "已退出登录")

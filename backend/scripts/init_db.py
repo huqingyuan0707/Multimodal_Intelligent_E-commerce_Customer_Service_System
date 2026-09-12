@@ -1,51 +1,30 @@
-"""初始化库表与种子用户（开发联调用，对齐数据模型 §6）
+"""初始化库表与种子账号（手动兜底，对齐数据模型与存储设计.md §6）
 
 用法（backend/ 目录下）：
     python scripts/init_db.py
-默认种子：租户 demo-tenant / 用户 demo / 密码取环境变量 SEED_PASSWORD（缺省 demo1234）。
+账号取 Settings（SEED_TENANT / SEED_USERNAME / SEED_PASSWORD / SEED_ROLES，.env 可覆盖），
+默认 demo-tenant / admin / admin123 / cs,kb。
+注：后端启动时已幂等灌种子（SEED_ON_START），本脚本用于「不启动服务先建库」的场景。
 """
 
 from __future__ import annotations
 
 import asyncio
-import os
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from sqlalchemy import select  # noqa: E402
-
-from app.core.security import hash_password  # noqa: E402
-from app.db.models import User  # noqa: E402
-from app.db.session import get_engine, init_models  # noqa: E402
+from app.config import settings
+from app.db.seed import seed_on_startup
+from app.db.session import init_models
 
 
 async def _main() -> None:
     await init_models()
-    from sqlalchemy.ext.asyncio import async_sessionmaker
-
-    factory = async_sessionmaker(get_engine(), expire_on_commit=False)
-    password = os.getenv("SEED_PASSWORD", "demo1234")
-    async with factory() as db:
-        exists = (
-            await db.execute(
-                select(User).where(User.tenant == "demo-tenant", User.username == "demo")
-            )
-        ).scalar_one_or_none()
-        if exists is None:
-            db.add(
-                User(
-                    tenant="demo-tenant",
-                    username="demo",
-                    pwd_hash=hash_password(password),
-                    roles="cs,kb",
-                )
-            )
-            await db.commit()
-            print("seed user created: demo-tenant/demo")
-        else:
-            print("seed user exists: demo-tenant/demo")
+    created = await seed_on_startup()
+    account = f"{settings.SEED_TENANT}/{settings.SEED_USERNAME}"
+    print(f"seed user created: {account}" if created else f"seed user exists: {account}")
 
 
 if __name__ == "__main__":

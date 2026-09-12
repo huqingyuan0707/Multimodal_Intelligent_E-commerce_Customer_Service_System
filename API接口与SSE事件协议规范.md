@@ -26,7 +26,7 @@ return fail(ErrorCode.PARAM_INVALID, "请至少选择一个文件", 400)
 |---|---|---|
 | 1xxx | 通用 | 1000 OK / 1001 PARAM_INVALID / 1002 UNAUTHORIZED(等同HTTP401走handle401) / 1003 FORBIDDEN / 1004 NOT_FOUND / 1005 QUOTA_EXCEEDED / 1006 RATE_LIMITED |
 | 2xxx | RAG对话 | 2000 LLM_FAILED / 2001 NO_EVIDENCE拒答 / 2002 CONVERSATION_LIMITED / 2003 UNSAFE_CONTENT / 2004 IMAGE_TOO_LARGE |
-| 3xxx | 户型/业务 Skill | 3001 ORDER_NOT_FOUND / 3002 ORDER_NOT_OWNED(越权) / 3003 REFUND_NEED_APPROVAL |
+| 3xxx | 户型/业务 Skill | 3001 ORDER_NOT_FOUND / 3002 ORDER_NOT_OWNED(越权) / 3003 REFUND_NEED_APPROVAL / 3004 STOCK_SHORTAGE(库存不足) / 3005 ORDER_STATE_ILLEGAL(订单状态非法) / 3006 COUPON_EXHAUSTED(券预算不足) / 3007 RISK_BLOCKED(风控拦截转人工) |
 | 4xxx | 任务 | 4001 TASK_NOT_FOUND / 4002 TASK_TIMEOUT / 4003 APPROVAL_REQUIRED / 4004 APPROVAL_DENIED |
 | 5xxx | 系统 | 5000 INTERNAL / 5001 UPSTREAM_FAILED / 5002 MODEL_UNAVAILABLE(走降级绝不500给用户) |
 
@@ -45,6 +45,10 @@ api_router.include_router(chat.router, dependencies=[Depends(get_current_user)])
 - service 层取用户用 `current_user()`（`core/user_context.py`），由 `get_current_user`（async）写入。
 - 记忆/检索读写键必须是 `(tenant, Token用户名, thread)` 同一口径。
 - 订单类必校验归属，否则 `3002`。
+- **鉴权参数全部下沉 `Settings`**：`ACCESS_TOKEN_EXPIRE_SECONDS` / `JWT_ALGORITHM` / `PASSWORD_HASH_ITERATIONS` / `PASSWORD_SALT_BYTES` / `ROLES_SEPARATOR` / `SEED_*`，禁止硬编码密钥、算法、有效期、哈希代价。
+- **生产护栏（`Settings._guard_prod`）**：`ENV=prod` 时若沿用默认 `JWT_SECRET`、密钥短于 32 字符，或 `SEED_ON_START` 未置 `false`，**加载配置即抛错**（fail-fast，宁可起不来也不带演示密钥上线）。
+- 角色文本解析唯一口径 `security.split_roles()`（分隔符走 `ROLES_SEPARATOR`），种子写入与登录读取必须同源，禁止各处再写一遍 `split(",")`。
+- 改 `PASSWORD_HASH_ITERATIONS` 会让存量 `pwd_hash` 全部验不过，必须同步重刷密码（`.env.example` 已标注）。
 
 前端：
 - 401 中央处理；按钮级 `v-permission` + 路由 `meta.roles`；敏感操作先 `ElMessageBox.confirm`，结果 `ElMessage` 反馈。
@@ -52,8 +56,14 @@ api_router.include_router(chat.router, dependencies=[Depends(get_current_user)])
 ## 4. REST 端点清单
 
 ### 4.1 认证
-- `POST /auth/login {username,password}` → `ok({token, user:{name, perms}})`。前端存 `reai_token`。
-- `GET /auth/me` → 当前用户 + 租户 + 权限。401 则 `handle401()`。
+- `POST /auth/login {username,password}` → `ok({token, user:{name, tenant, roles[], perms[]}})`。前端存 `reai_token`。
+  - 入参为空 → `400` + `1001`；账号不存在 / 密码错误 → `401` + `1002`（msg「用户名或密码错误」）。
+  - 登录请求**豁免中央 `handle401`**（`request(..., {authRedirect:false})`），否则密码错会被整页刷新、提示丢失。
+- `GET /auth/me` → `ok({name, tenant, roles[], perms[]})`。401 则 `handle401()`。
+- `POST /auth/logout` → `ok(null, "已退出登录")`。JWT 无状态，服务端仅确认身份，前端负责清 `reai_token`。
+- 本项目「角色即权限」：`perms` 与 `roles` 同值 —— `roles` 供菜单/路由 `meta.roles` 过滤，`perms` 供按钮级判断；服务端 `require_perm()` 才是真拦截。
+- 种子账号由后端启动时幂等灌入（`SEED_*` 走 `Settings`，生产置 `SEED_ON_START=false`），无账号可登录不再是「清库即失联」。
+- 开发默认账号：**租户 `demo-tenant` / 用户名 `admin` / 密码 `admin123` / 角色 `cs,kb`**（`.env` 的 `SEED_*` 可覆盖）。种子幂等且**不覆盖已存在账号**，改 `SEED_PASSWORD` 只对新建账号生效。
 
 ### 4.2 对话（非流式，调试/短问答）
 - `POST /chat {query, thread_id?, security_level?}` → `ok({answer, references[], guard, faithfulness, trace_id})`。
@@ -76,6 +86,23 @@ api_router.include_router(chat.router, dependencies=[Depends(get_current_user)])
 ### 4.6 治理与可观测
 - `GET /governance/status` → 向量/关键词后端可用性 + 阈值 + 热更字段。
 - `GET /observability/summary` → 耗时/召回/拦截/token 成本聚合（后端 `_record() → observability.record()` 必埋）。
+
+### 4.7 B端商家后台（对齐 FRDv2 附录 D，同基座 JWT/Scope/幂等键/审计）
+- 商品：`GET/POST /goods`、`PUT /goods/{id}`、`POST /goods/{id}/on|off`（`goods:read/write`）；SKU：`GET /goods/{id}/skus`、`PUT /skus/{id}`。改价恒进审批。
+- 库存：`GET /inventory?sku=&warehouse=`（返回在库/预占/锁定/可用）、`POST /inventory/in|out|move`、`POST /inventory/stocktake`（`stock:read/write`）；并发扣减原子化，缺货返回 `3004`。
+- 采购：`POST /purchase`、`POST /purchase/{id}/approve|receive|qc`（`purchase:write`）；供应商 `GET/POST /suppliers`。
+- 订单：`GET /orders`、`POST /orders/{id}/ship`、`POST /aftersales {order_id, trace_id}`（`order:fulfill`）；非法状态操作返回 `3005`，前端置灰。
+- 财务：`GET /finance/bills`、`POST /finance/settle`（`finance:read/write`）。
+- 大屏：`GET /screen/summary?range=today|week`（`screen:read`，Redis 缓存 1min，PII 脱敏）。
+- B端单据写操作必须带 `Idempotency-Key`；采购/调拨/报损/超阈值退款恒进审批流。
+
+### 4.8 横向域端点（对齐 FRDv2 FR-10.6-10.8/FR-12，附录 D 同源）
+- 营销：`GET/POST /promos`、`POST /coupons/grant {promo_id, user_ref}`（幂等 `idem_key` + 预算原子扣减，超预算 `3006`）。
+- 物流：`GET /logistics/companies`、`POST /ship`、`POST /logistics/exception`（异常件自动建售后单）。
+- 评价：`GET /reviews?level=bad`、`POST /reviews/{id}/reply|ticket`（差评 2h SLA 倒计时由前端算）。
+- 风控：`GET /risk/events`、`POST /risk/{id}/pass|block`（`risk:review`，拦截 `3007`，禁全自动封号）。
+- 消息：`POST /notify/send {channel, template, user_ref}`（`notify:send`，频控 429 走 `1006`）。
+- 工单：`POST /tickets`、`POST /tickets/{id}/transfer|close`（关闭 `conclusion` 必填，否则 `1001`）。
 
 ## 5. SSE 流式协议（项目实际形态）
 

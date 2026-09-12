@@ -1,15 +1,35 @@
-/* 设计 tokens（禁止硬编码主色，对齐前端 Skill §5 + 页面设计 §2） */
+/* 设计 tokens（深色科技风；色值只许出现在此文件，.vue 里一律 var()，对齐页面设计 §2） */
 :root {
   --reai-primary: #4f6bff;
-  --reai-card: #fff;
-  --reai-text-main: #1f2430;
-  --reai-text-muted: #8a93a6;
-  --reai-border: #e6e9f0;
-  --reai-shadow-card: 0 2px 12px rgb(31 36 48 / 8%);
+  --reai-accent: #22d3ee;
+  --reai-gold: #e8a33d;
+  --reai-online: #34d399;
+  --reai-notice: #fb9236;
+  --reai-bg: #0b1124;
+  --reai-card: #161d33;
+  --reai-card-2: #1e2742;
+  --reai-text-main: #eef1f8;
+  --reai-text-muted: #8b94ad;
+  --reai-border: rgb(255 255 255 / 8%);
+  --reai-shadow-card: 0 2px 12px rgb(0 0 0 / 40%);
+  --reai-gradient: linear-gradient(90deg, #4f6bff 0%, #8b5cf6 100%);
+  --reai-nav-text: rgb(255 255 255 / 75%);
+  --reai-nav-active: #fff;
+  --reai-nav-hover: rgb(255 255 255 / 12%);
+  --reai-bubble-user: #4f6bff;
+  --reai-bubble-agent: #f2f5fc;
+  --reai-text-on-light: #1f2430;
+  --reai-purple: #8b5cf6;
+  --reai-glass-bg: rgb(22 29 51 / 60%);
+  --reai-glass-border: rgb(255 255 255 / 12%);
+  --reai-glow: 0 0 24px rgb(79 107 255 / 25%);
+  --reai-page-gradient:
+    radial-gradient(1000px 500px at 15% 10%, rgb(79 107 255 / 25%), transparent 60%),
+    radial-gradient(800px 500px at 85% 90%, rgb(139 92 246 / 22%), transparent 60%), #0b1124;
 }
 
 body {
   margin: 0;
   color: var(--reai-text-main);
-  background: #f5f7fb;
+  background: var(--reai-bg);
 }

@@ -14,7 +14,7 @@ from app.core.user_context import access_context
 from app.services import knowledge_service
 
 
-class NoEvidence(Exception):
+class NoEvidenceError(Exception):
     """无据拒答（端点转 fail(ErrorCode.NO_EVIDENCE, 中文话术, 200)）。"""
 
 
@@ -37,7 +37,7 @@ async def answer(query: str) -> dict[str, object]:
     refs = await knowledge_service.retrieve(query, ctx["tenant"])
     if not refs:
         record("chat", {"trace_id": trace_id, "refs": 0, "reject": True})
-        raise NoEvidence("这个问题我暂时没查到权威政策，已为你转人工")
+        raise NoEvidenceError("这个问题我暂时没查到权威政策，已为你转人工")
     result = {
         "answer": _compose(query, refs),
         "references": refs,

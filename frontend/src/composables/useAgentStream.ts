@@ -22,17 +22,17 @@ export const useAgentStream = () => {
     await streamChat(
       query,
       {
-        onPhase: (name) => {
+        onPhase: name => {
           phase.value = name;
         },
-        onMessage: (content) => {
+        onMessage: content => {
           draft.value += content;
         },
-        onDone: (payload) => {
+        onDone: payload => {
           done.value = payload;
           streaming.value = false;
         },
-        onError: (msg) => {
+        onError: msg => {
           error.value = msg;
           streaming.value = false;
         },

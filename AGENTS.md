@@ -63,7 +63,7 @@ python -m py_compile <改动文件>
 ruff check . ; ruff format --check .
 mypy app
 pytest --cov=app --cov-report=term-missing
-python tests/smoke_x.py [http://127.0.0.1:8010]
+python tests/smoke_x.py [http://127.0.0.1:8000]
 
 # 前端（frontend/）
 pnpm lint ; pnpm typecheck ; pnpm build

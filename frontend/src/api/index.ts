@@ -2,6 +2,7 @@
 // JSON 走 request<T> 自动解包 {code,msg,data,trace_id}；上传 FormData 不手设头；
 // SSE 用 streamChat（本文件内允许 fetch，必带 Authorization）；GET 参数调用方 encodeURIComponent。
 import type { Reference } from '@/types/agent';
+import type { AppUser, LoginResult } from '@/types/user';
 
 const BASE = import.meta.env.VITE_API_BASE ?? '';
 
@@ -12,19 +13,33 @@ type Envelope<T> = {
   trace_id?: string;
 };
 
+// 401 中央处理（HTTP 401 或业务码 1002）：清登录态回登录页，禁止各页面自写跳转。
+// 已在 /login 时只清态不跳转：否则登录失败会被整页刷新，错误提示一闪而过（幂等防回环）。
 export const handle401 = (): void => {
   sessionStorage.removeItem('reai_token');
-  window.location.href = '/login';
+  if (window.location.pathname !== '/login') {
+    window.location.href = '/login';
+  }
+};
+
+// authRedirect=false 供登录接口自身使用：失败时把错误抛给页面提示，不触发 handle401
+export type RequestOptions = RequestInit & { authRedirect?: boolean };
+
+const fail = (msg: string, code: number): Error => {
+  const err = new Error(msg) as Error & { code: number };
+  err.code = code;
+  return err;
 };
 
 export const request = async <T = unknown>(
   path: string,
-  options: RequestInit = {},
+  options: RequestOptions = {},
 ): Promise<T> => {
+  const { authRedirect = true, ...init } = options;
   const headers: Record<string, string> = {
-    ...(options.headers as Record<string, string> | undefined),
+    ...(init.headers as Record<string, string> | undefined),
   };
-  const isForm = options.body instanceof FormData;
+  const isForm = init.body instanceof FormData;
   if (!isForm && !headers['Content-Type']) {
     headers['Content-Type'] = 'application/json';
   }
@@ -32,20 +47,29 @@ export const request = async <T = unknown>(
   if (token && !headers.Authorization) {
     headers.Authorization = `Bearer ${token}`;
   }
-  const res = await window.fetch(`${BASE}${path}`, { ...options, headers });
+  const res = await window.fetch(`${BASE}${path}`, { ...init, headers });
   if (res.status === 401) {
-    handle401();
-    throw new Error('未登录');
+    let msg = '未登录或登录已过期';
+    try {
+      const body = (await res.json()) as Envelope<T>;
+      msg = body?.msg || msg;
+    } catch {
+      msg = '未登录或登录已过期';
+    }
+    if (authRedirect) {
+      handle401();
+    }
+    throw fail(msg, 1002);
   }
   const json = (await res.json()) as Envelope<T>;
   if (json.code === 1002) {
-    handle401();
-    throw new Error(json.msg || '未登录');
+    if (authRedirect) {
+      handle401();
+    }
+    throw fail(json.msg || '未登录', json.code);
   }
   if (json.code !== 0) {
-    const err = new Error(json.msg || '请求失败') as Error & { code: number };
-    err.code = json.code;
-    throw err;
+    throw fail(json.msg || '请求失败', json.code);
   }
   return json.data;
 };
@@ -53,16 +77,16 @@ export const request = async <T = unknown>(
 export const api = {
   listSessions: () => request<{ id: string; title: string }[]>('/api/v1/sessions'),
   getSession: (id: string) =>
-    request<{ id: string; messages: unknown[] }>(
-      `/api/v1/sessions/${encodeURIComponent(id)}`,
-    ),
+    request<{ id: string; messages: unknown[] }>(`/api/v1/sessions/${encodeURIComponent(id)}`),
+  // 登录失败（401/1002）不回跳登录页，交由 LoginView 弹错误提示
   login: (username: string, password: string) =>
-    request<{ token: string; user: { name: string; tenant: string; roles: string[] } }>(
-      '/api/v1/auth/login',
-      { method: 'POST', body: JSON.stringify({ username, password }) },
-    ),
-  me: () =>
-    request<{ name: string; tenant: string; roles: string[] }>('/api/v1/auth/me'),
+    request<LoginResult>('/api/v1/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+      authRedirect: false,
+    }),
+  logout: () => request<null>('/api/v1/auth/logout', { method: 'POST' }),
+  me: () => request<AppUser>('/api/v1/auth/me'),
 };
 
 export type DonePayload = {
@@ -81,8 +105,16 @@ export type StreamHandlers = {
 
 const parseFrame = (frame: string, handlers: StreamHandlers): void => {
   const lines = frame.split('\n');
-  const ev = lines.find((l) => l.startsWith('event:'))?.slice(7).trim() ?? '';
-  const data = lines.find((l) => l.startsWith('data:'))?.slice(5).trim() ?? '';
+  const ev =
+    lines
+      .find(l => l.startsWith('event:'))
+      ?.slice(7)
+      .trim() ?? '';
+  const data =
+    lines
+      .find(l => l.startsWith('data:'))
+      ?.slice(5)
+      .trim() ?? '';
   if (ev === 'phase') {
     try {
       handlers.onPhase((JSON.parse(data) as { name: string }).name);
@@ -150,7 +182,7 @@ export const streamChat = async (
     buf += decoder.decode(value, { stream: true });
     const frames = buf.split('\n\n');
     buf = frames.pop() ?? '';
-    frames.forEach((f) => {
+    frames.forEach(f => {
       if (f.trim()) {
         parseFrame(f, handlers);
       }

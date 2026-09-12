@@ -35,7 +35,7 @@ async def chat(payload: ChatRequest) -> object:
         return fail(ErrorCode.PARAM_INVALID, "问题不能为空", 400)
     try:
         result = await chat_service.answer(payload.query)
-    except chat_service.NoEvidence as exc:
+    except chat_service.NoEvidenceError as exc:
         return fail(ErrorCode.NO_EVIDENCE, str(exc), 200)
     return ok(result, "回答成功")
 
@@ -49,7 +49,7 @@ async def _real_events(query: str) -> AsyncIterator[str]:
     yield _frame("phase", {"name": "retrieving"})
     try:
         result = await chat_service.answer(query)
-    except chat_service.NoEvidence as exc:
+    except chat_service.NoEvidenceError as exc:
         yield _frame("message", {"content": str(exc)})
         yield _frame(
             "done",
@@ -75,8 +75,12 @@ async def _real_events(query: str) -> AsyncIterator[str]:
 async def chat_stream(payload: ChatRequest) -> StreamingResponse:
     """流式问答（空问题直接 400，非流）。"""
     if not payload.query.strip():
+
         async def _empty() -> AsyncIterator[str]:
-            yield _frame("done", {"references": [], "guard": {"pass": False}, "faithfulness": 0.0, "trace_id": ""})
+            yield _frame(
+                "done",
+                {"references": [], "guard": {"pass": False}, "faithfulness": 0.0, "trace_id": ""},
+            )
             return
 
         return StreamingResponse(_empty(), media_type="text/event-stream")

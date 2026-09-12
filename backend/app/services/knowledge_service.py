@@ -10,6 +10,7 @@ import asyncio
 import json
 import threading
 from pathlib import Path
+from typing import TypedDict
 
 from app.config import settings
 
@@ -47,6 +48,15 @@ def score(query: str, doc_text: str) -> float:
     return len(q & d) / len(q)
 
 
+class _Hit(TypedDict):
+    """内部命中行（score 保持 float，出口转 dict[str, object]）。"""
+
+    title: str
+    content: str
+    source: str
+    score: float
+
+
 async def retrieve(
     query: str,
     tenant: str,
@@ -55,7 +65,7 @@ async def retrieve(
 ) -> list[dict[str, object]]:
     """关键词召回：租户隔离（种子 tenant 或 public）→ 打分 → TopK → 阈值过滤。"""
     docs = await asyncio.to_thread(_load_docs_sync)
-    scored: list[dict[str, object]] = []
+    scored: list[_Hit] = []
     for doc in docs:
         doc_tenant = str(doc.get("tenant", ""))
         if doc_tenant not in (tenant, "public"):
@@ -65,11 +75,12 @@ async def retrieve(
         if s >= threshold:
             scored.append(
                 {
-                    "title": doc.get("title", ""),
-                    "content": doc.get("content", ""),
-                    "source": doc.get("id", ""),
+                    "title": str(doc.get("title", "")),
+                    "content": str(doc.get("content", "")),
+                    "source": str(doc.get("id", "")),
                     "score": round(s, 4),
                 }
             )
-    scored.sort(key=lambda d: float(d["score"]), reverse=True)
-    return scored[: top_k if top_k is not None else settings.TOP_K]
+    scored.sort(key=lambda d: d["score"], reverse=True)
+    top = scored[: top_k if top_k is not None else settings.TOP_K]
+    return [dict(hit) for hit in top]
