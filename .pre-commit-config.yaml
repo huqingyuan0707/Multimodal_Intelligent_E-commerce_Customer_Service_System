@@ -1,0 +1,41 @@
+# 本地门禁：与 CI 同规则，先拦后推（对应 AGENTS.md §6 / 测试评估验收方案.md §7）
+# 安装：pip install pre-commit ; pre-commit install
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: [check, backend]
+      - id: ruff-format
+        args: [backend]
+
+  - repo: local
+    hooks:
+      # 后端类型检查（与 CI mypy app 同口径）
+      - id: mypy-app
+        name: mypy app
+        entry: mypy app
+        language: system
+        pass_filenames: false
+        files: ^backend/
+      # 后端改接口必须自查 openapi（无 openapi.json 时跳过，只提醒）
+      - id: openapi-guard
+        name: openapi自查提醒
+        entry: python -c "import pathlib,sys; p=pathlib.Path('backend/openapi.json'); print('openapi.json exists' if p.exists() else 'SKIP: backend/openapi.json 不存在，接口改动请补自查')"
+        language: system
+        pass_filenames: false
+        files: ^backend/app/api/
+      # 前端 lint-staged 委托（与 frontend/package.json 同口径，避免双写规则）
+      - id: frontend-lint-staged
+        name: frontend lint-staged
+        entry: sh -c "cd frontend && pnpm exec lint-staged"
+        language: system
+        pass_filenames: false
+        files: ^frontend/
+      # 文档联动提醒：改代码未改对应文档时警告（强拦在 CI docs-guard）
+      - id: docs-link-reminder
+        name: 文档联动提醒
+        entry: python scripts/check_docs_link.py
+        language: system
+        pass_filenames: false
+        stages: [pre-push]

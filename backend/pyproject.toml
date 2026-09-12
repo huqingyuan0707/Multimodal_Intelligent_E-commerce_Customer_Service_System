@@ -1,0 +1,95 @@
+# 后端工具链基线（仅配置段，不声明 [project]，避免干扰实际依赖管理方式）
+# 对应 skill: backend-code-style ｜ 文档: 测试评估验收方案.md 第 7 节
+
+# ---------------- Ruff：lint + format ----------------
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["__pycache__", ".venv", "venv"]
+
+[tool.ruff.lint]
+select = [
+  "E",     # pycodestyle errors
+  "F",     # pyflakes
+  "I",     # isort
+  "N",     # pep8-naming
+  "UP",    # pyupgrade（强制 PEP 604 写法，如 str | None）
+  "B",     # flake8-bugbear
+  "C4",    # comprehensions
+  "SIM",   # simplify
+  "ASYNC", # 异步误用（禁止 async 里直接调阻塞库）
+  "TID",   # 导入整洁
+  "RUF",
+]
+ignore = [
+  "E501",  # 行长交给 formatter
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+"tests/**" = ["B011"]
+"scripts/**" = ["T201"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+
+# ---------------- mypy：类型检查 ----------------
+[tool.mypy]
+python_version = "3.11"
+files = ["app"]
+check_untyped_defs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+disallow_untyped_decorators = false
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_return_any = true
+warn_unreachable = true
+warn_no_return = true
+strict_equality = true
+show_error_codes = true
+pretty = true
+# 三方库（chromadb / 模型 SDK）多数无类型存根，避免误报阻塞 CI
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["tests.*", "scripts.*"]
+disallow_untyped_defs = false
+
+# ---------------- pytest ----------------
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+addopts = "-q --strict-markers --strict-config"
+markers = [
+  "smoke: 需要真实后端进程的联调脚本",
+  "slow: 耗时用例（模型加载、向量库）",
+]
+
+# ---------------- coverage（门禁：低于阈值直接失败） ----------------
+[tool.coverage.run]
+source = ["app"]
+branch = true
+omit = [
+  "app/seed.py",
+  "*/__init__.py",
+  "tests/*",
+]
+
+[tool.coverage.report]
+fail_under = 70
+show_missing = true
+skip_covered = false
+exclude_lines = [
+  "pragma: no cover",
+  "if TYPE_CHECKING:",
+  "raise NotImplementedError",
+]

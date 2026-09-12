@@ -1,0 +1,39 @@
+---
+description: 后端不可违反的红线（分层、响应信封、错误码、租户隔离、降级不 500）。写 backend/app 或 backend/tests 下任何 Python 代码前必读。
+alwaysApply: true
+enabled: true
+---
+
+# 后端红线（FastAPI，违反即返工）
+
+## 分层
+- `api/v1/endpoints/*.py` **只做薄封装**：解析参数 → 调 `services` → `ok()/fail()` 返回。禁止在 endpoint 写业务逻辑。
+- `services/*.py` 放纯业务逻辑，**不得 import FastAPI 对象**（`Depends`/`Request`/`HTTPException`）。
+- 横切能力只放 `core/`：`responses`（信封）、`exceptions`（错误码）、`rbac`（鉴权）、`user_context`（ContextVar）、`middleware`。
+
+## 响应信封
+- 成功一律 `return ok(data, "中文提示")`；失败一律 `return fail(ErrorCode.XXX, "中文msg", http_status)`。**禁止裸 return dict / 禁止 raise HTTPException**。
+- 新增错误码必须落到对应号段：`1xxx` 通用 / `2xxx` RAG 对话 / `3xxx` 技能 / `4xxx` 任务 / `5xxx` 系统。
+- 面向用户的 `msg` 必须中文且可操作。
+
+## 安全红线（不可协商）
+- 路由级登录：`include_router(..., dependencies=[Depends(get_current_user)])`；敏感端点再加 `Depends(require_perm("xxx"))`。
+- **绝不信任请求体里的 `tenant_id` / `user_id` 做权限判断**。可见范围一律由 `governance.access_context()` 从 Token 推导。
+- 记忆/检索的读写键必须是 `(tenant, Token 用户名, thread)` 同一口径，三者缺一即越权风险。
+
+## 配置与降级
+- 所有可调参数进 `app/config.py::Settings`（`.env` 可覆盖）。**禁止硬编码 URL / 密钥 / 模型名 / 阈值**。
+- 模型或外部服务不可用 → 走演示流或片段摘要降级，**绝不返回 500**。
+- 阻塞 IO（模型推理、文件解析、向量库）必须 `asyncio.to_thread` 或 `BackgroundTasks`，禁止在 async 函数里直接调阻塞库。
+
+## 类型与文件头
+- 全覆盖类型注解，用 PEP 604（`str | None`），**不用 `Optional[]`**。
+- 每个新文件写中文 docstring：职责 + 核心链路 + 对齐的文档章节。
+
+## 交付前必跑
+1. `python -m py_compile <改动文件>`
+2. `ruff check .` + `mypy app`
+3. `pytest`（含覆盖率阈值）
+4. 涉及接口改动再跑对应 `tests/smoke_*.py`，并核对 `openapi.json`
+
+> 完整版细则见 skill `backend-code-style`。

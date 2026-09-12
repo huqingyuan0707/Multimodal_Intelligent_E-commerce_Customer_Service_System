@@ -1,0 +1,48 @@
+---
+description: 前端不可违反的红线（API 层唯一入口、箭头函数、SSE 带 Token、设计 token、目录分层）。写 frontend/src 下任何代码前必读。
+alwaysApply: true
+enabled: true
+---
+
+# 前端红线（Vue3 + TS + Element Plus，违反即返工）
+
+## 1. 页面方法一律箭头函数
+禁止 `function foo() {}` / `async function foo() {}` / `export function foo()`，一律 `const foo = () => {}`。
+注意箭头函数**无提升**，必须先定义后调用（ESLint `func-style: expression` 会直接拦截提交）。
+
+## 2. API 层是唯一入口
+- 页面/组件**禁止直接写 `fetch`/`axios`**，一律调 `src/api/index.ts`。
+- JSON 走 `request<T>`（自动解包 `{code,msg,data,trace_id}`，`code !== 0` 抛带 code 的 Error）。
+- 上传用 `FormData`，**绝不手设 `Content-Type`**（浏览器要自动生成 multipart 边界）。
+- SSE 用 `fetch` 且**必须带 `Authorization`**（漏头会导致 401 → 本地模拟 → 服务端无记录，这个坑踩过）。
+- GET query 参数一律 `encodeURIComponent`。
+- 401（HTTP 或业务码 `1002`）走中央 `handle401()`，**禁止各页面自写跳转**。
+
+## 3. 目录分层
+- 新业务建 `src/features/<domain>/{api,components,composables,stores,types,views}`。
+- 存量 `src/views/*` **只修不扩**。
+- 跨文件共享的消息形状一律取 `features/agent/types/agent.ts`，**禁止各文件自造**。
+
+## 4. 状态与逻辑
+- Pinia 只用 **setup 风格**（`defineStore('x', () => { ... })`）。
+- 可复用逻辑抽 `composables/useXxx.ts`，页面只做编排。
+- SSE 解析固定范式：`event:` / `data:` 正则分帧 → `phase/message/done` 分支；`done` 的 `JSON.parse` **必须 try/catch**。
+
+## 5. UI 与样式
+- 优先 `AiButton` / `AiInput`（`@/components`）而非裸 `el-button` / `el-input`。
+- Element Plus 靠 `unplugin-auto-import` + `unplugin-vue-components` 按需引入，**禁止全量引入**。
+- 样式必须用设计 token `var(--reai-primary / --reai-card / --reai-text-main / --reai-text-muted / --reai-border / --reai-shadow-*)`，**禁止硬编码主色**。
+- 成功/失败一律 `ElMessage`；删除/停用/归档等破坏性操作**先 `ElMessageBox.confirm`**。
+- 枚举中文化用映射表，禁止模板里散落中文字面量。
+
+## 6. 类型
+- `tsconfig` strict 生效，**新代码不得新增 `any`**（`no-explicit-any` 为 warn，既有 `any` 不扩散）。
+- 组件必须显式 `defineProps` / `defineEmits` 类型。
+
+## 7. 降级
+- 列表页 `onMounted` 调真实接口，`catch` 回退 `@/mock` 演示数据，保证后端不可用时页面可用。
+
+## 交付前必跑
+`pnpm lint`（0 errors）→ `pnpm typecheck` → `pnpm test`（改 store/composable 必须补 `src/**/*.test.ts`）→ `pnpm build`
+
+> 完整版细则见 skill `frontend-code-style`。

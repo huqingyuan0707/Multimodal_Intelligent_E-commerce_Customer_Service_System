@@ -1,0 +1,35 @@
+---
+description: 提交前的质量门禁与自检清单（lint / typecheck / test / build 与 commit message 规范）。任何准备提交或声称"改完了"的时候必须走一遍。
+alwaysApply: true
+enabled: true
+---
+
+# 质量门禁（不通过就不算改完）
+
+## 提交信息（commitlint 会拦）
+```
+<type>(<scope>): <subject>
+```
+- `type` 仅限：`feat` `fix` `docs` `style` `refactor` `perf` `test` `chore` `revert` `build` `ci`
+- `subject` 用 sentence-case，**≤100 字符**。
+- 示例：`fix(chat): SSE 请求补齐 Authorization 头`
+
+## 改动后必跑（本地）
+| 范围 | 命令 |
+|---|---|
+| 前端 | `pnpm lint`（0 errors）→ `pnpm typecheck` → `pnpm test` → `pnpm build` |
+| 后端 | `ruff check .` → `mypy app` → `pytest`（含覆盖率阈值） |
+| 单个 Python 文件 | `python -m py_compile <文件>` |
+
+- 改动接口 → 重新导出并自查 `openapi.json`。
+- 改后端 → 跑对应 `backend/tests/smoke_*.py`（用法写在脚本头 docstring）。
+- 改 store / composable → 必须补 `src/**/*.test.ts`。
+
+## 硬约束 vs 软约束（重要）
+- **软约束**（skill、本规则、文档）只让 AI *倾向*写对，**无法保证**。
+- **硬约束**（ESLint / ruff / vue-tsc / pytest / husky pre-commit / CI）才是真拦截。
+- 因此：新增任何「必须遵守」的约定时，**优先把它写成可执行的检查**，而不是只写进文档。
+  例：想禁止硬编码主色 → 加 stylelint 规则；想禁止裸 `el-button` → 加 `no-restricted-imports` / 自定义 lint 规则。
+
+## 红线：不要用注释绕过
+禁止用 `// eslint-disable` / `# noqa` / `# type: ignore` 让门禁变绿。确有例外必须在同行为代码里写明原因，并在 PR 描述里说明。
