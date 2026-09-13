@@ -39,8 +39,9 @@ $backendOk = $false
 $frontOk = $false
 for ($i = 0; $i -lt 60; $i++) {
   try {
-    $st = docker compose -f $compose ps backend --format json 2>$null | ConvertFrom-Json
-    if ($st.State -eq 'running') { $backendOk = $true }
+    # 不解析 ps 的 JSON（工作目录含中文时 Labels 编码会坏 JSON），直接问容器状态
+    $state = docker inspect -f '{{.State.Status}}' reai-backend-1 2>$null
+    if ($state -eq 'running') { $backendOk = $true }
   } catch { Start-Sleep -Milliseconds 500 }
   try {
     $r = Invoke-WebRequest -Uri 'http://127.0.0.1:8080/' -TimeoutSec 3 -UseBasicParsing
