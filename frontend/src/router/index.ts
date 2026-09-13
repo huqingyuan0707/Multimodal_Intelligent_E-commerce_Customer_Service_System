@@ -56,7 +56,54 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/admin/AdminView.vue'),
         meta: { title: '管理后台', roles: ['admin'] },
       },
+      {
+        path: 'goods',
+        component: () => import('@/views/goods/GoodsView.vue'),
+        meta: { title: '商品管理', roles: ['shop', 'ops', 'admin'] },
+      },
+      {
+        path: 'inventory',
+        component: () => import('@/views/inventory/InventoryView.vue'),
+        meta: { title: '库存管理', roles: ['stock', 'shop', 'admin'] },
+      },
+      {
+        path: 'orders',
+        component: () => import('@/views/orders/OrdersView.vue'),
+        meta: { title: '订单履约', roles: ['cs', 'stock', 'admin'] },
+      },
+      {
+        path: 'aftersales',
+        component: () => import('@/views/orders/AftersaleView.vue'),
+        meta: { title: '售后单', roles: ['cs', 'stock', 'admin'] },
+      },
+      {
+        path: 'marketing',
+        component: () => import('@/views/marketing/MarketingView.vue'),
+        meta: { title: '营销会员', roles: ['cs', 'shop', 'admin'] },
+      },
+      {
+        path: 'logistics',
+        component: () => import('@/views/logistics/LogisticsView.vue'),
+        meta: { title: '物流', roles: ['cs', 'stock', 'admin'] },
+      },
+      {
+        path: 'reviews',
+        component: () => import('@/views/reviews/ReviewView.vue'),
+        meta: { title: '评价工单', roles: ['cs', 'shop', 'admin'] },
+      },
     ],
+  },
+  {
+    path: '/403',
+    component: () => import('@/views/auth/ForbiddenView.vue'),
+  },
+  {
+    path: '/500',
+    component: () => import('@/views/auth/ServerErrorView.vue'),
+  },
+  {
+    path: '/widget',
+    component: () => import('@/views/widget/WidgetView.vue'),
   },
   {
     path: '/:pathMatch(.*)*',
@@ -69,12 +116,17 @@ const router = createRouter({
   routes,
 });
 
+const PUBLIC_PATHS = ['/login', '/widget', '/403', '/500'];
+
 router.beforeEach(async to => {
   const userStore = useUserStore();
 
-  if (to.path === '/login') {
-    // 已登录不必再看登录页，直接进主区
-    return userStore.hasToken() ? { path: '/chat' } : true;
+  if (PUBLIC_PATHS.includes(to.path)) {
+    // 已登录不必再看登录页，直接进主区；其余公开页（嵌入/异常）直接放行
+    if (to.path === '/login' && userStore.hasToken()) {
+      return { path: '/chat' };
+    }
+    return true;
   }
   if (!userStore.hasToken()) {
     return { path: '/login', query: { redirect: to.fullPath } };

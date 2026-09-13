@@ -6,11 +6,15 @@ import { createPinia } from 'pinia';
 import { createApp } from 'vue';
 import App from './App.vue';
 import router from './router';
+import { vPermission } from './shared/directives/permission';
 import './shared/styles/tokens.css';
+import './shared/styles/adaptive.css';
 
 const app = createApp(App);
 
 document.documentElement.classList.add('dark'); // Element Plus 暗黑（对齐页面设计 §2）
+
+app.directive('permission', vPermission);
 
 app.use(createPinia());
 app.use(router);

@@ -36,7 +36,11 @@ class Settings(BaseSettings):
     SEED_TENANT: str = "demo-tenant"
     SEED_USERNAME: str = "admin"
     SEED_PASSWORD: SecretStr = SecretStr("admin123")
-    SEED_ROLES: str = "cs,kb,shop,stock,ops,admin,goods:read,goods:write,stock:read,stock:write,order:read,order:fulfill"
+    SEED_ROLES: str = (
+        "cs,kb,shop,stock,ops,admin,"
+        "goods:read,goods:write,stock:read,stock:write,order:read,order:fulfill,"
+        "promo:read,promo:write,review:read,review:write,ticket:read,ticket:write"
+    )
 
     # RAG 热更字段（_HOT_FIELDS 子集，详见 RAG 规范）
     TOP_K: int = 5

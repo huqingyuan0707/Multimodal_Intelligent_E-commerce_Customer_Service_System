@@ -2,7 +2,7 @@
 export type ChatRole = 'user' | 'agent';
 
 export type Reference = {
-  doc_id: string;
+  source: string;
   title: string;
   score: number;
 };

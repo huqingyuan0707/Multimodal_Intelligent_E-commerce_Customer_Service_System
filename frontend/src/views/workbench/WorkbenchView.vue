@@ -39,7 +39,7 @@
         </div>
         <div class="cites">
           <p class="cites-title">引用来源</p>
-          <p v-for="c in citations" :key="c.doc_id" class="cite" @click="openDoc(c.doc_id)">
+          <p v-for="c in citations" :key="c.source" class="cite" @click="openDoc(c.source)">
             {{ c.title }}
           </p>
         </div>
@@ -165,8 +165,8 @@ const voice = (): void => {
   ElMessage.info('语音输入后续补（演示占位）');
 };
 
-const openDoc = (docId: string): void => {
-  ElMessage.info(`打开原文 ${docId}（演示占位，知识库就绪后跳转）`);
+const openDoc = (source: string): void => {
+  ElMessage.info(`打开原文 ${source}（演示占位，知识库就绪后跳转）`);
 };
 
 const sendTool = (): void => {
@@ -178,7 +178,7 @@ const sendTool = (): void => {
 .workbench {
   display: flex;
   gap: 16px;
-  min-height: calc(100vh - 92px);
+  min-height: 0;
 }
 
 .card {
@@ -197,8 +197,9 @@ const sendTool = (): void => {
 }
 
 .queue {
-  width: 280px;
-  flex-shrink: 0;
+  flex: 0 1 280px;
+  min-width: 0;
+}
 }
 
 .session {
@@ -349,10 +350,10 @@ const sendTool = (): void => {
 
 .side {
   display: flex;
+  flex: 0 1 320px;
   flex-direction: column;
   gap: 16px;
-  width: 320px;
-  flex-shrink: 0;
+  min-width: 0;
 }
 
 .kv {
@@ -376,5 +377,29 @@ const sendTool = (): void => {
   background: var(--reai-gradient);
   border: none;
   color: var(--reai-nav-active);
+}
+
+/* 768-1280 折叠：右栏信息区变全宽横排；<768 单列堆叠（对齐页面设计 §5） */
+@media (max-width: 1280px) {
+  .side {
+    flex-basis: 260px;
+  }
+}
+
+@media (max-width: 1024px) {
+  .workbench {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .queue,
+  .side {
+    flex: none;
+    width: 100%;
+  }
+
+  .chat {
+    min-height: 60vh;
+  }
 }
 </style>

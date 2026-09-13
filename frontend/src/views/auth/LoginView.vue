@@ -210,15 +210,26 @@ const submit = async (): Promise<void> => {
    顶边/底边齐平；整组用 align-content 垂直居中（行不参与填充容器，卡片不会被拉满屏） */
 .login {
   display: grid;
-  grid-template-columns: minmax(0, 340px) 360px;
+  grid-template-columns: minmax(0, 340px) minmax(0, 360px);
   gap: 64px;
   align-items: stretch;
-  align-content: center;
-  justify-content: center;
+  place-content: center;
   box-sizing: border-box;
   min-height: 100vh;
   padding: 24px;
   background: var(--reai-page-gradient);
+}
+
+/* <768 单列：品牌区隐藏，登录卡占满（对齐页面设计 §5） */
+@media (max-width: 768px) {
+  .login {
+    grid-template-columns: minmax(0, 400px);
+    gap: 0;
+  }
+
+  .brand {
+    display: none;
+  }
 }
 
 .brand {
@@ -267,7 +278,7 @@ const submit = async (): Promise<void> => {
   flex-direction: column;
   justify-content: center;
   gap: 14px;
-  width: 360px;
+  width: min(360px, 100%);
   padding: 32px 28px;
   background: var(--reai-glass-bg);
   border: 1px solid var(--reai-glass-border);

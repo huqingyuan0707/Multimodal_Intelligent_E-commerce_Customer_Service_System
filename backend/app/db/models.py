@@ -201,3 +201,84 @@ class Approval(Base):
     status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
     created_at: Mapped[datetime] = mapped_column(default=_now)
     decided_at: Mapped[datetime | None] = mapped_column(default=None)
+
+
+class Promo(Base):
+    """营销活动（预算原子扣减，超发 3006；对齐 FRD FR-10.6/附录 F）"""
+
+    __tablename__ = "promos"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uid)
+    tenant: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    budget: Mapped[int] = mapped_column(Integer, default=0)
+    granted: Mapped[int] = mapped_column(Integer, default=0)
+    total: Mapped[int] = mapped_column(Integer, default=0)
+    per_user: Mapped[int] = mapped_column(Integer, default=1)
+    valid_from: Mapped[datetime | None] = mapped_column(default=None)
+    valid_to: Mapped[datetime | None] = mapped_column(default=None)
+    status: Mapped[str] = mapped_column(String(16), default="draft", index=True)
+    created_at: Mapped[datetime] = mapped_column(default=_now)
+
+
+class CouponGrant(Base):
+    """发券记录（idem_key 唯一防重放，对齐 FRD 附录 F）"""
+
+    __tablename__ = "coupon_grants"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uid)
+    tenant: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    promo_id: Mapped[str] = mapped_column(ForeignKey("promos.id"), index=True)
+    user_ref: Mapped[str] = mapped_column(String(64), nullable=False)
+    order_ref: Mapped[str] = mapped_column(String(64), default="")
+    status: Mapped[str] = mapped_column(String(16), default="granted")
+    idem_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(default=_now)
+
+    __table_args__ = (UniqueConstraint("tenant", "idem_key", name="uq_grants_tenant_idem"),)
+
+
+class Member(Base):
+    """会员（等级/积分，服装复购；对齐 FRD FR-10.6）"""
+
+    __tablename__ = "members"
+
+    tenant: Mapped[str] = mapped_column(String(64), nullable=False, primary_key=True)
+    user_ref: Mapped[str] = mapped_column(String(64), nullable=False, primary_key=True)
+    level: Mapped[str] = mapped_column(String(16), default="v0")
+    points: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime] = mapped_column(default=_now, onupdate=_now)
+
+
+class Review(Base):
+    """评价（差评 ticket_id 双向可跳；对齐 FRD FR-10.8/附录 F）"""
+
+    __tablename__ = "reviews"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uid)
+    tenant: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    platform: Mapped[str] = mapped_column(String(32), default="")
+    outer_id: Mapped[str] = mapped_column(String(64), default="")
+    level: Mapped[str] = mapped_column(String(16), default="good", index=True)
+    content: Mapped[str] = mapped_column(Text, default="")
+    tags: Mapped[str] = mapped_column(Text, default="[]")
+    replied: Mapped[bool] = mapped_column(default=False)
+    reply: Mapped[str] = mapped_column(Text, default="")
+    ticket_id: Mapped[str] = mapped_column(String(32), default="")
+    created_at: Mapped[datetime] = mapped_column(default=_now)
+
+
+class Ticket(Base):
+    """协同工单（SLA+关闭回填结论；对齐 FRD FR-12.3/附录 F）"""
+
+    __tablename__ = "tickets"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uid)
+    tenant: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    kind: Mapped[str] = mapped_column(String(32), default="general", index=True)
+    source_ref: Mapped[str] = mapped_column(String(64), default="")
+    assignee: Mapped[str] = mapped_column(String(64), default="")
+    sla_due: Mapped[datetime | None] = mapped_column(default=None)
+    status: Mapped[str] = mapped_column(String(16), default="open", index=True)
+    conclusion: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(default=_now)

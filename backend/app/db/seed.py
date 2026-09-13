@@ -30,14 +30,27 @@ from app.db.session import get_engine
 
 
 async def ensure_seed_user(db: AsyncSession) -> bool:
-    """幂等灌种子：已存在返回 False，新建返回 True（重复启动不覆盖已改密码）。"""
+    """幂等灌种子：不存在则建；已存在则只并集补齐缺失角色（不动密码）。
+
+    原因：SEED_ROLES 随版本加新权限时，存量 dev 库账号否则永远 403；
+    密码绝不覆盖，生产 SEED_ON_START=false 此函数不执行。
+    """
+    from app.core.security import split_roles
+
     tenant = settings.SEED_TENANT
     username = settings.SEED_USERNAME
     exists = (
         await db.execute(select(User).where(User.tenant == tenant, User.username == username))
     ).scalar_one_or_none()
     if exists is not None:
-        return False
+        wanted = split_roles(settings.SEED_ROLES)
+        have = split_roles(exists.roles)
+        missing = [r for r in wanted if r not in have]
+        if not missing:
+            return False
+        exists.roles = settings.ROLES_SEPARATOR.join([*have, *missing])
+        await db.commit()
+        return True
     db.add(
         User(
             tenant=tenant,
@@ -94,9 +107,7 @@ _DEMO_PRODUCTS: tuple[_DemoProduct, ...] = (
         name="加绒连帽卫衣",
         category="男装/卫衣",
         attrs={"材质": "棉 70% 涤 30%，内里加绒", "洗涤方式": "反面机洗 30℃，不可烘干"},
-        variants=tuple(
-            (color, size) for color in ("米白", "咖啡") for size in ("M", "L", "XL")
-        ),
+        variants=tuple((color, size) for color in ("米白", "咖啡") for size in ("M", "L", "XL")),
         list_price=39900,
         sale_price=29900,
         default_stock=(40, 15),
@@ -149,9 +160,7 @@ async def ensure_b2b_demo(db: AsyncSession) -> bool:
         return False
     tenant = settings.SEED_TENANT
     existing = (
-        await db.execute(
-            select(func.count()).select_from(Product).where(Product.tenant == tenant)
-        )
+        await db.execute(select(func.count()).select_from(Product).where(Product.tenant == tenant))
     ).scalar_one()
     if existing:
         return False

@@ -90,12 +90,14 @@ onMounted(() => {
 <style scoped>
 .layout {
   height: 100vh;
+  min-width: 0;
 }
 
 .topbar {
   display: flex;
   gap: 24px;
   align-items: center;
+  min-width: 0;
   background: var(--reai-gradient);
 }
 
@@ -108,6 +110,8 @@ onMounted(() => {
 
 .tabs {
   flex: 1;
+  min-width: 0;
+  overflow-x: auto;
   background: transparent;
   border-bottom: none;
 
@@ -159,7 +163,25 @@ onMounted(() => {
 
 .main {
   height: calc(100vh - 60px);
+  min-width: 0;
   padding: 16px;
+  overflow-y: auto;
   background: var(--reai-bg);
+}
+
+/* <768 单列：顶栏收紧，次要状态隐藏，菜单横滑 */
+@media (max-width: 768px) {
+  .topbar {
+    gap: 12px;
+  }
+
+  .brand {
+    font-size: 15px;
+  }
+
+  .tenant,
+  .online {
+    display: none;
+  }
 }
 </style>
