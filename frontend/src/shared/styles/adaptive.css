@@ -27,7 +27,7 @@ body {
 }
 
 /* 窄屏全局兜底：el-descriptions / el-form 行内元素允许收缩 */
-@media (max-width: 768px) {
+@media (width <= 768px) {
   .main > .page {
     padding: 12px;
   }

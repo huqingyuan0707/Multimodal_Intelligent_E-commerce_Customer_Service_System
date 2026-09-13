@@ -200,7 +200,6 @@ const sendTool = (): void => {
   flex: 0 1 280px;
   min-width: 0;
 }
-}
 
 .session {
   display: flex;
@@ -380,13 +379,13 @@ const sendTool = (): void => {
 }
 
 /* 768-1280 折叠：右栏信息区变全宽横排；<768 单列堆叠（对齐页面设计 §5） */
-@media (max-width: 1280px) {
+@media (width <= 1280px) {
   .side {
     flex-basis: 260px;
   }
 }
 
-@media (max-width: 1024px) {
+@media (width <= 1024px) {
   .workbench {
     flex-direction: column;
     overflow-y: auto;

@@ -221,7 +221,7 @@ const submit = async (): Promise<void> => {
 }
 
 /* <768 单列：品牌区隐藏，登录卡占满（对齐页面设计 §5） */
-@media (max-width: 768px) {
+@media (width <= 768px) {
   .login {
     grid-template-columns: minmax(0, 400px);
     gap: 0;

@@ -60,6 +60,12 @@ export default tseslint.config(
       'prefer-const': 'error',
       eqeqeq: ['error', 'always', { null: 'ignore' }],
 
+      // —— 防屎山量化门禁（对应 skill anti-shit-code §2，存量已验证为 0 违规）——
+      'max-depth': ['error', 3], // 嵌套 ≤3 层
+      'max-lines': ['error', { max: 400, skipBlankLines: true, skipComments: true }], // 单文件 ≤400 行
+      complexity: ['error', 20], // api/index.ts request() 信封解包收口处为 18，阈值取 20
+      'max-params': ['error', 4], // 参数 >4 考虑封装对象
+
       // —— Vue ——
       'vue/multi-word-component-names': 'off',
       'vue/define-macros-order': ['error', { order: ['defineProps', 'defineEmits'] }],

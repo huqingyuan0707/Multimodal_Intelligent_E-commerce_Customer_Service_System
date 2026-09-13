@@ -170,7 +170,7 @@ onMounted(() => {
 }
 
 /* <768 单列：顶栏收紧，次要状态隐藏，菜单横滑 */
-@media (max-width: 768px) {
+@media (width <= 768px) {
   .topbar {
     gap: 12px;
   }

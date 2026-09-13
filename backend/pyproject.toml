@@ -19,6 +19,7 @@ select = [
   "SIM",   # simplify
   "ASYNC", # 异步误用（禁止 async 里直接调阻塞库）
   "TID",   # 导入整洁
+  "C901",  # mccabe 圈复杂度（防屎山门禁，见 skill anti-shit-code §2）
   "RUF",
 ]
 ignore = [
@@ -37,6 +38,9 @@ ignore = [
 
 [tool.ruff.lint.isort]
 known-first-party = ["app"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 15  # 超过即 error（当前存量 0 处，只准保持）
 
 [tool.ruff.format]
 quote-style = "double"

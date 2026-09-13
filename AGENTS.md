@@ -15,6 +15,7 @@
 | 测试/门禁 | `测试评估验收方案.md` §2-§4、§7 CI 示例 |
 | 后端风格 | `skills/backend-code-style/SKILL.md` |
 | 前端风格 | `skills/frontend-code-style/SKILL.md` |
+| 架构健康/防屎山（提交前自检） | `skills/anti-shit-code/SKILL.md`（含硬检查脚本 `scripts/check_arch.py`） |
 
 ## 2. AI 工作流（强制）
 
