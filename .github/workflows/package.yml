@@ -6,11 +6,11 @@ name: package
 on:
   push:
     branches: [main]
-    tags: ['v*.*.*']
+    tags: ["v*.*.*"]
     paths:
-      - 'frontend/**'
-      - 'backend/**'
-      - '.github/workflows/package.yml'
+      - "frontend/**"
+      - "backend/**"
+      - ".github/workflows/package.yml"
 
 permissions:
   contents: read

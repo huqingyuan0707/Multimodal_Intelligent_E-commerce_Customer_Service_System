@@ -4,3 +4,6 @@ node_modules
 pnpm-lock.yaml
 auto-imports.d.ts
 components.d.ts
+Dockerfile
+.dockerignore
+nginx.conf
