@@ -138,6 +138,25 @@ jobs:
         working-directory: frontend
         run: pnpm build
 
+  # ---------------- 安全扫描：初期只告警不阻断（对应 ADR-0002） ----------------
+  # 升级路径：团队适应后把 exit-code 改为 '1' 即转为硬门禁，无需改其他行。
+  security:
+    name: security · trivy 告警（非阻断）
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trivy 文件系统扫描（HIGH/CRITICAL 只告警）
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          format: table
+          exit-code: '0'
+
   # ---------------- 提交信息规范（PR 场景兜底 husky 被绕过） ----------------
   commitlint:
     name: commitlint
@@ -177,7 +196,8 @@ jobs:
             echo "::notice::取不到有效基线，仅做存在性检查"
             exit 0
           fi
-          CHANGED=$(git diff --name-only "$BASE" "$HEAD" || true)
+          # core.quotepath=false：否则中文文件名被转成八进制转义，后面的 grep 永远匹配不上（假阳性）
+          CHANGED=$(git -c core.quotepath=false diff --name-only "$BASE" "$HEAD" || true)
           echo "$CHANGED"
           fail=0
           echo "$CHANGED" | grep -q "^backend/app/api/" && ! echo "$CHANGED" | grep -q "API接口与SSE事件协议规范.md" && { echo "::error::改了后端路由/schema 必须同 PR 改 API接口与SSE事件协议规范.md"; fail=1; }
@@ -186,7 +206,9 @@ jobs:
           echo "$CHANGED" | grep -q "^backend/app/db/" && ! echo "$CHANGED" | grep -q "数据模型与存储设计.md" && { echo "::error::改了表/迁移 必须同 PR 改 数据模型文档"; fail=1; }
           exit $fail
 
-# 后续可扩展（对应部署工程化.md 第五节）：
-#   - docker build + Trivy 镜像扫描 + SBOM（syft）
-#   - 前端产物镜像（Nginx）推送，tag 用 git-sha
-#   - ArgoCD GitOps 同步 dev → staging → prod（生产需人工批准）
+# 已落地（对应 ADR-0002 / 部署工程化.md §五/§十二/§十三）：
+#   - security job：Trivy fs 扫描只告警（exit-code 0），适应后改 1 即转硬门禁
+#   - package.yml：前后端镜像推送（latest + 短 sha + 版本号）+ Trivy 镜像扫描（同为告警级）
+#   - cd-update.yml：package 成功后把短 sha 写进部署仓库（应用仓只提交代码，不直接部署）
+#   - deploy/argocd/：dev 自动同步，prod 手动同步（生产发布必须人工审批）
+#   - 回滚 = 部署仓库 image tag 切回上一版本（ArgoCD 自动同步，<5min）
