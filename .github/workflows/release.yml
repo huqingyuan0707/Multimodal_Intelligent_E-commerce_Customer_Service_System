@@ -1,0 +1,55 @@
+# 首个正式发版流水线：推送 v*.*.* 标签 → 构建前端 dist → 创建 GitHub Release 并附产物包
+# 对应文档：部署工程化.md 第五节 CI/CD / 第十三节发布与回滚；以后发版只需打 tag 推送
+# 回滚：删除远端 tag + 对应 Release 即可回退（仍在制品保留期内的旧包可直接下载重发）
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  package-frontend:
+    name: release · 构建前端产物包并发布
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.18.0
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: 版本一致性检查（tag 与 package.json 对齐）
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG=$(node -p "require('./frontend/package.json').version")
+          if [ "$TAG" != "$PKG" ]; then
+            echo "::error::tag v$TAG 与 frontend/package.json $PKG 不一致，拒绝发版"
+            exit 1
+          fi
+
+      - name: 安装依赖
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: 构建
+        working-directory: frontend
+        run: pnpm build
+
+      - name: 打包 dist
+        run: cd frontend && zip -r "../reai-frontend-${GITHUB_REF_NAME}.zip" dist
+
+      - name: 创建 Release 并上传产物包
+        uses: softprops/action-gh-release@v2
+        with:
+          files: reai-frontend-*.zip
+          generate_release_notes: true
