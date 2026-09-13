@@ -121,3 +121,116 @@ async def delete_session(db: AsyncSession, *, tenant: str, username: str, sessio
         await db.delete(m)
     await db.delete(session)
     await db.commit()
+
+
+async def ensure_session(
+    db: AsyncSession, *, tenant: str, username: str, thread_id: str | None, title_hint: str
+) -> tuple[Session, bool]:
+    """对话轮次会话归位：thread_id 命中本人会话则复用，否则新建（标题取问题前 20 字）。
+
+    他人/异租户 thread_id 视为未传直接新建，不泄露存在性。返回 (会话, 是否新建)。
+    """
+    tid = (thread_id or "").strip()
+    if tid:
+        owned = (
+            await db.execute(
+                select(Session).where(
+                    Session.id == tid,
+                    Session.tenant == tenant,
+                    Session.username == username,
+                )
+            )
+        ).scalar_one_or_none()
+        if owned is not None:
+            return owned, False
+    title = (title_hint or "").strip()[:20] or "新会话"
+    row = Session(tenant=tenant, username=username, title=title)
+    db.add(row)
+    await db.flush()
+    return row, True
+
+
+async def find_user_message(
+    db: AsyncSession, *, session_id: str, client_msg_id: str
+) -> Message | None:
+    """按幂等键找已落库的用户消息（重连复用，不再插新行）。"""
+    if not (client_msg_id or "").strip():
+        return None
+    return (
+        await db.execute(
+            select(Message).where(
+                Message.session_id == session_id,
+                Message.role == "user",
+                Message.client_msg_id == client_msg_id.strip(),
+            )
+        )
+    ).scalar_one_or_none()
+
+
+async def find_agent_message(
+    db: AsyncSession, *, session_id: str, client_msg_id: str
+) -> Message | None:
+    """按幂等键找已落库的助手回复（重放用：直接复用内容与 trace_id，不再调模型）。"""
+    if not (client_msg_id or "").strip():
+        return None
+    return (
+        await db.execute(
+            select(Message).where(
+                Message.session_id == session_id,
+                Message.role == "agent",
+                Message.client_msg_id == client_msg_id.strip(),
+            )
+        )
+    ).scalar_one_or_none()
+
+
+async def save_user_message(
+    db: AsyncSession,
+    *,
+    tenant: str,
+    session_id: str,
+    content: str,
+    client_msg_id: str = "",
+) -> Message:
+    """落用户消息行（调用方先经 find_user_message 去重）。"""
+    row = Message(
+        session_id=session_id,
+        tenant=tenant,
+        role="user",
+        modality="text",
+        content=content,
+        client_msg_id=(client_msg_id or "").strip(),
+    )
+    db.add(row)
+    await db.flush()
+    return row
+
+
+async def save_agent_message(
+    db: AsyncSession,
+    *,
+    tenant: str,
+    session_id: str,
+    content: str,
+    citations: list[dict[str, object]],
+    guard: dict[str, object],
+    faithfulness: float,
+    trace_id: str,
+    client_msg_id: str = "",
+) -> Message:
+    """落助手回复行（引用/guard/忠实度/trace 随行持久化，刷新历史可回放）。"""
+    row = Message(
+        session_id=session_id,
+        tenant=tenant,
+        role="agent",
+        modality="text",
+        content=content,
+        citations=json.dumps(citations, ensure_ascii=False),
+        guard=json.dumps(guard, ensure_ascii=False),
+        faithfulness=faithfulness,
+        trace_id=trace_id,
+        client_msg_id=(client_msg_id or "").strip(),
+    )
+    db.add(row)
+    await db.flush()
+    return row

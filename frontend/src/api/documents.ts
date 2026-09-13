@@ -11,10 +11,14 @@ export const uploadImageApi = async (params: { file: File }) => {
   });
 };
 
-export const listDocumentsApi = async (params?: { page?: number; size?: number }) =>
+export const listDocumentsApi = async (params?: {
+  page?: number;
+  size?: number;
+  keyword?: string;
+}) =>
   request({
     path: '/api/v1/documents',
-    params: { page: params?.page ?? 1, size: params?.size ?? 20 },
+    params: { page: params?.page ?? 1, size: params?.size ?? 20, keyword: params?.keyword ?? '' },
   });
 
 export const uploadDocumentApi = async (params: { file: File }) => {
@@ -26,6 +30,34 @@ export const uploadDocumentApi = async (params: { file: File }) => {
     params: fd,
   });
 };
+
+export const getDocumentApi = async (params: { id: string }) =>
+  request({
+    path: `/api/v1/documents/${encodeURIComponent(params.id)}`,
+  });
+
+export const updateDocumentApi = async (params: {
+  id: string;
+  title: string;
+  content?: string;
+  security_level?: string;
+  channels?: string[];
+  valid_from?: string;
+  valid_to?: string;
+}) =>
+  request({
+    method: 'PUT',
+    path: `/api/v1/documents/${encodeURIComponent(params.id)}`,
+    params: {
+      title: params.title,
+      content: params.content ?? '',
+      security_level: params.security_level ?? 'internal',
+      channels: params.channels ?? ['all'],
+      valid_from: params.valid_from ?? '',
+      valid_to: params.valid_to ?? '',
+    },
+    idempotent: true,
+  });
 
 export const deleteDocumentApi = async (params: { id: string }) =>
   request({

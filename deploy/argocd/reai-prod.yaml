@@ -1,0 +1,21 @@
+# ArgoCD 应用：prod 环境手动同步，生产发布必须人工审批（对应 ADR-0002 / 部署工程化.md §五/§十三）
+# 红线：syncPolicy 下禁止 automated（不设自动同步）；发布 = 人工把 dev 验证过的 tag 改进
+# envs/prod/kustomization.yaml → 提交 → ArgoCD 界面点 Sync（可接审批流程）。
+# 回滚 = 把 tag 改回上一版本再 Sync 一次，<5min 完成。
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: reai-prod
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/huqingyuan0707/reai-deploy.git
+    targetRevision: HEAD
+    path: envs/prod
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: reai-prod
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true

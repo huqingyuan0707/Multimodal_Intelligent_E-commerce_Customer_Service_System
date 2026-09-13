@@ -16,7 +16,11 @@ from app.db.base import Base, _now, _uid
 
 
 class Message(Base):
-    """会话消息（多模态+引用+trace，级联随会话删除）。"""
+    """会话消息（多模态+引用+trace，级联随会话删除）。
+
+    client_msg_id：前端每次发送生成的幂等键（user/agent 同值配对），重连复用同一键
+    不再插新行，保证“断网重连不重复消息”。
+    """
 
     __tablename__ = "messages"
 
@@ -33,6 +37,7 @@ class Message(Base):
     guard: Mapped[str] = mapped_column(Text, default="{}")
     faithfulness: Mapped[float | None] = mapped_column(Float, default=None)
     trace_id: Mapped[str] = mapped_column(String(40), default="", index=True)
+    client_msg_id: Mapped[str] = mapped_column(String(64), default="", index=True)
     created_at: Mapped[datetime] = mapped_column(default=_now)
 
 

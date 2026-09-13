@@ -45,6 +45,11 @@ class Settings(BaseSettings):
     # RAG 热更字段（_HOT_FIELDS 子集，详见 RAG 规范）
     TOP_K: int = 5
     RAG_THRESHOLD: float = 0.6
+    # P0 stdlib 双路召回口径（BGE/reranker 接入后调高阈值，业务代码只读 Settings）
+    RRF_K: int = 60  # RRF 融合常数
+    RAG_DB_THRESHOLD: float = 0.12  # DB 链路余弦相关性下限，低于则拒答
+    RAG_DIVERSITY_PER_DOC: int = 2  # 同 doc 至多返回 chunk 数
+    KB_CHUNK_CHARS: int = 800  # 单 chunk 上限（主题切分优先，超长才按段硬切）
 
     # 大模型：本地 Ollama（OpenAI 兼容协议 /v1），见 ADR-0001。业务代码只调 llm_service，禁止写地址/模型名。
     LLM_ENABLED: bool = True
@@ -60,6 +65,9 @@ class Settings(BaseSettings):
     # 模型不可用时降级为「片段摘要」而非 500（AGENTS.md §3 降级红线）
     LLM_FALLBACK_TO_TEMPLATE: bool = True
 
+    # 文本流 message 事件分片长度（增量渲染粒度，大模型按 token 流时再调小）
+    SSE_CHUNK_CHARS: int = 120
+
     # 管理后台配额默认（FRD FR-8 / 数据模型 §2 tenants.quota_*）：新建租户落库口径，.env 可覆盖。
     DEFAULT_QUOTA_TOKENS: int = 1000000
     DEFAULT_QUOTA_CONCURRENCY: int = 50
@@ -67,6 +75,8 @@ class Settings(BaseSettings):
 
     # B 端业务阈值（数据模型文档 §2.1 / API 规范 §4.7）：金额一律整数「分」，禁浮点。
     B2B_SEED_DEMO: bool = True  # 演示数据（商品/仓库/库存/订单），生产置 false
+    KB_SEED_DEMO: bool = True  # 企业知识库种子（docs/knowledge-base 29 篇），生产置 false
+    KB_SEED_DIR: str = "docs/knowledge-base"  # 相对仓库根；镜像内无此目录时跳过
     STOCK_WARN_DEFAULT: int = 10  # 新建库存行的默认安全线
     REFUND_APPROVAL_LIMIT_CENTS: int = 10000  # 退款超此金额（100 元）恒进审批（3003）
     # 物流单号格式（打单发货校验，非法返回 1001）：8~24 位字母数字

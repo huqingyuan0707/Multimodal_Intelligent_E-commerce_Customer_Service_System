@@ -1,0 +1,23 @@
+# ArgoCD 应用：dev 环境自动同步（对应 ADR-0002 / 部署工程化.md §五）
+# 说明：repoURL 填部署仓库（与 CI vars.DEPLOY_REPO 同源），path 指向 dev 叠加层；
+# 本文件是模板，落到部署仓库后由 ArgoCD 监听，应用仓只留一份供评审。
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: reai-dev
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/huqingyuan0707/reai-deploy.git
+    targetRevision: HEAD
+    path: envs/dev
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: reai-dev
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

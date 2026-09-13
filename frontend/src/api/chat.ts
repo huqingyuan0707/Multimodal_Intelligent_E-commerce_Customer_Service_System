@@ -7,6 +7,7 @@ export type DonePayload = {
   guard: { pass: boolean };
   faithfulness: number;
   trace_id: string;
+  session_id: string;
 };
 
 export type StreamHandlers = {
@@ -17,18 +18,36 @@ export type StreamHandlers = {
   onError: (msg: string) => unknown;
 };
 
-const parseFrame = (frame: string, handlers: StreamHandlers) => {
+// 流式入参：threadId 复用后端会话（t- 开头本地占位不传），clientMsgId 幂等键（重连复用同一键不翻倍）
+export type StreamOptions = {
+  threadId?: string;
+  clientMsgId?: string;
+};
+
+const parseFrame = (frame: string, handlers: StreamHandlers, seen: Set<string>) => {
   const lines = frame.split('\n');
+  // 事件 id 行（后端全帧必带）：同流内重复 id 直接丢弃，保证幂等不重复拼接
+  const id =
+    lines
+      .find(l => l.startsWith('id:'))
+      ?.slice(3)
+      .trim() ?? '';
+  if (id) {
+    if (seen.has(id)) {
+      return;
+    }
+    seen.add(id);
+  }
   const ev =
     lines
       .find(l => l.startsWith('event:'))
       ?.slice(7)
       .trim() ?? '';
-  const data =
-    lines
-      .find(l => l.startsWith('data:'))
-      ?.slice(5)
-      .trim() ?? '';
+  // data: 允许多行（SSE 规范），按换行拼接后再解析
+  const data = lines
+    .filter(l => l.startsWith('data:'))
+    .map(l => l.slice(5).trim())
+    .join('\n');
   if (ev === 'source') {
     try {
       handlers.onSource((JSON.parse(data) as { name: string }).name);
@@ -63,17 +82,27 @@ const parseFrame = (frame: string, handlers: StreamHandlers) => {
 };
 
 // SSE 对话（done 解析失败进 onError；网络异常提示检查后端）
-export const streamChat = async (query: string, handlers: StreamHandlers, signal?: AbortSignal) => {
+export const streamChat = async (
+  query: string,
+  handlers: StreamHandlers,
+  signal?: AbortSignal,
+  opts?: StreamOptions,
+) => {
   const token = sessionStorage.getItem('reai_token') ?? '';
+  const seen = new Set<string>();
   let res: Response;
   try {
-    res = await window.fetch(`${API_BASE}/api/v1/chat/stream`, {
+    res = await window.fetch(`${API_BASE}/api/v1/agent/chat/stream`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ query }),
+      body: JSON.stringify({
+        query,
+        thread_id: opts?.threadId,
+        client_msg_id: opts?.clientMsgId ?? '',
+      }),
       signal,
     });
   } catch {
@@ -93,7 +122,18 @@ export const streamChat = async (query: string, handlers: StreamHandlers, signal
   const decoder = new TextDecoder();
   let buf = '';
   for (;;) {
-    const { done, value } = await reader.read();
+    let chunk: ReadableStreamReadResult<Uint8Array>;
+    try {
+      chunk = await reader.read();
+    } catch {
+      // 读流中段断开：主动停止静默返回，否则转可重连的错误（抛异常会卡死 streaming 状态）
+      if (signal?.aborted) {
+        return;
+      }
+      handlers.onError('连接中断，可重试');
+      return;
+    }
+    const { done, value } = chunk;
     if (done) {
       break;
     }
@@ -102,7 +142,7 @@ export const streamChat = async (query: string, handlers: StreamHandlers, signal
     buf = frames.pop() ?? '';
     frames.forEach(f => {
       if (f.trim()) {
-        parseFrame(f, handlers);
+        parseFrame(f, handlers, seen);
       }
     });
   }

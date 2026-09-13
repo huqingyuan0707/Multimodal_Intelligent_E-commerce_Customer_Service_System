@@ -68,6 +68,7 @@
 
 <script setup lang="ts">
 // 真实对话：会话抽屉 + 图片上传 + 语音录播 + 流式落条（引用/trace/sources）；失败重连后仍不用回 mock 演示（对齐页面设计 §3.1/§4）
+// 发送带 threadId（t- 占位不传）+ clientMsgId 幂等键，首轮 done 回 session_id 后认领替换占位。
 import { ElDrawer, ElMessage } from 'element-plus';
 import { onMounted, ref } from 'vue';
 import { getSessionApi } from '@/api';
@@ -85,7 +86,7 @@ const input = ref('');
 const drawer = ref(false);
 const fileRef = ref<HTMLInputElement | null>(null);
 const sessionStore = useSessionStore();
-const { streaming, sources, phase, draft, error, start, stop, toMessage } = useAgentStream();
+const { streaming, sources, phase, draft, error, done, start, stop, toMessage } = useAgentStream();
 const {
   images: pendingImages,
   error: imgError,
@@ -113,16 +114,29 @@ const toAgentMessages = (list: unknown[]) => {
     if (typeof m !== 'object' || m === null) {
       return [];
     }
-    const r = m as { content?: string; role?: string };
+    // 后端 message_to_dict 行：content/role/citations[{source,title,score}]/trace_id
+    const r = m as {
+      content?: string;
+      role?: string;
+      trace_id?: string;
+      citations?: { source?: string; title?: string; score?: number }[];
+    };
     if (typeof r.content !== 'string') {
       return [];
     }
+    const references = Array.isArray(r.citations)
+      ? r.citations
+          .filter(c => typeof c.title === 'string')
+          .map(c => ({ source: c.source ?? '', title: c.title ?? '', score: c.score ?? 0 }))
+      : [];
     return [
       {
         id: `h-${i}`,
         role: r.role === 'user' ? 'user' : 'agent',
         modality: 'text',
         content: r.content,
+        references,
+        trace_id: typeof r.trace_id === 'string' ? r.trace_id : undefined,
       } as AgentMessage,
     ];
   });
@@ -181,6 +195,9 @@ const send = async () => {
   if ((!query && attached === 0) || streaming.value) {
     return;
   }
+  // 先保证本地会话占位（t- 前缀），首轮 done 带回后端 id 后再认领替换
+  const threadId = sessionStore.currentId ?? sessionStore.createLocalSession();
+  const clientMsgId = `c-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
   messages.value = [
     ...messages.value,
     {
@@ -198,7 +215,10 @@ const send = async () => {
     }
     clearImages();
   }
-  await start(query || '请看这几张图');
+  await start(query || '请看这几张图', {
+    threadId: threadId.startsWith('t-') ? undefined : threadId,
+    clientMsgId,
+  });
   if (error.value) {
     ElMessage.error(`${error.value}，已用本地演示回复`);
     messages.value = [
@@ -206,6 +226,11 @@ const send = async () => {
       { id: `a-${Date.now()}`, role: 'agent', modality: 'text', content: mockChatFallback },
     ];
     return;
+  }
+  // 后端认领：t- 占位换成真实会话 id 并回填标题，抽屉列表随后刷新
+  if (done.value?.session_id) {
+    sessionStore.adoptSession(threadId, done.value.session_id, query.slice(0, 20) || '新会话');
+    sessionStore.loadSessions();
   }
   messages.value = [...messages.value, toMessage(`a-${Date.now()}`)];
 };

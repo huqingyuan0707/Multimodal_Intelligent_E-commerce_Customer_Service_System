@@ -106,6 +106,9 @@ async def test_api_happy_paths_cover_endpoints(client: httpx.AsyncClient) -> Non
     assert (await client.post("/api/v1/chat", json={"query": "  "})).json()["code"] == 1001
     stream = await client.post("/api/v1/chat/stream", json={"query": ""})
     assert stream.status_code == 200 and "done" in stream.text
+    # 规范路径别名同样可达（任务 + FRDv2 口径）
+    agent_stream = await client.post("/api/v1/agent/chat/stream", json={"query": ""})
+    assert agent_stream.status_code == 200 and "done" in agent_stream.text
 
     # 治理巡检（无模型走降级分支，不断）
     gov = await _ok(await client.get("/api/v1/governance/status"))

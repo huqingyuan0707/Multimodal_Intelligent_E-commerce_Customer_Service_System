@@ -24,5 +24,15 @@ export const useSessionStore = defineStore('session', () => {
     return id;
   };
 
-  return { sessions, currentId, loadSessions, createLocalSession };
+  // 后端会话认领：首轮流式 done 带回 session_id，用后端 id 替换本地 t- 占位并回填标题
+  const adoptSession = (localId: string, backendId: string, title: string) => {
+    sessions.value = sessions.value.map(s =>
+      s.id === localId ? { ...s, id: backendId, title } : s,
+    );
+    if (currentId.value === localId) {
+      currentId.value = backendId;
+    }
+  };
+
+  return { sessions, currentId, loadSessions, createLocalSession, adoptSession };
 });

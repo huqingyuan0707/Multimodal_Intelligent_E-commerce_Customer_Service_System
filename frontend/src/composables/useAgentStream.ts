@@ -1,7 +1,7 @@
 // SSE 对话状态封装（source/phase/message/done 全分支 + 失败退避重连 3 次；主动停止不重连，对齐 API 规范 §5）
 import { ref } from 'vue';
 import { streamChat } from '@/api';
-import type { DonePayload } from '@/api';
+import type { DonePayload, StreamOptions } from '@/api';
 
 const MAX_RETRIES = 3;
 
@@ -19,7 +19,7 @@ export const useAgentStream = () => {
   const error = ref('');
   const controller = ref<AbortController | null>(null);
 
-  const start = async (query: string) => {
+  const start = async (query: string, opts?: StreamOptions) => {
     streaming.value = true;
     sources.value = [];
     phase.value = '';
@@ -52,6 +52,7 @@ export const useAgentStream = () => {
           },
         },
         controller.value.signal,
+        opts,
       );
       if (controller.value.signal.aborted) {
         error.value = '';
@@ -60,7 +61,9 @@ export const useAgentStream = () => {
       if (done.value || draft.value || attempt >= MAX_RETRIES) {
         return;
       }
-      // 首字未出且非主动停止：退避重连
+      // 首字未出且非主动停止：退避重连。草稿清零——后端按同一 clientMsgId
+      // 重放全量答复（相同事件 id），不清零会把残片和重放拼成重复文本。
+      draft.value = '';
       phase.value = `重连中…（${attempt + 1}/${MAX_RETRIES}）`;
       error.value = '';
       streaming.value = true;

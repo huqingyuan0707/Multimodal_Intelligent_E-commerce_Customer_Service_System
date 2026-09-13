@@ -29,6 +29,8 @@ from app.core.rbac import get_current_user
 api_router = APIRouter()
 api_router.include_router(auth.router)
 api_router.include_router(chat.router, dependencies=[Depends(get_current_user)])
+# 文本对话规范路径（任务 + FRDv2 口径）：/agent/chat 复用同一 router，/chat 保留兼容
+api_router.include_router(chat.router, prefix="/agent", dependencies=[Depends(get_current_user)])
 api_router.include_router(sessions.router, dependencies=[Depends(get_current_user)])
 api_router.include_router(documents.router, dependencies=[Depends(get_current_user)])
 api_router.include_router(approvals.router, dependencies=[Depends(get_current_user)])

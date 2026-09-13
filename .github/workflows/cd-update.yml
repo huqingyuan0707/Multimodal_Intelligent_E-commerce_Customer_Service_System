@@ -1,0 +1,70 @@
+# CD 联动：package 成功后把短 sha 写进部署仓库 dev 叠加层，ArgoCD 自动同步 dev
+# 对应文档：部署工程化.md §五 / ADR-0002（应用仓只提交代码，部署仓由 CI 自动更新）
+# 前置配置（缺任一则 warn 跳过，不阻断）：
+#   - vars.DEPLOY_REPO：部署仓库，如 huqingyuan0707/reai-deploy
+#   - secrets.DEPLOY_PAT：能写部署仓库的 PAT（classic repo scope 或 fine-grained contents:write）
+# 部署仓库约定布局：
+#   envs/dev/kustomization.yaml 含前后端 images.newTag（同 commit 同 sha）
+#   envs/prod/kustomization.yaml 由人工改 tag + 审批后同步（生产不自动）
+name: cd-update
+
+on:
+  workflow_run:
+    workflows: [package]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  bump-dev-tag:
+    name: cd-update · 短 sha 进部署仓库 dev
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'success'
+    steps:
+      - name: 前置配置检查（缺配则告警跳过）
+        id: guard
+        env:
+          DEPLOY_REPO: ${{ vars.DEPLOY_REPO }}
+          DEPLOY_PAT: ${{ secrets.DEPLOY_PAT }}
+        run: |
+          if [ -z "$DEPLOY_REPO" ] || [ -z "$DEPLOY_PAT" ]; then
+            echo "::notice::未配置 vars.DEPLOY_REPO / secrets.DEPLOY_PAT，跳过部署仓库更新"
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 检出部署仓库
+        if: steps.guard.outputs.ok == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.DEPLOY_REPO }}
+          token: ${{ secrets.DEPLOY_PAT }}
+          path: deploy-repo
+
+      - name: 短 sha 写进 dev 叠加层（前后端同 commit 同 tag，可追溯）
+        if: steps.guard.outputs.ok == 'true'
+        id: bump
+        working-directory: deploy-repo
+        env:
+          FULL_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          SHORT="${FULL_SHA:0:7}"
+          echo "short=$SHORT" >> "$GITHUB_OUTPUT"
+          echo "bump dev images to $SHORT"
+          test -f envs/dev/kustomization.yaml || { echo "::error::部署仓库缺少 envs/dev/kustomization.yaml（约定见部署工程化.md §五）"; exit 1; }
+          sed -i -E "s/(newTag: ).*/\1$SHORT/" envs/dev/kustomization.yaml
+          grep -n "newTag:" envs/dev/kustomization.yaml
+
+      - name: 提交并推送（部署仓单点写入，ArgoCD 监听即同步）
+        if: steps.guard.outputs.ok == 'true'
+        working-directory: deploy-repo
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add envs/dev/kustomization.yaml
+          git diff --cached --quiet && { echo "tag 无变化，无需提交"; exit 0; }
+          git commit -m "chore(cd): dev images -> ${{ steps.bump.outputs.short }}（应用仓 ${{ github.event.workflow_run.head_sha }})"
+          git push

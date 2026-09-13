@@ -66,6 +66,28 @@ async def create_task(
     return row
 
 
+async def mark_task(
+    db: AsyncSession,
+    *,
+    tenant: str,
+    task_id: str,
+    status: str,
+    progress: float = 0.0,
+    output: dict[str, Any] | None = None,
+    error: str = "",
+) -> Task:
+    """后台执行体专用：推进度/落结果（跨租户 404；调用方保证幂等语义）。"""
+    row = await get_task(db, tenant=tenant, task_id=task_id)
+    row.status = status
+    row.progress = progress
+    if output is not None:
+        row.output = json.dumps(output, ensure_ascii=False)
+    if error:
+        row.error = json.dumps({"message": error}, ensure_ascii=False)
+    await db.commit()
+    return row
+
+
 async def get_task(db: AsyncSession, *, tenant: str, task_id: str) -> Task:
     """单查（跨租户 404 不泄露存在性）。"""
     row = (

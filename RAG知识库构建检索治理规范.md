@@ -22,15 +22,16 @@
 ## 2. 召回两路 + 融合重排
 
 ```python
-# ---------------- 双路召回 ----------------
-vec_hits = await vector_store.search(emb, top_k, {"tenant": t, "level__in": visible})
-kw_hits = await keyword_store.search(query, top_k, {"tenant": t})
+# ---------------- 双路召回（P0 stdlib，BGE 接入后替换 _cosine） ----------------
+vec_hits = tfidf_cosine(query, chunks)       # 向量路：bigram TF-IDF 余弦
+kw_hits = keyword_score(query, title, chunk)  # 关键词路：正文交叠 0.7 + 标题 0.3
 # ---------------- RRF 融合 + 重排 ----------------
-fused = rrf(vec_hits, kw_hits)
-ranked = await reranker.rerank(query, fused)  # bge-reranker，不可用回退分数排序
+fused = rrf_fuse([vec_hits, kw_hits])         # Σ 1/(RRF_K + rank)
+ranked = rerank(fused)                        # RRF 主序 + 余弦破平局（bge-reranker P1 替换点）
 ```
 
-- 参数全进 `Settings`：`TOP_K/RRF_K/RERANK_TOPN/THRESHOLD`，支持 `_HOT_FIELDS` 热更。
+- 参数全进 `Settings`：`TOP_K/RRF_K/RAG_DB_THRESHOLD/RAG_DIVERSITY_PER_DOC/KB_CHUNK_CHARS`，支持 `_HOT_FIELDS` 热更。
+- 治理在 SQL + Python 双层收口：租户与密级进 SQL，生效期/多样性（同 doc 至多 2 块）在 Python；引用 `source` 定位到 `doc_id#ord` 块级。
 - 后端不可用 `status()` 可见，自动回退单路 + 片段摘要降级，绝不 500（参考 `chat.py::_demo_stream`）。
 
 ## 3. 治理双阶段过滤（必做）

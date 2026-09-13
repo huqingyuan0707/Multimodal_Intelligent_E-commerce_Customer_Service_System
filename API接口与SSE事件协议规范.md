@@ -69,10 +69,12 @@ api_router.include_router(chat.router, dependencies=[Depends(get_current_user)])
 - 开发默认账号：**租户 `demo-tenant` / 用户名 `admin` / 密码 `admin123` / 角色 `cs,kb`**（`.env` 的 `SEED_*` 可覆盖）。种子幂等且**不覆盖已存在账号**，改 `SEED_PASSWORD` 只对新建账号生效。
 
 ### 4.2 对话（非流式，调试/短问答）
-- `POST /chat {query, thread_id?, security_level?}` → `ok({answer, references[], guard:{pass,degraded}, faithfulness, model, degraded, trace_id})`。
+- `POST /agent/chat {query, thread_id?, security_level?, client_msg_id?}` → `ok({answer, references[], guard:{pass,degraded}, faithfulness, model, degraded, trace_id, session_id})`（规范路径；`/chat` 为兼容别名，行为一致）。
+- 入参 `thread_id` 命中本人会话则复用，否则新建（标题取问题前 20 字，他人/异租户 id 视为未传）；`client_msg_id` 为前端每次发送生成的幂等键，同（会话，键）重调只落一行，重放不再调模型。
+- 用户消息与助手回复（含引用/guard/忠实度/trace）双双落 `messages` 表，刷新后 `GET /sessions/{id}` 可回放。
 - 生成走适配层 `llm_service`（本地 Ollama `qwen2.5`，ADR-0001）；模型不可用**不 500**：降级片段摘要，`degraded=true`、`model="template"`。
 - `faithfulness`：回答内 `[n]` 引用越界按比例扣分（无引用记 0.9），低分前端可提示核对来源。
-- `2001` 表示无据拒答，前端渲染拒答话术 + 转人工按钮，不当错误抛异常。
+- `2001` 表示无据拒答，前端渲染拒答话术 + 转人工按钮，不当错误抛异常（拒答同样落库，`rejected` 标记）。
 
 ### 4.3 会话与记忆
 - `GET /sessions?page=1&size=20` → 真实列表（按 `tenant+username` 隔离倒序，空数据 `[]` 不报错；`page/size` 默认 `1/20` 预留分页）。
@@ -83,13 +85,16 @@ api_router.include_router(chat.router, dependencies=[Depends(get_current_user)])
 
 ### 4.4 知识库
 - `POST /documents/upload` FormData(`file`) → `ok({doc_id, sha256, skipped?})`，重复 SHA256 返回“已跳过重复入库”（敏感写，`require_perm("kb")` Scope 校验）。
-- `GET /documents?page=1&size=20` → 真实列表（租户隔离倒序，空数据 `[]` 不报错）。
+- `GET /documents?page=1&size=20&keyword=` → 分页对象 `{items[], total, page, size}`（租户隔离倒序，标题模糊筛选，空数据 `items=[]` 不报错；`items[]` 含密级/渠道/生效期/版本，不含正文）。
+- `GET /documents/{id}` → 详情（含正文与全量元数据，供预览/编辑回显；跨租户 404）。
+- `PUT /documents/{id} {title, content, security_level, channels[], valid_from?, valid_to?}` → 内容变则版本 +1，撞他篇内容 1001（敏感写，`require_perm("kb")`）。
 - `DELETE /documents/{id}` → 需 confirm（敏感写，`require_perm("kb")`）；`POST /documents/reindex` → 落 `tasks` 行返回 `{task_id}`（敏感写，`require_perm("kb")`）。
 - 上传失败 `fail(PARAM_INVALID,"请至少选择一个文件",400)`。
 
 ### 4.5 审批与任务
 - `GET /approvals?status=pending` → 列表；`POST /approvals/{id}/approve {modified_args?}` / `POST /approvals/{id}/reject {reason}`。
 - `GET /tasks?page=1&size=20&status=` → 本人维度真实列表（空数据 `[]` 不报错）；`POST /tasks {type, payload}` → `{task_id}`；`GET /tasks/{id}` → `{status, progress, result}`（跨租户 404）。SSE 任务类事件另含 `progress/complete/error`。
+- `POST /documents/reindex` → 建 `kb.reindex` 任务行即 via `BackgroundTasks` 真实执行（租户全部分块重建），`GET /tasks/{id}` 轮询 `running → done{docs, chunks}`（异常落 `error`，不断流）。
 
 ### 4.6 治理与可观测
 - `GET /governance/status` → 向量/关键词后端可用性 + 阈值 + 热更字段 + `llm:{available,endpoint,model,detail}`（`llm_service.probe()` 实测本地 Ollama，绝不抛异常）。
@@ -125,7 +130,7 @@ api_router.include_router(chat.router, dependencies=[Depends(get_current_user)])
 
 ## 5. SSE 流式协议（项目实际形态）
 
-后端事件名固定：`source / phase / message / done`（任务类另有 `progress/complete/error`）。`done` 载荷必含 `references + guard + faithfulness + trace_id`。
+后端事件名固定：`source / phase / message / done`（任务类另有 `progress/complete/error`）。`done` 载荷必含 `references + guard + faithfulness + trace_id + session_id`。每帧必带 `id:` 行（`{stream_id}:{seq}`，`stream_id` 由 `client_msg_id` 确定性派生，重放帧 id 相同），前端同流内按 id 去重，断线重连不重复拼接。
 
 ```python
 """聊天流 endpoint（对齐 API 规范 §5）"""
@@ -137,9 +142,9 @@ import asyncio
 async def _demo_stream(query: str):
     # 模型不可用时演示降级，绝不 500
     yield "event: message\ndata: {\"content\":\"演示模式：\"}\n\n"
-    yield "event: done\ndata: {\"references\":[],\"guard\":{\"pass\":true},\"faithfulness\":1.0,\"trace_id\":\"demo\"}\n\n"
+    yield "event: done\ndata: {\"references\":[],\"guard\":{\"pass\":true},\"faithfulness\":1.0,\"trace_id\":\"demo\",\"session_id\":\"\"}\n\n"
 
-@router.post("/chat/stream")
+@router.post("/agent/chat/stream")
 async def chat_stream(payload: ChatRequest, user=Depends(get_current_user)):
     async def gen():
         try:

@@ -142,8 +142,8 @@ def main() -> int:
     # documents 真实空数据 + 去重
     r = client.get("/api/v1/documents", headers=auth)
     check(
-        "documents list 200 array",
-        r.status_code == 200 and isinstance(r.json()["data"], list),
+        "documents list 200 page",
+        r.status_code == 200 and isinstance(r.json()["data"].get("items"), list),
         r.text[:200],
     )
     up1 = client.post(

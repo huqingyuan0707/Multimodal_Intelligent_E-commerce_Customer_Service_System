@@ -1,8 +1,9 @@
 """种子数据（首次启动幂等灌入，对齐数据模型与存储设计.md §6 迁移节）
 
-链路：main.lifespan（SEED_ON_START）/ scripts/init_db.py → ensure_seed_user() + ensure_b2b_demo()。
+链路：main.lifespan（SEED_ON_START）/ scripts/init_db.py → ensure_seed_user() + ensure_b2b_demo() + ensure_kb_seed()。
 租户/用户名/密码/角色一律走 Settings（.env 可覆盖），禁止硬编码；生产置 SEED_ON_START=false。
 B 端演示数据由 B2B_SEED_DEMO 控制（商品/SKU/仓库/库存/订单/一条待审改价），已存在商品即跳过。
+知识库种子由 KB_SEED_DEMO/KB_SEED_DIR 控制（docs/knowledge-base 29 篇，SHA256 去重），已存在不覆盖。
 """
 
 from __future__ import annotations
@@ -10,6 +11,7 @@ from __future__ import annotations
 import json
 import zlib
 from dataclasses import dataclass
+from pathlib import Path
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -293,11 +295,63 @@ async def ensure_seed_tenant(db: AsyncSession) -> bool:
     return True
 
 
+def _kb_seed_dir() -> Path | None:
+    """种子目录：KB_SEED_DIR 相对仓库根（seed.py 上三级）；绝对路径直用；不存在返回 None。"""
+    configured = Path(settings.KB_SEED_DIR)
+    if configured.is_absolute():
+        return configured if configured.is_dir() else None
+    root = Path(__file__).resolve().parents[3]
+    candidate = root / configured
+    return candidate if candidate.is_dir() else None
+
+
+async def ensure_kb_seed(db: AsyncSession) -> bool:
+    """幂等灌企业知识库种子（docs/knowledge-base 29 篇，SHA256 去重）。
+
+    元数据（密级/渠道/生效期/版本）只在新建时落库，已存在绝不覆盖人工编辑；
+    镜像内无种子目录时静默跳过（容器部署走 GHCR 制品，不管仓库 docs）。
+    """
+    if not settings.KB_SEED_DEMO:
+        return False
+    from app.services import document_service
+
+    seed_dir = _kb_seed_dir()
+    if seed_dir is None:
+        return False
+    tenant = settings.SEED_TENANT
+    created = 0
+    for path in sorted(seed_dir.glob("*.md")):
+        meta = document_service.parse_seed_markdown(path.read_text(encoding="utf-8"))
+        if not meta["body"].strip():
+            continue
+        row, skipped = await document_service.get_or_create_doc(
+            db,
+            tenant=tenant,
+            title=meta["title"] or path.stem,
+            content=meta["body"],
+            raw=meta["body"].encode("utf-8"),
+        )
+        if skipped:
+            continue
+        row.channels = json.dumps(meta["channels"], ensure_ascii=False)
+        if meta["security_level"] in document_service.LEVELS:
+            row.security_level = meta["security_level"]
+        row.valid_from = meta["valid_from"]
+        row.valid_to = meta["valid_to"]
+        if meta["version"] > 1:
+            row.version = meta["version"]
+        created += 1
+    if created:
+        await db.commit()
+    return created > 0
+
+
 async def seed_on_startup() -> bool:
-    """lifespan 调用入口：自建会话灌种子（账号 + 租户行 + B 端演示数据），任一有写入即返回 True。"""
+    """lifespan 调用入口：自建会话灌种子（账号 + 租户行 + B 端演示 + 知识库 29 篇），任一有写入即返回 True。"""
     factory = async_sessionmaker(get_engine(), expire_on_commit=False)
     async with factory() as db:
         user_created = await ensure_seed_user(db)
         tenant_created = await ensure_seed_tenant(db)
         demo_created = await ensure_b2b_demo(db)
-    return user_created or tenant_created or demo_created
+        kb_created = await ensure_kb_seed(db)
+    return user_created or tenant_created or demo_created or kb_created

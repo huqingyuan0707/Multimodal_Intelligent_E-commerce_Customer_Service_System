@@ -9,6 +9,11 @@ RUN useradd -m appuser
 WORKDIR /srv/app
 COPY --from=base /usr/local /usr/local
 COPY app ./app
+# RAG 种子与迁移脚本随镜像走：容器内 knowledge.json 缺失则检索恒空（恒 2001），
+# 缺 alembic 则 client_msg_id 等新增列升不上去（新代码读旧库直接炸表结构）
+COPY seed ./seed
+COPY alembic.ini ./alembic.ini
+COPY alembic ./alembic
 # SQLite 落盘目录预建并授权（命名卷默认 root 属主，appuser 否则写不进库）
 RUN mkdir -p /srv/app/data && chown appuser:appuser /srv/app/data
 USER appuser
