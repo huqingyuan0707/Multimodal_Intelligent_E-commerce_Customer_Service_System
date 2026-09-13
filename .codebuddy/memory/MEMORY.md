@@ -60,6 +60,7 @@
 - 踩过的坑：`requirements.txt` 漏 `python-multipart` → 因 `documents.py` 用 `UploadFile`，FastAPI 在**导入路由阶段**就抛 `RuntimeError` 导致服务起不来。**新增上传/表单端点时必须同步补该依赖。**
 - 健康检查：`/health`、`/ready`；无 token 访问 `/api/v1/sessions` 应返回 401（路由级鉴权生效）。
 
+- **Git/PowerShell 中文坑（本机 Windows，一律照此办理）**：命令行里任何中文参数（`git commit -m`、`git add 中文.md`、`Select-String -Pattern "中文"`）都会被 GBK 转码截断/乱码。对策：提交信息写 UTF-8 的 `.git/msgN.txt` 后 `git commit -F`；中文文件清单写 `.git/paths.txt` 后 `git add --pathspec-from-file`；内容探测只用 ASCII 关键字。**且本机存在并行 git 操作（用户另一窗口会 `add -A`/push），commit 前必须 `git status --short` 复核 index。**
 - `.codebuddy/` 下的 `skills/`、`rules/`、`memory/` 都要随仓库提交（不要加进 .gitignore）。
 - 有些 AI 工具不认 `.codebuddy/skills`，跨工具需各写一份（`.cursor/rules`、`.github/copilot-instructions.md`、`AGENTS.md`）。
 
