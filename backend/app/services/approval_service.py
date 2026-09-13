@@ -109,8 +109,8 @@ async def list_recent(
     if status:
         stmt = stmt.where(Approval.status == status)
     rows = (
-        await db.execute(stmt.order_by(Approval.created_at.desc()).limit(limit))
-    ).scalars().all()
+        (await db.execute(stmt.order_by(Approval.created_at.desc()).limit(limit))).scalars().all()
+    )
     return list(rows)
 
 

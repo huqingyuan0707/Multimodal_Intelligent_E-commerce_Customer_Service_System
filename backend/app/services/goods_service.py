@@ -65,9 +65,7 @@ def to_dict(product: Product, skus: list[Sku]) -> dict[str, Any]:
 
 async def _get_product(db: AsyncSession, tenant: str, product_id: str) -> Product:
     row = (
-        await db.execute(
-            select(Product).where(Product.tenant == tenant, Product.id == product_id)
-        )
+        await db.execute(select(Product).where(Product.tenant == tenant, Product.id == product_id))
     ).scalar_one_or_none()
     if row is None:
         raise BusinessError(ErrorCode.NOT_FOUND, "商品不存在或无权访问", 404)
@@ -105,9 +103,7 @@ async def list_goods(
     if keyword.strip():
         like = f"%{keyword.strip()}%"
         stmt = stmt.where(or_(Product.name.like(like), Product.spu_no.like(like)))
-    total = (
-        await db.execute(select(func.count()).select_from(stmt.subquery()))
-    ).scalar_one()
+    total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
     rows = list(
         (
             await db.execute(
@@ -196,9 +192,7 @@ async def update_sku(
     sku, _ = await _get_sku(db, tenant, sku_id)
     if status is not None:
         if status not in SKU_STATUS_LABELS:
-            raise BusinessError(
-                ErrorCode.PARAM_INVALID, f"SKU 状态非法：{status}（可选 on/off）"
-            )
+            raise BusinessError(ErrorCode.PARAM_INVALID, f"SKU 状态非法：{status}（可选 on/off）")
         sku.status = status
     if barcode is not None:
         sku.barcode = barcode.strip()

@@ -14,7 +14,7 @@ export const hasPerm = (need: string | string[] | undefined) => {
     return true;
   }
   const wants = Array.isArray(need) ? need : [need];
-  return wants.some((r) => mine.includes(r));
+  return wants.some(r => mine.includes(r));
 };
 
 export const vPermission: Directive<HTMLElement, string | string[]> = {

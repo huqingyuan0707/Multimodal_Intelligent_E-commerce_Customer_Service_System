@@ -6,12 +6,7 @@
     </div>
     <div class="filters">
       <el-select v-model="status" placeholder="状态" class="sel" @change="reload">
-        <el-option
-          v-for="o in STATUS_OPTIONS"
-          :key="o.value"
-          :label="o.label"
-          :value="o.value"
-        />
+        <el-option v-for="o in STATUS_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
       </el-select>
       <AiButton @click="reload">查询</AiButton>
     </div>
@@ -78,7 +73,17 @@
 
 <script setup lang="ts">
 // 审批中心（列表 + 详情抽屉 + 批准/驳回/改参批准；批驳按钮仅店长/运营/管理员可见，对齐页面设计 §3.4）
-import { ElDrawer, ElMessage, ElMessageBox, ElTable, ElTableColumn, ElTag, ElSelect, ElOption, ElButton } from 'element-plus';
+import {
+  ElDrawer,
+  ElMessage,
+  ElMessageBox,
+  ElTable,
+  ElTableColumn,
+  ElTag,
+  ElSelect,
+  ElOption,
+  ElButton,
+} from 'element-plus';
 import { computed, onMounted, ref } from 'vue';
 import { approveApprovalApi, listApprovalsApi, rejectApprovalApi } from '@/api';
 import { mockApprovals } from '@/mock';
@@ -106,7 +111,7 @@ const load = async () => {
     rows.value = await listApprovalsApi({ status: status.value });
     demo.value = false;
   } catch {
-    rows.value = mockApprovals.filter((a) => !status.value || a.status === status.value);
+    rows.value = mockApprovals.filter(a => !status.value || a.status === status.value);
     demo.value = true;
   } finally {
     loading.value = false;
@@ -124,7 +129,10 @@ const open = (row: ApprovalItem) => {
 
 const approve = async (row: ApprovalItem) => {
   try {
-    await ElMessageBox.confirm(`批准「${row.action_label}｜${row.target}」并立即生效吗？`, '批准确认');
+    await ElMessageBox.confirm(
+      `批准「${row.action_label}｜${row.target}」并立即生效吗？`,
+      '批准确认',
+    );
   } catch {
     return;
   }
@@ -135,11 +143,9 @@ const approve = async (row: ApprovalItem) => {
 const approveWithArgs = async (row: ApprovalItem) => {
   let raw: string;
   try {
-    ({ value: raw } = await ElMessageBox.prompt(
-      '改后参数（JSON，可空则直接批准）',
-      '改参批准',
-      { inputValue: JSON.stringify(row.args) },
-    ));
+    ({ value: raw } = await ElMessageBox.prompt('改后参数（JSON，可空则直接批准）', '改参批准', {
+      inputValue: JSON.stringify(row.args),
+    }));
   } catch {
     return;
   }

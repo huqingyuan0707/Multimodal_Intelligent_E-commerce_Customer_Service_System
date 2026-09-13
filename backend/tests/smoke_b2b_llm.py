@@ -47,7 +47,9 @@ def main() -> int:
     r = client.get("/api/v1/governance/status", headers=headers)
     llm = r.json()["data"].get("llm", {})
     check("status has llm probe", bool(llm), r.text[:200])
-    print(f"  llm: available={llm.get('available')} model={llm.get('model')} detail={llm.get('detail')}")
+    print(
+        f"  llm: available={llm.get('available')} model={llm.get('model')} detail={llm.get('detail')}"
+    )
 
     r = client.post("/api/v1/chat", json={"query": "退货政策是什么"}, headers=headers)
     body = r.json()
@@ -57,7 +59,11 @@ def main() -> int:
     if data.get("degraded"):
         print("  ⚠ 模型不可达，已降级片段摘要（红线：仍 200 非 500，符合预期）")
     else:
-        check("chat model is configured", str(data.get("model", "")).startswith("qwen2.5"), r.text[:200])
+        check(
+            "chat model is configured",
+            str(data.get("model", "")).startswith("qwen2.5"),
+            r.text[:200],
+        )
     print(f"  answer: {str(data.get('answer', ''))[:80]}… faithfulness={data.get('faithfulness')}")
 
     r = client.get("/api/v1/goods", headers=headers)
@@ -66,7 +72,11 @@ def main() -> int:
 
     r = client.get("/api/v1/inventory", params={"only_warn": "true", "size": 200}, headers=headers)
     inv = r.json()
-    check("inventory has warning rows", inv.get("code") == 0 and any(i["warning"] for i in inv["data"]["items"]), r.text[:200])
+    check(
+        "inventory has warning rows",
+        inv.get("code") == 0 and any(i["warning"] for i in inv["data"]["items"]),
+        r.text[:200],
+    )
 
     # 改价 → 审批 → 批准生效
     sku0 = goods["data"]["items"][0]["skus"][0]
@@ -77,7 +87,11 @@ def main() -> int:
         headers=headers,
     )
     approval = r.json()
-    check("price-change -> approval", approval.get("code") == 0 and approval["data"]["status"] == "pending", r.text[:200])
+    check(
+        "price-change -> approval",
+        approval.get("code") == 0 and approval["data"]["status"] == "pending",
+        r.text[:200],
+    )
     if approval.get("code") == 0:
         r = client.post(
             f"/api/v1/approvals/{approval['data']['id']}/approve",
@@ -94,7 +108,13 @@ def main() -> int:
     wh_id = client.get("/api/v1/inventory/warehouses", headers=headers).json()["data"][0]["id"]
     r = client.post(
         "/api/v1/inventory/moves",
-        json={"kind": "out", "warehouse_id": wh_id, "sku_id": sku0["id"], "delta": 999999, "reason": "冒烟超卖"},
+        json={
+            "kind": "out",
+            "warehouse_id": wh_id,
+            "sku_id": sku0["id"],
+            "delta": 999999,
+            "reason": "冒烟超卖",
+        },
         headers=headers,
     )
     check("shortage -> 3004 envelope", r.json().get("code") == 3004, r.text[:200])

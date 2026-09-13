@@ -25,10 +25,7 @@ export const replyReviewApi = async (params: { id: string; reply: string }) => {
   return res.data;
 };
 
-export const createReviewTicketApi = async (params: {
-  id: string;
-  assignee?: string;
-}) => {
+export const createReviewTicketApi = async (params: { id: string; assignee?: string }) => {
   const res = await dispatch({
     method: 'POST',
     path: `/api/v1/reviews/${encodeURIComponent(params.id)}/ticket`,
@@ -52,10 +49,7 @@ export const listTicketsApi = async (params?: { status?: string }) => {
   return res.data;
 };
 
-export const transferTicketApi = async (params: {
-  id: string;
-  assignee: string;
-}) => {
+export const transferTicketApi = async (params: { id: string; assignee: string }) => {
   const res = await dispatch({
     method: 'POST',
     path: `/api/v1/tickets/${encodeURIComponent(params.id)}/transfer`,
@@ -68,10 +62,7 @@ export const transferTicketApi = async (params: {
   return res.data;
 };
 
-export const closeTicketApi = async (params: {
-  id: string;
-  conclusion: string;
-}) => {
+export const closeTicketApi = async (params: { id: string; conclusion: string }) => {
   const res = await dispatch({
     method: 'POST',
     path: `/api/v1/tickets/${encodeURIComponent(params.id)}/close`,

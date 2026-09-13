@@ -17,10 +17,7 @@ export const listGoodsApi = async (params: {
   return res.data;
 };
 
-export const setGoodsStatusApi = async (params: {
-  productId: string;
-  status: string;
-}) => {
+export const setGoodsStatusApi = async (params: { productId: string; status: string }) => {
   const res = await dispatch({
     method: 'PUT',
     path: `/api/v1/goods/${encodeURIComponent(params.productId)}/status`,
@@ -50,10 +47,7 @@ export const submitPriceChangeApi = async (params: {
   return res.data;
 };
 
-export const updateSkuApi = async (params: {
-  skuId: string;
-  barcode?: string;
-}) => {
+export const updateSkuApi = async (params: { skuId: string; barcode?: string }) => {
   const res = await dispatch({
     method: 'PUT',
     path: `/api/v1/goods/skus/${encodeURIComponent(params.skuId)}`,

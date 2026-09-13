@@ -66,13 +66,7 @@ export type StockMoveItem = {
   created_at: string;
 };
 
-export type OrderStatus =
-  | 'pending_pay'
-  | 'paid'
-  | 'shipped'
-  | 'completed'
-  | 'aftersale'
-  | 'closed';
+export type OrderStatus = 'pending_pay' | 'paid' | 'shipped' | 'completed' | 'aftersale' | 'closed';
 
 export type OrderItem = {
   id: string;
@@ -129,11 +123,9 @@ export type AftersaleItem = {
 };
 
 // 模板内 el-table 行是 DefaultRow：收口为 string 入参，未知状态兜底 info（后端加状态不断前端）
-export const goodsTagOf = (status: string) =>
-  GOODS_TAG[status as keyof typeof GOODS_TAG] ?? 'info';
+export const goodsTagOf = (status: string) => GOODS_TAG[status as keyof typeof GOODS_TAG] ?? 'info';
 
-export const orderTagOf = (status: string) =>
-  ORDER_TAG[status as keyof typeof ORDER_TAG] ?? 'info';
+export const orderTagOf = (status: string) => ORDER_TAG[status as keyof typeof ORDER_TAG] ?? 'info';
 
 export const AFTERSALE_TAG = {
   pending: 'warning',

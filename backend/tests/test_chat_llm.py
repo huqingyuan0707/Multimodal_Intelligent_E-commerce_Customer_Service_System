@@ -26,9 +26,7 @@ def demo_user() -> Iterator[None]:
 
 
 def _patch_post(monkeypatch: pytest.MonkeyPatch, resp: httpx.Response | Exception) -> None:
-    async def _fake(
-        url: str, payload: dict[str, Any], headers: dict[str, str]
-    ) -> httpx.Response:
+    async def _fake(url: str, payload: dict[str, Any], headers: dict[str, str]) -> httpx.Response:
         if isinstance(resp, Exception):
             raise resp
         return resp

@@ -63,11 +63,7 @@ const parseFrame = (frame: string, handlers: StreamHandlers) => {
 };
 
 // SSE 对话（done 解析失败进 onError；网络异常提示检查后端）
-export const streamChat = async (
-  query: string,
-  handlers: StreamHandlers,
-  signal?: AbortSignal,
-) => {
+export const streamChat = async (query: string, handlers: StreamHandlers, signal?: AbortSignal) => {
   const token = sessionStorage.getItem('reai_token') ?? '';
   let res: Response;
   try {

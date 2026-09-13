@@ -1,9 +1,7 @@
 // 文档/图片上传与知识库接口（FormData 不手设头，对齐 API 规范 §4.4；删除/版本/检索测试后端暂无接口）
 import { dispatch } from './http';
 
-export const uploadImageApi = async (params: {
-  file: File;
-}) => {
+export const uploadImageApi = async (params: { file: File }) => {
   const fd = new FormData();
   fd.append('file', params.file);
   const res = await dispatch({
@@ -25,9 +23,7 @@ export const listDocumentsApi = async () => {
   return res.data;
 };
 
-export const uploadDocumentApi = async (params: {
-  file: File;
-}) => {
+export const uploadDocumentApi = async (params: { file: File }) => {
   const fd = new FormData();
   fd.append('file', params.file);
   const res = await dispatch({

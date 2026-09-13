@@ -43,9 +43,7 @@ def build_messages(query: str, refs: list[dict[str, object]]) -> list[dict[str, 
         {"role": "system", "content": _SYSTEM_PROMPT},
         {
             "role": "user",
-            "content": (
-                f"【资料】\n{blocks}\n\n【问题】{query[:500]}\n请只依据上面资料作答。"
-            ),
+            "content": (f"【资料】\n{blocks}\n\n【问题】{query[:500]}\n请只依据上面资料作答。"),
         },
     ]
 

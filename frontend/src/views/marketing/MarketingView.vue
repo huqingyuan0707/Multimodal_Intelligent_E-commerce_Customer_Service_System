@@ -12,7 +12,9 @@
         <el-table v-loading="loading" :data="promos" style="width: 100%">
           <el-table-column prop="name" label="活动" min-width="160" />
           <el-table-column label="预算/已发/剩余" min-width="180">
-            <template #default="s">{{ s.row.budget }} / {{ s.row.granted }} / {{ s.row.remaining }}</template>
+            <template #default="s"
+              >{{ s.row.budget }} / {{ s.row.granted }} / {{ s.row.remaining }}</template
+            >
           </el-table-column>
           <el-table-column label="有效期" min-width="200">
             <template #default="s">{{ validRange(s.row) }}</template>

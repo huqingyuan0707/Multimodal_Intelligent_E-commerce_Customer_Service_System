@@ -15,7 +15,10 @@
         </el-form-item>
       </el-form>
     </el-card>
-    <el-empty v-if="!tasks.length" description="暂无任务（后端暂无列表接口，仅展示本机会话内创建的任务）" />
+    <el-empty
+      v-if="!tasks.length"
+      description="暂无任务（后端暂无列表接口，仅展示本机会话内创建的任务）"
+    />
     <el-table v-else :data="tasks" style="width: 100%">
       <el-table-column prop="task_id" label="任务ID" min-width="180" />
       <el-table-column prop="type" label="类型" width="140" />

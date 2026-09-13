@@ -9,9 +9,7 @@ export const listCompaniesApi = async () => {
   return res.data;
 };
 
-export const trackLogisticsApi = async (params: {
-  trackingNo: string;
-}) => {
+export const trackLogisticsApi = async (params: { trackingNo: string }) => {
   const res = await dispatch({
     method: 'POST',
     path: '/api/v1/logistics/track',
@@ -23,10 +21,7 @@ export const trackLogisticsApi = async (params: {
   return res.data;
 };
 
-export const markExceptionApi = async (params: {
-  logisticsId: string;
-  kind: string;
-}) => {
+export const markExceptionApi = async (params: { logisticsId: string; kind: string }) => {
   const res = await dispatch({
     method: 'POST',
     path: '/api/v1/logistics/exceptions',

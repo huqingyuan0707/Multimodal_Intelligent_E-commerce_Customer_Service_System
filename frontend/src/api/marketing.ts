@@ -58,10 +58,7 @@ export const getMemberApi = async (params: { userRef: string }) => {
   return res.data;
 };
 
-export const adjustPointsApi = async (params: {
-  userRef: string;
-  delta: number;
-}) => {
+export const adjustPointsApi = async (params: { userRef: string; delta: number }) => {
   const res = await dispatch({
     method: 'POST',
     path: `/api/v1/members/${encodeURIComponent(params.userRef)}/points`,

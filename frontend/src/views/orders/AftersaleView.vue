@@ -16,11 +16,15 @@
       </el-table-column>
       <el-table-column prop="trace_id" label="关联会话" min-width="160" />
       <el-table-column label="证据" width="100">
-        <template #default="s">{{ s.row.evidence?.length ? `${s.row.evidence.length}张` : '-' }}</template>
+        <template #default="s">{{
+          s.row.evidence?.length ? `${s.row.evidence.length}张` : '-'
+        }}</template>
       </el-table-column>
       <el-table-column label="状态" width="120">
         <template #default="s">
-          <el-tag :type="aftersaleTagOf(s.row.status)" size="small">{{ s.row.status_label }}</el-tag>
+          <el-tag :type="aftersaleTagOf(s.row.status)" size="small">{{
+            s.row.status_label
+          }}</el-tag>
         </template>
       </el-table-column>
       <el-table-column label="操作" width="160">
@@ -111,7 +115,7 @@ const submit = async () => {
     const cents = Math.round(Number(form.value.amount || 0) * 100);
     const evidence = form.value.evidence
       .split(/[,，\s\n]+/)
-      .map((u) => u.trim())
+      .map(u => u.trim())
       .filter(Boolean);
     const res = await createAftersaleApi({
       order_id: form.value.order_id,
@@ -121,7 +125,9 @@ const submit = async () => {
       evidence,
     });
     if (res.need_approval) {
-      ElMessage.warning(`退款超阈值，已转审批${res.approval_id ? `（${res.approval_id}）` : ''}，批准后生效`);
+      ElMessage.warning(
+        `退款超阈值，已转审批${res.approval_id ? `（${res.approval_id}）` : ''}，批准后生效`,
+      );
     } else {
       ElMessage.success('售后单已创建');
     }

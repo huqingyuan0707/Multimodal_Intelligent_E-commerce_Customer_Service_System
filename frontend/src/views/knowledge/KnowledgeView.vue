@@ -14,7 +14,10 @@
         <span><AiButton disabled>检索测试</AiButton></span>
       </el-tooltip>
     </div>
-    <el-empty v-if="!filtered.length && !loading" description="暂无文档（后端不可用时显示演示数据）" />
+    <el-empty
+      v-if="!filtered.length && !loading"
+      description="暂无文档（后端不可用时显示演示数据）"
+    />
     <el-table v-loading="loading" :data="filtered" style="width: 100%">
       <el-table-column prop="doc_id" label="文档ID" min-width="200" />
       <el-table-column prop="title" label="标题" min-width="200" />
@@ -40,9 +43,7 @@ const uploading = ref(false);
 const reindexing = ref(false);
 
 const filtered = computed(() =>
-  keyword.value
-    ? docs.value.filter(d => d.title.includes(keyword.value))
-    : docs.value,
+  keyword.value ? docs.value.filter(d => d.title.includes(keyword.value)) : docs.value,
 );
 
 const loadDocs = async () => {

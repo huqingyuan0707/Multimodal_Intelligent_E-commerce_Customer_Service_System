@@ -9,9 +9,7 @@ export const listSessionsApi = async () => {
   return res.data;
 };
 
-export const getSessionApi = async (params: {
-  id: string;
-}) => {
+export const getSessionApi = async (params: { id: string }) => {
   const res = await dispatch({
     path: `/api/v1/sessions/${encodeURIComponent(params.id)}`,
   });
@@ -21,10 +19,7 @@ export const getSessionApi = async (params: {
   return res.data;
 };
 
-export const loginApi = async (params: {
-  username: string;
-  password: string;
-}) => {
+export const loginApi = async (params: { username: string; password: string }) => {
   const res = await dispatch({
     method: 'POST',
     path: '/api/v1/auth/login',

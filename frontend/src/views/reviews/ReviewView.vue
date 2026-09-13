@@ -68,7 +68,12 @@
       </template>
     </el-dialog>
     <el-dialog v-model="closeDialog" title="关闭工单" width="440px">
-      <AiInput v-model="conclusion" type="textarea" :rows="3" placeholder="结论（必填，沉淀知识）" />
+      <AiInput
+        v-model="conclusion"
+        type="textarea"
+        :rows="3"
+        placeholder="结论（必填，沉淀知识）"
+      />
       <template #footer>
         <AiButton @click="closeDialog = false">取消</AiButton>
         <AiButton type="primary" :loading="tSubmitting" @click="submitClose">关闭</AiButton>
