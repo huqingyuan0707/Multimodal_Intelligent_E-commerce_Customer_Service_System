@@ -1,0 +1,51 @@
+# 本机 Compose 部署：GHCR 镜像 + SQLite 落盘（对应部署工程化.md §五/§十三）
+# 用法：powershell -File deploy/deploy.ps1（默认 latest；指定版本加 -Tag v0.1.0）
+# 回滚：powershell -File deploy/deploy.ps1 -Tag <上一个版本号>
+name: reai
+
+services:
+  backend:
+    image: ghcr.io/huqingyuan0707/reai-backend:${REAI_TAG:-latest}
+    environment:
+      # 演示口径：SQLite 落 volume；生产换 PG 连接串并置 SEED_ON_START=false
+      DATABASE_URL: sqlite+aiosqlite:///./data/dev.db
+      SEED_ON_START: 'true'
+    volumes:
+      - backend-data:/srv/app/data
+    ports:
+      - '8000:8000'
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD', 'python', '-c', "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    labels:
+      - 'com.centurylinklabs.watchtower.scope=reai'
+
+  frontend:
+    image: ghcr.io/huqingyuan0707/reai-frontend:${REAI_TAG:-latest}
+    volumes:
+      # 同源反代配置（/api → backend:8000），覆盖镜像内默认的 127.0.0.1 直连
+      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - '8080:80'
+    depends_on:
+      backend:
+        condition: service_started
+    restart: unless-stopped
+    labels:
+      - 'com.centurylinklabs.watchtower.scope=reai'
+
+  # 全自动更新（可选）：每 5 分钟查 GHCR，有新包自动拉起替换
+  # 用法：docker compose --profile auto-update up -d watchtower
+  watchtower:
+    image: containrrr/watchtower:latest
+    command: --interval 300 --scope reai --cleanup
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    profiles: [auto-update]
+    restart: unless-stopped
+
+volumes:
+  backend-data:
