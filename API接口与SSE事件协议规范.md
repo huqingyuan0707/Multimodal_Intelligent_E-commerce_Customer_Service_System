@@ -31,6 +31,8 @@ return fail(ErrorCode.PARAM_INVALID, "请至少选择一个文件", 400)
 | 5xxx | 系统 | 5000 INTERNAL / 5001 UPSTREAM_FAILED / 5002 MODEL_UNAVAILABLE(走降级绝不500给用户) |
 
 前端：HTTP401 或业务码 `1002` 一律走中央 `handle401()` 清登录态跳登录页，禁止各页面自写跳转。
+后端：`main.py` 统一异常处理器收口信封——`BusinessError` 按号段码；`HTTPException 401/403/404` 转 `1002/1003/1004`；参数校验转 `1001`；未知异常转 `5000`（中文可操作，不泄露堆栈）。
+前端：`src/api/http.ts::request` 自动解包（`code!==0` 按 `ERROR_MESSAGES` 转中文抛错，`err.code` 保留供 `2001` 拒答等分支判断）；`dispatch` 保留供 FormData/特殊场景。
 
 ## 3. 认证鉴权与用户隔离（安全红线）
 
@@ -72,18 +74,21 @@ api_router.include_router(chat.router, dependencies=[Depends(get_current_user)])
 - `2001` 表示无据拒答，前端渲染拒答话术 + 转人工按钮，不当错误抛异常。
 
 ### 4.3 会话与记忆
-- `GET /sessions` → 列表；`POST /sessions {title?}` → 新会话（前端本地先建 `t-${Date.now()}` 占位，成功后以后端为准）。
-- `GET /sessions/{id}` → 含消息；404 则回退 `@/mock` 演示数据，保证后端不可用时页面可用。
-- `DELETE /sessions/{id}` → 需 confirm + 遗忘记忆键。
+- `GET /sessions?page=1&size=20` → 真实列表（按 `tenant+username` 隔离倒序，空数据 `[]` 不报错；`page/size` 默认 `1/20` 预留分页）。
+- `POST /sessions {title?}` → 新会话落库（前端本地先建 `t-${Date.now()}` 占位，成功后以后端 `id` 为准）。
+- `GET /sessions/{id}` → 含消息；404（跨租户/跨用户同 404）则回退 `@/mock` 演示数据，保证后端不可用时页面可用。
+- `DELETE /sessions/{id}` → 需 confirm + 消息级联遗忘。
+- 前置地基：`sessions/messages` 表由 Alembic 基线迁移建表（`tenants/users/sessions/messages/tasks/approvals/tool_calls/kb_docs/audit_logs/cost_records` 全量就绪）。
 
 ### 4.4 知识库
-- `POST /documents/upload` FormData(`file`) → `ok({doc_id, sha256, skipped?})`，重复 SHA256 返回“已跳过重复入库”。
-- `GET /documents` → 列表；`DELETE /documents/{id}` → 需 confirm；`POST /documents/reindex` → 异步任务 `{task_id}`。
+- `POST /documents/upload` FormData(`file`) → `ok({doc_id, sha256, skipped?})`，重复 SHA256 返回“已跳过重复入库”（敏感写，`require_perm("kb")` Scope 校验）。
+- `GET /documents?page=1&size=20` → 真实列表（租户隔离倒序，空数据 `[]` 不报错）。
+- `DELETE /documents/{id}` → 需 confirm（敏感写，`require_perm("kb")`）；`POST /documents/reindex` → 落 `tasks` 行返回 `{task_id}`（敏感写，`require_perm("kb")`）。
 - 上传失败 `fail(PARAM_INVALID,"请至少选择一个文件",400)`。
 
 ### 4.5 审批与任务
 - `GET /approvals?status=pending` → 列表；`POST /approvals/{id}/approve {modified_args?}` / `POST /approvals/{id}/reject {reason}`。
-- `POST /tasks {type, payload}` → `{task_id}`；`GET /tasks/{id}` → `{status, progress, result}`。SSE 任务类事件另含 `progress/complete/error`。
+- `GET /tasks?page=1&size=20&status=` → 本人维度真实列表（空数据 `[]` 不报错）；`POST /tasks {type, payload}` → `{task_id}`；`GET /tasks/{id}` → `{status, progress, result}`（跨租户 404）。SSE 任务类事件另含 `progress/complete/error`。
 
 ### 4.6 治理与可观测
 - `GET /governance/status` → 向量/关键词后端可用性 + 阈值 + 热更字段 + `llm:{available,endpoint,model,detail}`（`llm_service.probe()` 实测本地 Ollama，绝不抛异常）。
@@ -108,6 +113,14 @@ api_router.include_router(chat.router, dependencies=[Depends(get_current_user)])
 - 风控：`GET /risk/events`、`POST /risk/{id}/pass|block`（`risk:review`，拦截 `3007`，禁全自动封号）。
 - 消息：`POST /notify/send {channel, template, user_ref}`（`notify:send`，频控 429 走 `1006`）。
 - 工单：`POST /tickets`、`POST /tickets/{id}/transfer|close`（关闭 `conclusion` 必填，否则 `1001`）。
+
+### 4.9 管理后台（对齐 FRDv2 FR-8 + 页面设计 §3.8，同基座 JWT/admin 权限/审计）
+> 已实现（本期，路由级 `get_current_user` + 端点 `require_any_perm("admin")`，全局视角）；密钥明文/SLO 告警为 P2 待建。
+- 概览：`GET /admin/overview` → `{tenant_total,user_total,suspended,audit_total}`（指标卡）。
+- 租户：`GET /admin/tenants?keyword=&plan=&status=&page=1&size=20`（分页默认 20）、`POST /admin/tenants {code,name,plan?,quota_tokens?,quota_concurrency?}`（编码唯一重复 `1001`，配额缺省走 `Settings.DEFAULT_QUOTA_*`）、`GET /admin/tenants/{code}`、`PUT /admin/tenants/{code}/quota {quota_tokens,quota_concurrency}`（正数校验，前端双重 confirm）、`POST /admin/tenants/{code}/status {status:active|suspended|disabled}`（欠费停服即 suspended）。
+- 用户：`GET /admin/users?tenant=&keyword=&page=&size=`、`PUT /admin/users/{id}/roles {roles:"cs,admin"}`（空角色 `1001`）。
+- 审计：`GET /admin/audits?tenant=&action=&keyword=&page=&size=`（只读倒序，`tenant.create/quota/status + user.roles` 全留痕）。
+- 写操作幂等：`Idempotency-Key` 由前端 `dispatch(idempotent:true)` 自动带；变更类操作同步记 `audit_logs`（只追加不改）。
 
 ## 5. SSE 流式协议（项目实际形态）
 
