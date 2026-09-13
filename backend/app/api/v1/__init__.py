@@ -17,6 +17,8 @@ from app.api.v1.endpoints import (
     governance,
     inventory,
     logistics,
+    mining,
+    multimodal,
     orders,
     promos,
     reviews,
@@ -33,6 +35,8 @@ api_router.include_router(chat.router, dependencies=[Depends(get_current_user)])
 api_router.include_router(chat.router, prefix="/agent", dependencies=[Depends(get_current_user)])
 api_router.include_router(sessions.router, dependencies=[Depends(get_current_user)])
 api_router.include_router(documents.router, dependencies=[Depends(get_current_user)])
+api_router.include_router(mining.router, dependencies=[Depends(get_current_user)])
+api_router.include_router(multimodal.router, dependencies=[Depends(get_current_user)])
 api_router.include_router(approvals.router, dependencies=[Depends(get_current_user)])
 api_router.include_router(tasks.router, dependencies=[Depends(get_current_user)])
 api_router.include_router(governance.router, dependencies=[Depends(get_current_user)])

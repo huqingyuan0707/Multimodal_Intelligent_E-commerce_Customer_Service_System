@@ -5,6 +5,7 @@ export const useVoiceRecorder = () => {
   const recording = ref(false);
   const seconds = ref(0);
   const audioUrl = ref('');
+  const audioBlob = ref<Blob | null>(null);
   const error = ref('');
   const supported = typeof MediaRecorder !== 'undefined';
   let stream: MediaStream | null = null;
@@ -40,9 +41,8 @@ export const useVoiceRecorder = () => {
       if (audioUrl.value) {
         URL.revokeObjectURL(audioUrl.value);
       }
-      audioUrl.value = URL.createObjectURL(
-        new Blob(chunks, { type: recorder?.mimeType || 'audio/webm' }),
-      );
+      audioBlob.value = new Blob(chunks, { type: recorder?.mimeType || 'audio/webm' });
+      audioUrl.value = URL.createObjectURL(audioBlob.value);
       stopTracks();
     };
     recorder.start();
@@ -74,8 +74,9 @@ export const useVoiceRecorder = () => {
       URL.revokeObjectURL(audioUrl.value);
     }
     audioUrl.value = '';
+    audioBlob.value = null;
     seconds.value = 0;
   };
 
-  return { recording, seconds, audioUrl, error, supported, start, stop, discard };
+  return { recording, seconds, audioUrl, audioBlob, error, supported, start, stop, discard };
 };

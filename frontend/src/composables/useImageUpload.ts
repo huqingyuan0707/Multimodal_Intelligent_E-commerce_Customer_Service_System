@@ -1,12 +1,18 @@
-// 图片上传（≤9 张/单张 ≤10M/JPG-PNG-WEBP/超限 canvas 压缩；上传走 uploadImageApi，对齐页面设计 §4）
+// 图片上传（≤9 张/单张 ≤10M/JPG-PNG-WEBP/超限 canvas 压缩；上传走多模态接口，对齐页面设计 §4）
 import { ref } from 'vue';
-import { uploadImageApi } from '@/api';
+import { uploadAndInspectImageApi } from '@/api';
+import type { VisionInspection } from '@/types/agent';
 
 export type PendingImage = {
   id: string;
   preview: string;
   file: File;
   status: 'ready' | 'uploading' | 'done' | 'error';
+};
+
+export type InspectedImage = {
+  file_id: string;
+  inspection: VisionInspection;
 };
 
 const MAX_COUNT = 9;
@@ -93,23 +99,23 @@ export const useImageUpload = () => {
     images.value = images.value.filter(i => i.id !== id);
   };
 
-  // 逐张上传，返回服务端确认的文件名；失败的标 error 继续发文字
+  // 逐张上传检测，返回 {file_id, inspection}（检测卡即时渲染 + 随对话透传拼上下文）
   const uploadAll = async () => {
-    const names: string[] = [];
+    const done: InspectedImage[] = [];
     for (const img of images.value) {
       if (img.status === 'done') {
         continue;
       }
       img.status = 'uploading';
       try {
-        const res = await uploadImageApi({ file: img.file });
+        const res = await uploadAndInspectImageApi({ file: img.file });
         img.status = 'done';
-        names.push(res.filename);
+        done.push({ file_id: res.file_id, inspection: res.inspection });
       } catch {
         img.status = 'error';
       }
     }
-    return names;
+    return done;
   };
 
   const clear = () => {

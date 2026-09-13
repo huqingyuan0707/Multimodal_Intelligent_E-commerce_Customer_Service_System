@@ -201,6 +201,13 @@ onMounted(() => {
   align-items: center;
 }
 
+/* EP 组件自带字号（dropdown/button 14px、tag 12px）与 .status 13px 混排会大小不一、基线错位，统一为 13px */
+.status :deep(.el-dropdown),
+.status :deep(.el-button),
+.status :deep(.el-tag) {
+  font-size: 13px;
+}
+
 .dot {
   display: inline-block;
   width: 8px;
@@ -217,12 +224,20 @@ onMounted(() => {
 }
 
 .top-link {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  height: auto;
+  padding: 0;
+
   --el-button-text-color: var(--reai-nav-active);
   --el-button-hover-text-color: var(--reai-nav-active);
 }
 
 .tenant,
 .username {
+  display: inline-flex;
+  align-items: center;
   color: var(--reai-nav-text);
 }
 

@@ -1,6 +1,50 @@
 // SSE 流式对话（对齐 API 规范 §5：event source/phase/message/done；fetch 必带 Authorization，401 走中央 handle401）
-import type { Reference } from '@/types/agent';
+import type { AgentMessage, Reference, SessionContext, VisionInspection } from '@/types/agent';
 import { API_BASE, handle401 } from './http';
+
+// 历史回放映射：后端 message_to_dict 行 → AgentMessage（引用/检测卡/trace 一次收口，页面只消费）
+export const toAgentMessages = (list: unknown[]) => {
+  if (!Array.isArray(list)) {
+    return [];
+  }
+  return list.flatMap((m, i) => {
+    if (typeof m !== 'object' || m === null) {
+      return [];
+    }
+    // 后端行：content/role/modality/attachments/citations[{source,title,score}]/trace_id
+    const r = m as {
+      content?: string;
+      role?: string;
+      modality?: string;
+      trace_id?: string;
+      attachments?: VisionInspection[];
+      citations?: { source?: string; title?: string; score?: number }[];
+    };
+    if (typeof r.content !== 'string') {
+      return [];
+    }
+    const references = Array.isArray(r.citations)
+      ? r.citations
+          .filter(c => typeof c.title === 'string')
+          .map(c => ({ source: c.source ?? '', title: c.title ?? '', score: c.score ?? 0 }))
+      : [];
+    const vision = Array.isArray(r.attachments)
+      ? r.attachments.filter(v => typeof v.category === 'string')
+      : [];
+    return [
+      {
+        id: `h-${i}`,
+        role: r.role === 'user' ? 'user' : 'agent',
+        modality: r.modality === 'image' ? 'image' : 'text',
+        content: r.content,
+        references,
+        trace_id: typeof r.trace_id === 'string' ? r.trace_id : undefined,
+        vision: r.role === 'agent' ? vision : [],
+        need_human: r.role === 'agent' && vision.some(v => v.need_human),
+      } as AgentMessage,
+    ];
+  });
+};
 
 export type DonePayload = {
   references: Reference[];
@@ -8,6 +52,9 @@ export type DonePayload = {
   faithfulness: number;
   trace_id: string;
   session_id: string;
+  vision?: VisionInspection[];
+  need_human?: boolean;
+  context?: SessionContext;
 };
 
 export type StreamHandlers = {
@@ -19,9 +66,12 @@ export type StreamHandlers = {
 };
 
 // 流式入参：threadId 复用后端会话（t- 开头本地占位不传），clientMsgId 幂等键（重连复用同一键不翻倍）
+// 图文轮 imageIds/inspections 为上传步回执原样透传（后端清洗 + 阈值重算，不信任前端 need_human）
 export type StreamOptions = {
   threadId?: string;
   clientMsgId?: string;
+  imageIds?: string[];
+  inspections?: VisionInspection[];
 };
 
 const parseFrame = (frame: string, handlers: StreamHandlers, seen: Set<string>) => {
@@ -102,6 +152,8 @@ export const streamChat = async (
         query,
         thread_id: opts?.threadId,
         client_msg_id: opts?.clientMsgId ?? '',
+        image_ids: opts?.imageIds ?? [],
+        inspections: opts?.inspections ?? [],
       }),
       signal,
     });

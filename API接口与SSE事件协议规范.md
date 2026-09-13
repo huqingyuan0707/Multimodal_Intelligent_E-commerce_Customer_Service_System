@@ -69,22 +69,25 @@ api_router.include_router(chat.router, dependencies=[Depends(get_current_user)])
 - 开发默认账号：**租户 `demo-tenant` / 用户名 `admin` / 密码 `admin123` / 角色 `cs,kb`**（`.env` 的 `SEED_*` 可覆盖）。种子幂等且**不覆盖已存在账号**，改 `SEED_PASSWORD` 只对新建账号生效。
 
 ### 4.2 对话（非流式，调试/短问答）
-- `POST /agent/chat {query, thread_id?, security_level?, client_msg_id?}` → `ok({answer, references[], guard:{pass,degraded}, faithfulness, model, degraded, trace_id, session_id})`（规范路径；`/chat` 为兼容别名，行为一致）。
+- `POST /agent/chat {query, thread_id?, security_level?, client_msg_id?, image_ids[]?, inspections[]?}` → `ok({answer, references[], guard:{pass,degraded}, faithfulness, model, degraded, trace_id, session_id, vision[], need_human, context{rounds,tokens,dropped,summarized}})`（规范路径；`/chat` 为兼容别名，行为一致）。
 - 入参 `thread_id` 命中本人会话则复用，否则新建（标题取问题前 20 字，他人/异租户 id 视为未传）；`client_msg_id` 为前端每次发送生成的幂等键，同（会话，键）重调只落一行，重放不再调模型。
 - 用户消息与助手回复（含引用/guard/忠实度/trace）双双落 `messages` 表，刷新后 `GET /sessions/{id}` 可回放。
 - 生成走适配层 `llm_service`（本地 Ollama `qwen2.5`，ADR-0001）；模型不可用**不 500**：降级片段摘要，`degraded=true`、`model="template"`。
 - `faithfulness`：回答内 `[n]` 引用越界按比例扣分（无引用记 0.9），低分前端可提示核对来源。
 - `2001` 表示无据拒答，前端渲染拒答话术 + 转人工按钮，不当错误抛异常（拒答同样落库，`rejected` 标记）。
 
-### 4.3 会话与记忆
-- `GET /sessions?page=1&size=20` → 真实列表（按 `tenant+username` 隔离倒序，空数据 `[]` 不报错；`page/size` 默认 `1/20` 预留分页）。
+### 4.3 会话与记忆（三层：Session→Message→Context，对齐 FR-1.4）
+- `GET /sessions?page=1&size=20` → 分页对象 `{items[{id,title,summary,message_count,created_at,updated_at}], total, page, size}`（按 `tenant+username` 隔离、最近活跃倒序；空数据 `items=[]` 不报错）。
 - `POST /sessions {title?}` → 新会话落库（前端本地先建 `t-${Date.now()}` 占位，成功后以后端 `id` 为准）。
-- `GET /sessions/{id}` → 含消息；404（跨租户/跨用户同 404）则回退 `@/mock` 演示数据，保证后端不可用时页面可用。
+- `GET /sessions/{id}?page=1&size=50` → `{id,title,summary,messages[倒序],total,page,size,has_more}`（page=1 最新页；`has_more` 供前端“加载更早消息”；前端渲染前反转即正序）。404（跨租户/跨用户同 404）则回退 `@/mock` 演示数据。
+- `PUT /sessions/{id} {title}` → 重命名（空标题 1001，超长截 20 字）。
+- `GET /sessions/{id}/context` → 上下文视图 `{summary, rounds, tokens, dropped, budget, window_rounds}`（与 `run_text_turn` 装配同源：同 `load_window/build_history_block`，所见即所算，供坐席 Trace 调试）。
 - `DELETE /sessions/{id}` → 需 confirm + 消息级联遗忘。
-- 前置地基：`sessions/messages` 表由 Alembic 基线迁移建表（`tenants/users/sessions/messages/tasks/approvals/tool_calls/kb_docs/audit_logs/cost_records` 全量就绪）。
+- 上下文装配（每轮）：落库本轮前取最近 `SESSION_HISTORY_ROUNDS`（默认 20）轮 → 满窗刷新 `sessions.summary` 规则摘要 → 摘要 + 窗口（多模态附件转写成 `[图：破洞 0.85]` 行）拼 `history` 进 LLM 解指代；超 `SESSION_TOKEN_BUDGET`（默认 8000，中文 1.5 字/token 统一口径）从旧往新丢轮；历史先经手机/身份证/邮箱正则脱敏。`done` 加法带 `context{rounds,tokens,dropped,summarized}`（向后兼容）。
+- 前置地基：`sessions/messages` 表由 Alembic 基线迁移建表 + `d3f1a2b4c5e6` 补 `summary/updated_at`（只加列，旧库 server_default 回填）。
 
 ### 4.4 知识库
-- `POST /documents/upload` FormData(`file`) → `ok({doc_id, sha256, skipped?})`，重复 SHA256 返回“已跳过重复入库”（敏感写，`require_perm("kb")` Scope 校验）。
+- `POST /documents/upload` FormData(`file, security_level?=internal, channels?=all, valid_from?=, valid_to?=`) → `ok({doc_id, sha256, skipped?})`，重复 SHA256 返回“已跳过重复入库”（敏感写，`require_perm("kb")` Scope 校验；超 `MAX_UPLOAD_BYTES` 1001；解析→切分→向量化全在 `document_service.ingest_upload`，记 `kb.upload` 审计）。
 - `GET /documents?page=1&size=20&keyword=` → 分页对象 `{items[], total, page, size}`（租户隔离倒序，标题模糊筛选，空数据 `items=[]` 不报错；`items[]` 含密级/渠道/生效期/版本，不含正文）。
 - `GET /documents/{id}` → 详情（含正文与全量元数据，供预览/编辑回显；跨租户 404）。
 - `PUT /documents/{id} {title, content, security_level, channels[], valid_from?, valid_to?}` → 内容变则版本 +1，撞他篇内容 1001（敏感写，`require_perm("kb")`）。
@@ -97,8 +100,9 @@ api_router.include_router(chat.router, dependencies=[Depends(get_current_user)])
 - `POST /documents/reindex` → 建 `kb.reindex` 任务行即 via `BackgroundTasks` 真实执行（租户全部分块重建），`GET /tasks/{id}` 轮询 `running → done{docs, chunks}`（异常落 `error`，不断流）。
 
 ### 4.6 治理与可观测
-- `GET /governance/status` → 向量/关键词后端可用性 + 阈值 + 热更字段 + `llm:{available,endpoint,model,detail}`（`llm_service.probe()` 实测本地 Ollama，绝不抛异常）。
-- `GET /observability/summary` → 耗时/召回/拦截/token 成本聚合（后端 `_record() → observability.record()` 必埋）。
+- `GET /governance/status` → `{llm, vector{backend,model,dim,vectors}, keyword, reranker, thresholds{top_k,rrf_k,db_threshold,diversity_per_doc,faithfulness_warn}, hot_fields}`（`llm_service.probe()` + `vector_store.status()` + `rerank_service.status()` 实测，绝不抛异常）。
+- `POST /mining/feedback {message_id, vote, comment?}` → `ok({id})`（跨租户 404；记 `mining.feedback` 审计）；`GET /mining/candidates` → `{items[{feedback_id,message_id,session_id,vote,comment,query}], total}`（差评 + 无引用拒答补位，租户隔离）。
+- `GET /observability/summary` → 耗时/召回/拦截/token 成本聚合（后端 `_record() → observability.record()` 必埋，检索/生成/Mining 每步带 `tenant/trace_id`）。
 
 ### 4.7 B端商家后台（对齐 FRDv2 附录 D，同基座 JWT/Scope/幂等键/审计）
 > 已实现（本期，路由级 `get_current_user` + 端点 `require_any_perm`）；采购/财务/大屏为 P2 待建。
@@ -128,9 +132,19 @@ api_router.include_router(chat.router, dependencies=[Depends(get_current_user)])
 - 审计：`GET /admin/audits?tenant=&action=&keyword=&page=&size=`（只读倒序，`tenant.create/quota/status + user.roles` 全留痕）。
 - 写操作幂等：`Idempotency-Key` 由前端 `dispatch(idempotent:true)` 自动带；变更类操作同步记 `audit_logs`（只追加不改）。
 
+### 4.10 多模态（对齐 FRDv2 FR-1 + 执行步骤 A，同基座 JWT/租户隔离/审计）
+> 图片：上传 → 对象存储（数据模型 §5 布局）→ NSFW/PII 预检 → VLM 瑕疵检测 → 拼 LLM 上下文 → 置信 <0.6 转人工；语音：ASR 转写 + TTS 开关/音色。
+- `POST /multimodal/images` FormData(`file, session_id?=`) → `ok({file_id, url, inspection{category, confidence, desc, need_human, degraded, safe_pass, bbox}})`。超 10M → `2004`；NSFW/PII 命中 → `2003`（中文可操作，均不抛 500）。
+- `POST /agent/chat` / `POST /agent/chat/stream` 加法字段：`{image_ids[], inspections[]}`（上传步回执原样透传；后端按类别白名单清洗 + 置信度钳 0-1 + `need_human` 按 `VLM_CONFIDENCE_THRESHOLD` 重算，不信任前端）。
+- `POST /multimodal/speech/transcribe` FormData(`file, session_id?=`) → `ok({file_id, url, text, confidence, need_confirm, degraded})`（≤60s/≤5M；低置信 `need_confirm=true` 回问确认）。
+- `GET /multimodal/speech/tts-config` → `ok({enabled, voice, voices})`（默认晓晓，前端下拉同源）；`POST /multimodal/speech/synthesize {text, voice?}` → `ok({text, voice, enabled, degraded})`（前端 WebSpeech 播放 + 波形）。
+- `GET /multimodal/media/{file_id}` → 文件流（租户隔离，跨租户 404）。
+- 可调全进 `Settings`：`MEDIA_DIR/IMAGE_MAX_COUNT/IMAGE_MAX_BYTES/IMAGE_ALLOWED_TYPES/VLM_*/ASR_*/VOICE_MAX_*/TTS_*`（`VLM_CONFIDENCE_THRESHOLD/ASR_CONFIDENCE_THRESHOLD` 进 `_HOT_FIELDS` 热更）；`GET /governance/status` 加法回 `vlm/asr`（含阈值）与 `thresholds.vlm_confidence/asr_confidence`。
+- openapi 自查说明：`backend/openapi.json` 尚未落库（pre-commit 显示 SKIP），本轮以 `app.openapi()` 导出核对：新增 5 条 `/multimodal/*` path，总 63 paths，`chat` 加法字段向后兼容。
+
 ## 5. SSE 流式协议（项目实际形态）
 
-后端事件名固定：`source / phase / message / done`（任务类另有 `progress/complete/error`）。`done` 载荷必含 `references + guard + faithfulness + trace_id + session_id`。每帧必带 `id:` 行（`{stream_id}:{seq}`，`stream_id` 由 `client_msg_id` 确定性派生，重放帧 id 相同），前端同流内按 id 去重，断线重连不重复拼接。
+后端事件名固定：`source / phase(retrieving[/inspecting]/generating/validating) / message / done`（任务类另有 `progress/complete/error`；图文轮多一帧 `inspecting`，纯文本轮无此帧）。`done` 载荷必含 `references + guard + faithfulness + trace_id + session_id`，图文轮加带 `vision[] + need_human`（前端渲染检测卡 + 低置信转人工按钮），多轮加带 `context{rounds,tokens,dropped,summarized}`（前端气泡小字透出用量）。每帧必带 `id:` 行（`{stream_id}:{seq}`，`stream_id` 由 `client_msg_id` 确定性派生，重放帧 id 相同），前端同流内按 id 去重，断线重连不重复拼接。
 
 ```python
 """聊天流 endpoint（对齐 API 规范 §5）"""

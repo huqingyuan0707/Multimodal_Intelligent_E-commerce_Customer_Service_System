@@ -17,6 +17,7 @@ from app.db.base import Base, _now, _uid
 # 此处重导出以保持 `from app.db.models import X` 口径唯一，Alembic env 同步 import 两处。
 from app.db.models_foundation import (
     CostRecord,
+    Feedback,
     KbChunk,
     KbDoc,
     Message,
@@ -27,6 +28,7 @@ from app.db.models_foundation import (
 __all__ = [
     "Base",
     "CostRecord",
+    "Feedback",
     "KbChunk",
     "KbDoc",
     "Message",
@@ -52,15 +54,21 @@ class User(Base):
 
 
 class Session(Base):
-    """会话（P0 仅落盘标题与归属，消息持久化后续补）。"""
+    """会话（三层之首：归属 + 标题 + 长会话摘要 + 活跃时间，消息见 messages 表）。
+
+    summary：超 SESSION_HISTORY_ROUNDS 轮时由 context_service 规则摘要写入，
+    下轮拼进 LLM 上下文，老消息不再逐条注入（双重修剪之轮数侧）。
+    """
 
     __tablename__ = "sessions"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uid)
-    tenant: Mapped[str] = mapped_column(String(64), nullable=False)
-    username: Mapped[str] = mapped_column(String(64), nullable=False)
+    tenant: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    username: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(128), default="新会话")
+    summary: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(default=_now)
+    updated_at: Mapped[datetime] = mapped_column(default=_now, onupdate=_now)
 
 
 # ==================== B 端业务域（商品/库存/订单/审批，数据模型文档 §2.1） ====================

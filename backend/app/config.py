@@ -51,6 +51,30 @@ class Settings(BaseSettings):
     RAG_DIVERSITY_PER_DOC: int = 2  # 同 doc 至多返回 chunk 数
     KB_CHUNK_CHARS: int = 800  # 单 chunk 上限（主题切分优先，超长才按段硬切）
 
+    # 13 步链路新增可调（上传→解析→向量化→混合检索→Rerank→过滤→拼接→生成→校验→落库→Mining）
+    EMB_MODEL: str = "stdlib-hash-64"  # P0 确定性哈希向量；BGE 接入后改名即切
+    EMB_DIM: int = 64  # 哈希向量维度（纯 Python 无依赖，万级块毫秒级）
+    VECTOR_FUSE_RANK: bool = False  # P0 只索引/打分/上报，不进 RRF（哈希碰撞会扰动排序；BGE 后置 true）
+    BGE_RERANKER: str = "rrf-cosine-stub"  # P1 替换为 bge-reranker 模型名
+    VECTOR_BACKEND: str = "memory"  # memory/Chroma/pgvector/Milvus（业务只走适配层）
+    MAX_UPLOAD_BYTES: int = 5 * 1024 * 1024  # 单文件上限 5M（超限 1001 中文提示）
+    MAX_UPLOAD_CHARS: int = 20000  # 解析截断上限（防超长拖慢切分/提示词）
+    RAG_CHANNEL_FILTER: bool = True  # 检索是否按 channels 过滤（渠道隔离）
+    FAITHFULNESS_WARN: float = 0.6  # 引用校验低于此值记 guard.pass=False 并进 Mining
+    MINING_BAD_VOTE: str = "down"  # 差评口径（进待补知识候选）
+    _HOT_FIELDS: tuple[str, ...] = (
+        "TOP_K",
+        "RRF_K",
+        "RAG_DB_THRESHOLD",
+        "RAG_DIVERSITY_PER_DOC",
+        "KB_CHUNK_CHARS",
+        "LLM_REF_CHARS",
+        "LLM_TEMPERATURE",
+        "SSE_CHUNK_CHARS",
+        "VLM_CONFIDENCE_THRESHOLD",
+        "ASR_CONFIDENCE_THRESHOLD",
+    )
+
     # 大模型：本地 Ollama（OpenAI 兼容协议 /v1），见 ADR-0001。业务代码只调 llm_service，禁止写地址/模型名。
     LLM_ENABLED: bool = True
     LLM_BASE_URL: str = "http://127.0.0.1:11434/v1"
@@ -67,6 +91,42 @@ class Settings(BaseSettings):
 
     # 文本流 message 事件分片长度（增量渲染粒度，大模型按 token 流时再调小）
     SSE_CHUNK_CHARS: int = 120
+
+    # 历史对话三层（FR-1.4）：会话→消息→上下文；双重修剪（轮数 + Token 预算），
+    # 超限摘要压缩 + PII 正则清洗；业务只读 Settings，禁止散落阈值。
+    SESSION_HISTORY_ROUNDS: int = 20  # 进 LLM 的历史轮数上限（user+agent 算一轮）
+    SESSION_TOKEN_BUDGET: int = 8000  # 历史块 Token 预算上限（估算口径见 context_service）
+    SESSION_SUMMARY_CHARS: int = 600  # 会话摘要截断长度（sessions.summary）
+    SESSION_MSG_CHARS: int = 800  # 单条历史消息进上下文的截断长度
+
+    # 多模态 FR-1（执行步骤 A）：图片走对象存储布局，VLM/ASR/TTS 沿 llm_service 单出口，
+    # 业务只读 Settings，禁止散落硬编码模型名/阈值/URL（数据模型 §5 对象存储布局）。
+    MEDIA_DIR: str = "./data/media"  # 本地落盘根；生产换 S3/MinIO 同 path 布局
+    IMAGE_MAX_COUNT: int = 9  # 单轮附图上限（FR-1.2）
+    IMAGE_MAX_BYTES: int = 10 * 1024 * 1024  # 单张 10M，超限 2004 中文拒收
+    IMAGE_ALLOWED_TYPES: list[str] = ["image/jpeg", "image/png", "image/webp"]
+    VLM_ENABLED: bool = True
+    VLM_BASE_URL: str = "http://127.0.0.1:11434/v1"  # OpenAI 兼容；默认复用 Ollama 位
+    VLM_MODEL: str = "qwen2.5:0.5b"  # 有 Qwen3-VL 后 .env 切名即换（FRD §2 选型表）
+    VLM_API_KEY: SecretStr = SecretStr("ollama")
+    VLM_TIMEOUT_SECONDS: float = 120.0  # 视觉模型首 token 慢，图片推理放宽到 120s
+    VLM_MAX_TOKENS: int = 512  # 思考模型 reasoning 占 token，留足避免结论被截断
+    VLM_THINK: bool = False  # 思考模型关 thinking 直出 JSON（Ollama 实测有效）
+    VLM_PROTOCOL: str = "openai"  # openai（/v1/chat 兼容）| ollama（原生 /api/chat）
+    VLM_MAX_EDGE: int = 1280  # 传图前最长边缩放（控 token/延迟，与前端压缩口径同源）
+    VLM_JPEG_QUALITY: int = 82  # 缩放后 JPEG 质量（OpenAI image_url 统一转 JPEG）
+    VLM_CONFIDENCE_THRESHOLD: float = 0.6  # 低于此值自动转人工复核，不硬答
+    ASR_ENABLED: bool = True
+    ASR_BASE_URL: str = "http://127.0.0.1:11434/v1"  # SenseVoice 网关封装后切此地址
+    ASR_MODEL: str = "sensevoice-small"  # 占位名：网关未接时走转写 stub 降级
+    ASR_API_KEY: SecretStr = SecretStr("local")
+    ASR_TIMEOUT_SECONDS: float = 30.0
+    ASR_CONFIDENCE_THRESHOLD: float = 0.6  # 低置信回问确认，不直接当 query 用
+    VOICE_MAX_SECONDS: int = 60  # FR-1.3 录音上限
+    VOICE_MAX_BYTES: int = 5 * 1024 * 1024  # 语音 5M，超限 1001 中文拒收
+    TTS_ENABLED: bool = True
+    TTS_VOICE: str = "晓晓"  # 默认音色（edge-tts 晓晓，FRD §2）
+    TTS_VOICES: list[str] = ["晓晓", "云希", "云扬"]  # 可切音色白名单，前端下拉同源
 
     # 管理后台配额默认（FRD FR-8 / 数据模型 §2 tenants.quota_*）：新建租户落库口径，.env 可覆盖。
     DEFAULT_QUOTA_TOKENS: int = 1000000

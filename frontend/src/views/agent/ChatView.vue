@@ -1,17 +1,52 @@
 <template>
-  <div class="page">
-    <div class="top">
-      <h2>对话助手</h2>
-      <AiButton @click="openSessions">会话</AiButton>
-    </div>
+  <div class="layout">
+    <aside class="sider">
+      <h3 class="sider-title">历史对话</h3>
+      <SessionList
+        :sessions="sessionStore.sessions"
+        :current-id="sessionStore.currentId"
+        :total="sessionStore.total"
+        @new="newSession"
+        @select="restore"
+        @removed="onSessionRemoved"
+        @page="onSessionPage"
+      />
+    </aside>
+    <div class="page">
+      <div class="top">
+        <h2>对话助手</h2>
+        <AiButton class="sess-btn" @click="openSessions">会话</AiButton>
+      </div>
     <div class="list">
+      <div v-if="hasMore" class="more-row">
+        <AiButton @click="loadEarlier">加载更早消息</AiButton>
+      </div>
       <div v-for="m in messages" :key="m.id" class="bubble" :class="m.role">
+        <div v-if="m.images?.length" class="thumbs">
+          <img
+            v-for="(u, i) in m.images"
+            :key="`${m.id}-${i}`"
+            :src="u"
+            alt="售后图片"
+            @click="preview(u)"
+          />
+        </div>
         <p class="content">{{ m.content }}</p>
+        <VisionResultCard v-if="m.vision?.length" :inspections="m.vision" />
+        <p v-if="m.need_human" class="human">
+          置信不足已转人工复核，坐席将在 30 秒内接管
+          <AiButton @click="transfer">立即转人工</AiButton>
+        </p>
         <p v-if="m.references?.length" class="refs">
           引用：
           <span v-for="r in m.references" :key="r.source">[{{ r.title }}]</span>
         </p>
         <p v-if="m.trace_id" class="trace">trace: {{ m.trace_id }}</p>
+        <p v-if="m.context" class="trace">
+          上下文 {{ m.context.rounds }} 轮/约 {{ m.context.tokens }} token{{
+            m.context.summarized ? '（已摘要）' : ''
+          }}
+        </p>
       </div>
       <div v-if="streaming" class="bubble agent">
         <p class="content">{{ draft || phase || '思考中…' }}</p>
@@ -25,20 +60,12 @@
       </div>
     </div>
     <p v-if="imgError" class="err">{{ imgError }}</p>
-    <div v-if="recording || audioUrl" class="voice-bar">
-      <span v-if="recording" class="rec-dot" />
-      <span v-if="recording">录音中 {{ seconds }}s（≤60s）</span>
-      <audio v-if="!recording && audioUrl" :src="audioUrl" controls class="player" />
-      <AiButton v-if="!recording && audioUrl" @click="transcribe">转文字</AiButton>
-      <AiButton v-if="!recording && audioUrl" @click="discardRec">丢弃</AiButton>
-    </div>
-    <p v-if="voiceError" class="err">{{ voiceError }}</p>
+    <VoicePanel v-if="voiceOpen" @transcribed="onTranscribed" />
+    <ImagePreviewDialog ref="previewRef" />
     <div class="input-row">
       <AiInput v-model="input" placeholder="请输入问题，如：退货政策是什么" @keyup.enter="send" />
       <AiButton @click="pick">图片</AiButton>
-      <AiButton :disabled="!voiceSupported" @click="toggleRec">
-        {{ recording ? '停止录制' : '语音' }}
-      </AiButton>
+      <AiButton @click="voiceOpen = !voiceOpen">语音</AiButton>
       <AiButton v-if="!streaming" @click="send">发送</AiButton>
       <AiButton v-else @click="stop">停止</AiButton>
       <AiButton @click="transfer">转人工</AiButton>
@@ -51,41 +78,45 @@
       hidden
       @change="onPick"
     />
-    <el-drawer v-model="drawer" title="历史会话" size="300px">
-      <AiButton class="new" @click="newSession">新会话</AiButton>
-      <div
-        v-for="s in sessionStore.sessions"
-        :key="s.id"
-        class="sess"
-        :class="{ active: s.id === sessionStore.currentId }"
-        @click="restore(s.id)"
-      >
-        {{ s.title }}
-      </div>
-    </el-drawer>
+      <SessionDrawer
+        ref="drawerRef"
+        :sessions="sessionStore.sessions"
+        :current-id="sessionStore.currentId"
+        :total="sessionStore.total"
+        @new="newSession"
+        @select="restore"
+        @removed="onSessionRemoved"
+        @page="onSessionPage"
+      />
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 // 真实对话：会话抽屉 + 图片上传 + 语音录播 + 流式落条（引用/trace/sources）；失败重连后仍不用回 mock 演示（对齐页面设计 §3.1/§4）
 // 发送带 threadId（t- 占位不传）+ clientMsgId 幂等键，首轮 done 回 session_id 后认领替换占位。
-import { ElDrawer, ElMessage } from 'element-plus';
+import { ElMessage } from 'element-plus';
 import { onMounted, ref } from 'vue';
-import { getSessionApi } from '@/api';
 import { useAgentStream } from '@/composables/useAgentStream';
+import { useChatHistory } from '@/composables/useChatHistory';
 import { useImageUpload } from '@/composables/useImageUpload';
-import { useVoiceRecorder } from '@/composables/useVoiceRecorder';
+import ImagePreviewDialog from '@/components/ImagePreviewDialog.vue';
+import SessionDrawer from '@/components/SessionDrawer.vue';
+import SessionList from '@/components/SessionList.vue';
+import VisionResultCard from '@/components/VisionResultCard.vue';
+import VoicePanel from '@/components/VoicePanel.vue';
 import { mockChatFallback } from '@/mock';
 import { useSessionStore } from '@/stores/session';
 import AiButton from '@/shared/components/AiButton.vue';
 import AiInput from '@/shared/components/AiInput.vue';
-import type { AgentMessage } from '@/types/agent';
+import type { AgentMessage, VisionInspection } from '@/types/agent';
 
 const messages = ref<AgentMessage[]>([]);
 const input = ref('');
-const drawer = ref(false);
+const drawerRef = ref<{ open: () => unknown; close: () => unknown } | null>(null);
 const fileRef = ref<HTMLInputElement | null>(null);
 const sessionStore = useSessionStore();
+const { hasMore, restore, loadEarlier, resetHistory, forgetSession } = useChatHistory(messages);
 const { streaming, sources, phase, draft, error, done, start, stop, toMessage } = useAgentStream();
 const {
   images: pendingImages,
@@ -95,74 +126,35 @@ const {
   uploadAll,
   clear: clearImages,
 } = useImageUpload();
-const {
-  recording,
-  seconds,
-  audioUrl,
-  error: voiceError,
-  supported: voiceSupported,
-  start: startRec,
-  stop: stopRec,
-  discard: discardRec,
-} = useVoiceRecorder();
+const voiceOpen = ref(false);
+const previewRef = ref<{ open: (url: string) => unknown } | null>(null);
 
-const toAgentMessages = (list: unknown[]) => {
-  if (!Array.isArray(list)) {
-    return [];
-  }
-  return list.flatMap((m, i) => {
-    if (typeof m !== 'object' || m === null) {
-      return [];
-    }
-    // 后端 message_to_dict 行：content/role/citations[{source,title,score}]/trace_id
-    const r = m as {
-      content?: string;
-      role?: string;
-      trace_id?: string;
-      citations?: { source?: string; title?: string; score?: number }[];
-    };
-    if (typeof r.content !== 'string') {
-      return [];
-    }
-    const references = Array.isArray(r.citations)
-      ? r.citations
-          .filter(c => typeof c.title === 'string')
-          .map(c => ({ source: c.source ?? '', title: c.title ?? '', score: c.score ?? 0 }))
-      : [];
-    return [
-      {
-        id: `h-${i}`,
-        role: r.role === 'user' ? 'user' : 'agent',
-        modality: 'text',
-        content: r.content,
-        references,
-        trace_id: typeof r.trace_id === 'string' ? r.trace_id : undefined,
-      } as AgentMessage,
-    ];
-  });
+const preview = (url: string) => {
+  previewRef.value?.open(url);
+};
+
+const onTranscribed = (p: { text: string }) => {
+  input.value = p.text;
+  voiceOpen.value = false;
 };
 
 const openSessions = () => {
-  drawer.value = true;
-  sessionStore.loadSessions();
+  drawerRef.value?.open();
+  sessionStore.loadSessions(1);
+};
+
+const onSessionPage = (p: number) => {
+  sessionStore.loadSessions(p);
 };
 
 const newSession = () => {
   sessionStore.createLocalSession();
-  messages.value = [];
-  drawer.value = false;
+  resetHistory();
+  drawerRef.value?.close();
 };
 
-const restore = async (id: string) => {
-  try {
-    const data = await getSessionApi({ id });
-    sessionStore.currentId = id;
-    messages.value = toAgentMessages(data.messages);
-    drawer.value = false;
-  } catch {
-    ElMessage.error('会话恢复失败，已清空为本地演示');
-    messages.value = [];
-  }
+const onSessionRemoved = (id: string) => {
+  forgetSession(id);
 };
 
 const pick = () => {
@@ -177,18 +169,6 @@ const onPick = (e: Event) => {
   (e.target as HTMLInputElement).value = '';
 };
 
-const toggleRec = () => {
-  if (recording.value) {
-    stopRec();
-  } else {
-    startRec();
-  }
-};
-
-const transcribe = () => {
-  ElMessage.info('语音转写待后端 ASR 接口（录音与播放已可用）');
-};
-
 const send = async () => {
   const query = input.value.trim();
   const attached = pendingImages.value.length;
@@ -198,6 +178,7 @@ const send = async () => {
   // 先保证本地会话占位（t- 前缀），首轮 done 带回后端 id 后再认领替换
   const threadId = sessionStore.currentId ?? sessionStore.createLocalSession();
   const clientMsgId = `c-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
+  const previews = pendingImages.value.map(i => i.preview);
   messages.value = [
     ...messages.value,
     {
@@ -205,19 +186,38 @@ const send = async () => {
       role: 'user',
       modality: attached > 0 ? 'image' : 'text',
       content: query + (attached > 0 ? `（附${attached}张图）` : ''),
+      images: previews,
     },
   ];
   input.value = '';
+  // 上传即检测：检测卡随用户泡即时渲染，file_id/inspections 透传拼 LLM 上下文
+  let imageIds: string[] = [];
+  let inspections: VisionInspection[] = [];
   if (attached > 0) {
-    const names = await uploadAll();
-    if (names.length < attached) {
+    const done = await uploadAll();
+    if (done.length < attached) {
       ElMessage.warning('部分图片上传失败，已继续发送文字');
     }
+    imageIds = done.map(d => d.file_id);
+    inspections = done.map(d => d.inspection);
+    messages.value = [
+      ...messages.value,
+      {
+        id: `v-${Date.now()}`,
+        role: 'agent',
+        modality: 'image',
+        content: '瑕疵检测结果',
+        vision: inspections,
+        need_human: inspections.some(v => v.need_human),
+      },
+    ];
     clearImages();
   }
   await start(query || '请看这几张图', {
     threadId: threadId.startsWith('t-') ? undefined : threadId,
     clientMsgId,
+    imageIds,
+    inspections,
   });
   if (error.value) {
     ElMessage.error(`${error.value}，已用本地演示回复`);
@@ -253,6 +253,40 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.layout {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+}
+
+.sider {
+  width: 280px;
+  flex-shrink: 0;
+  padding: 16px 12px;
+  overflow-y: auto;
+  border-right: 1px solid var(--reai-border);
+}
+
+.sider-title {
+  margin: 0 0 8px 4px;
+  font-size: 15px;
+  color: var(--reai-text-main);
+}
+
+.sess-btn {
+  display: none;
+}
+
+@media (max-width: 1023px) {
+  .sider {
+    display: none;
+  }
+
+  .sess-btn {
+    display: inline-block;
+  }
+}
+
 .page {
   display: flex;
   flex-direction: column;
@@ -310,6 +344,22 @@ onMounted(() => {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.list .thumbs img {
+  width: 72px;
+  height: 72px;
+  cursor: zoom-in;
+  object-fit: cover;
+  border-radius: 8px;
+}
+
+.human {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--reai-notice);
 }
 
 .thumb {
@@ -378,26 +428,9 @@ onMounted(() => {
   min-width: 0;
 }
 
-.new {
-  width: 100%;
-  margin-bottom: 8px;
-}
-
-.sess {
-  padding: 10px;
-  margin-bottom: 4px;
-  font-size: 14px;
-  cursor: pointer;
-  color: var(--reai-text-main);
-  border-radius: 8px;
-}
-
-.sess:hover {
-  background: var(--reai-card-2);
-}
-
-.sess.active {
-  background: var(--reai-card-2);
+.more-row {
+  display: flex;
+  justify-content: center;
 }
 
 @keyframes blink {

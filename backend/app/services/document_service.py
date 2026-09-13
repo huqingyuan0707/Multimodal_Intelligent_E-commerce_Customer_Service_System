@@ -1,11 +1,12 @@
-"""知识库文档服务（前置地基：真实落库，对齐 API 规范 §4.4 + 数据模型文档 §2）
+"""知识库文档服务（上传→解析→切分→向量化，对齐 API 规范 §4.4 + RAG 规范 §1）
 
-链路：endpoints/documents 薄封装 → 本模块 → kb_docs 表（sha256 租户内去重）。
-红线：所有查询强制按 tenant 过滤；上传去重返回 skipped=True（中文提示由端点组装）。
+链路：ingest_upload（to_thread 解析）→ 去重 → 切分 → 向量双写 → audit。
+红线：查询强制按 tenant 过滤；去重返 skipped=True 中文提示由端点组装。
 """
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import hashlib
 import json
@@ -18,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.core.exceptions import BusinessError, ErrorCode
 from app.db.models import KbChunk, KbDoc
+from app.services import rag_governance, vector_store
 
 # 密级三档（RAG 规范 §3：confidential 需 kb 权限；会话侧默认只召回 public）
 LEVELS = ("public", "internal", "confidential")
@@ -72,17 +74,14 @@ def doc_to_dict(row: KbDoc) -> dict[str, Any]:
 
 
 def detail_to_dict(row: KbDoc) -> dict[str, Any]:
-    """详情（含正文，供预览/编辑；列表保持轻量不带 content）。"""
+    """详情（含正文；列表不带 content 保持轻量）。"""
     data = doc_to_dict(row)
     data["content"] = row.content
     return data
 
 
 def parse_seed_markdown(text: str) -> dict[str, Any]:
-    """解析种子 Markdown：front-matter 七字段 + 正文（去 HTML 注释行）。
-
-    无 front-matter 时全篇当正文、标题取首个 # 行；字段缺失走模型默认值。
-    """
+    """解析种子 Markdown：front-matter 七字段 + 正文（去注释行；无头全篇当正文）。"""
     meta: dict[str, str] = {}
     body = text or ""
     if body.startswith("---"):
@@ -116,10 +115,7 @@ def sha256_of(data: bytes) -> str:
 
 
 def split_chunks(content: str) -> list[str]:
-    """按业务主题切分：`##` 起新块（标题行并入首块）；超长块按段落硬切到 KB_CHUNK_CHARS。
-
-    纯函数可单测；BGE 语义切分接入后替换本函数即可，调用方不变。
-    """
+    """按业务主题切分：`##` 起新块；超长按段硬切到 KB_CHUNK_CHARS（纯函数可单测）。"""
     blocks: list[str] = []
     current: list[str] = []
     for line in (content or "").splitlines():
@@ -151,21 +147,41 @@ def split_chunks(content: str) -> list[str]:
     return out or ([stripped] if stripped else [])
 
 
-async def _write_chunks(db: AsyncSession, doc_id: str, chunks: list[str]) -> int:
-    """落 kb_chunks 行（ord 即块序，供引用 source 定位与多样性裁剪）。"""
-    db.add_all([KbChunk(doc_id=doc_id, ord=i, content=part) for i, part in enumerate(chunks)])
+async def _write_chunks(
+    db: AsyncSession, doc_id: str, chunks: list[str], *, tenant: str = ""
+) -> int:
+    """落块+向量双写（vector_id 回写；向量失败不阻塞入库，status 可见）。"""
+    rows = [KbChunk(doc_id=doc_id, ord=i, content=part) for i, part in enumerate(chunks)]
+    db.add_all(rows)
     await db.flush()
+    if tenant:
+        try:
+            vecs = await asyncio.to_thread(
+                lambda: [vector_store.embed_text(t) for t in [r.content for r in rows]]
+            )
+            for row, vec in zip(rows, vecs, strict=True):
+                row.vector_id = f"{tenant}:{row.id}"
+                vector_store._store[f"{tenant}:{row.id}"] = vec
+        except Exception:
+            pass
     return len(chunks)
 
 
 async def rebuild_chunks(db: AsyncSession, *, tenant: str) -> dict[str, int]:
-    """重建租户全部分块（reindex 执行体）：删旧块 → 按正文重切 → 单事务提交。"""
+    """重建租户全部分块：删旧块+向量 → 重切+向量双写 → 单事务提交。"""
     docs = list((await db.execute(select(KbDoc).where(KbDoc.tenant == tenant))).scalars())
     total_chunks = 0
     for doc in docs:
+        old = list(
+            (await db.execute(select(KbChunk).where(KbChunk.doc_id == doc.id))).scalars()
+        )
+        await vector_store.delete_by_chunk(tenant, [c.id for c in old])
         await db.execute(delete(KbChunk).where(KbChunk.doc_id == doc.id))
-        total_chunks += await _write_chunks(db, doc.id, split_chunks(doc.content))
+        total_chunks += await _write_chunks(db, doc.id, split_chunks(doc.content), tenant=tenant)
     await db.commit()
+    rag_governance.trace_step(
+        "rag.reindex", tenant=tenant, extra={"docs": len(docs), "chunks": total_chunks}
+    )
     return {"docs": len(docs), "chunks": total_chunks}
 
 
@@ -216,42 +232,116 @@ async def count_docs(db: AsyncSession, *, tenant: str, keyword: str = "") -> int
 
 
 async def get_or_create_doc(
-    db: AsyncSession, *, tenant: str, title: str, content: str, raw: bytes
+    db: AsyncSession,
+    *,
+    tenant: str,
+    title: str,
+    content: str,
+    raw: bytes,
+    actor: str = "",
+    security_level: str = "internal",
+    channels: list[str] | None = None,
+    valid_from: str = "",
+    valid_to: str = "",
 ) -> tuple[KbDoc, bool]:
-    """按 sha256 去重入库：已存在返回 (旧行, True)，新建返回 (新行, False)。"""
+    """按 sha256 去重入库：已存在返 (旧行, True)，新建返 (新行, False)。
+
+    13 步口径：切分→向量化双写；写操作记 audit；元数据只在新建落库。
+    """
     digest = sha256_of(raw)
     existed = (
         await db.execute(select(KbDoc).where(KbDoc.tenant == tenant, KbDoc.sha256 == digest))
     ).scalar_one_or_none()
     if existed is not None:
+        rag_governance.trace_step(
+            "rag.upload", tenant=tenant, extra={"skipped": True, "doc_id": existed.id}
+        )
         return existed, True
     if not (title or "").strip():
         raise BusinessError(ErrorCode.PARAM_INVALID, "请至少选择一个文件")
+    if security_level not in LEVELS:
+        raise BusinessError(ErrorCode.PARAM_INVALID, "密级仅支持 public/internal/confidential")
     row = KbDoc(
         tenant=tenant,
         title=title.strip()[:200],
         content=content,
         sha256=digest,
         version=1,
+        security_level=security_level,
+        channels=json.dumps(_parse_channels(channels or ["all"]), ensure_ascii=False),
+        valid_from=_parse_date(valid_from, "生效起"),
+        valid_to=_parse_date(valid_to, "生效止"),
     )
     db.add(row)
     await db.flush()
-    await _write_chunks(db, row.id, split_chunks(content))
+    await _write_chunks(db, row.id, split_chunks(content), tenant=tenant)
+    if actor:
+        await rag_governance.audit_write(
+            db,
+            tenant=tenant,
+            actor=actor,
+            action="kb.upload",
+            target=row.id,
+            detail={"title": row.title, "sha256": digest},
+        )
     await db.commit()
+    rag_governance.trace_step(
+        "rag.upload", tenant=tenant, extra={"skipped": False, "doc_id": row.id}
+    )
     return row, False
 
 
-async def delete_doc(db: AsyncSession, *, tenant: str, doc_id: str) -> None:
-    """删除文档（跨租户 404；分块级联由外键处理）。"""
+async def ingest_upload(
+    db: AsyncSession,
+    *,
+    tenant: str,
+    actor: str,
+    filename: str,
+    raw: bytes,
+    security_level: str = "internal",
+    channels: list[str] | None = None,
+    valid_from: str = "",
+    valid_to: str = "",
+) -> tuple[KbDoc, bool]:
+    """上传编排（端点唯一入口）：解析（to_thread）→ 去重入库（含切分/向量/审计）。"""
+    from app.services import doc_parse_service
+
+    parsed = await asyncio.to_thread(doc_parse_service.parse_upload, filename, raw)
+    title = parsed["title"] if parsed["title"] != "未命名文档" else (filename or "未命名文档")
+    return await get_or_create_doc(
+        db,
+        tenant=tenant,
+        title=title,
+        content=parsed["content"],
+        raw=raw,
+        actor=actor,
+        security_level=security_level,
+        channels=channels,
+        valid_from=valid_from,
+        valid_to=valid_to,
+    )
+
+
+async def delete_doc(
+    db: AsyncSession, *, tenant: str, doc_id: str, actor: str = ""
+) -> None:
+    """删除文档（跨租户 404；分块+向量级联删；写操作记 audit）。"""
     row = (
         await db.execute(select(KbDoc).where(KbDoc.id == doc_id, KbDoc.tenant == tenant))
     ).scalar_one_or_none()
     if row is None:
         raise BusinessError(ErrorCode.NOT_FOUND, "文档不存在或无权访问", 404)
-    # SQLite 外键级联不可靠，显式删块（KbChunk.doc_id 无DB级联保障时防孤儿）
+    old = list((await db.execute(select(KbChunk).where(KbChunk.doc_id == doc_id))).scalars())
+    await vector_store.delete_by_chunk(tenant, [c.id for c in old])
+    # SQLite 外键级联不可靠，显式删块防孤儿
     await db.execute(delete(KbChunk).where(KbChunk.doc_id == doc_id))
     await db.delete(row)
+    if actor:
+        await rag_governance.audit_write(
+            db, tenant=tenant, actor=actor, action="kb.delete", target=doc_id
+        )
     await db.commit()
+    rag_governance.trace_step("rag.delete", tenant=tenant, extra={"doc_id": doc_id})
 
 
 async def get_doc(db: AsyncSession, *, tenant: str, doc_id: str) -> KbDoc:
@@ -287,9 +377,7 @@ async def update_doc(
     if content_changed:
         clash = (
             await db.execute(
-                select(KbDoc).where(
-                    KbDoc.tenant == tenant, KbDoc.sha256 == digest, KbDoc.id != doc_id
-                )
+                select(KbDoc).where(KbDoc.tenant == tenant, KbDoc.sha256 == digest, KbDoc.id != doc_id)
             )
         ).scalar_one_or_none()
         if clash is not None:
@@ -299,8 +387,10 @@ async def update_doc(
     row.title = title.strip()[:200]
     row.content = content or ""
     if content_changed:
+        old_ids = list((await db.execute(select(KbChunk).where(KbChunk.doc_id == row.id))).scalars())
+        await vector_store.delete_by_chunk(tenant, [c.id for c in old_ids])
         await db.execute(delete(KbChunk).where(KbChunk.doc_id == row.id))
-        await _write_chunks(db, row.id, split_chunks(row.content))
+        await _write_chunks(db, row.id, split_chunks(row.content), tenant=tenant)
     row.security_level = security_level
     row.channels = json.dumps(_parse_channels(channels or ["all"]), ensure_ascii=False)
     row.valid_from = _parse_date(valid_from, "生效起")

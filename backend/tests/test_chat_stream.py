@@ -221,8 +221,9 @@ async def test_agent_stream_endpoint_events_and_persist(
             assert done["references"] and done["trace_id"] and done["session_id"]
 
             detail = (await client.get(f"/api/v1/sessions/{done['session_id']}")).json()["data"]
-            assert [m["role"] for m in detail["messages"]] == ["user", "agent"]
-            assert "#" in detail["messages"][1]["citations"][0]["source"]
+            # 详情消息倒序（page=1 最新页），反转即正序 [user, agent]
+            assert [m["role"] for m in reversed(detail["messages"])] == ["user", "agent"]
+            assert "#" in detail["messages"][0]["citations"][0]["source"]
 
             r2 = await client.post("/api/v1/agent/chat/stream", json=body)
             assert r2.status_code == 200

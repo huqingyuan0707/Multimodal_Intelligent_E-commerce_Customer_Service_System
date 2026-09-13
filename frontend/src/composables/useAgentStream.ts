@@ -76,14 +76,17 @@ export const useAgentStream = () => {
     streaming.value = false;
   };
 
-  // 收尾为一条 AgentMessage（引用/trace 随 done 落盘显示）
+  // 收尾为一条 AgentMessage（引用/trace/检测卡/上下文用量随 done 落盘显示）
   const toMessage = (id: string) => ({
     id,
     role: 'agent' as const,
-    modality: 'text' as const,
+    modality: (done.value?.vision?.length ? 'image' : 'text') as 'image' | 'text',
     content: draft.value || error.value,
     references: done.value?.references ?? [],
     trace_id: done.value?.trace_id,
+    vision: done.value?.vision ?? [],
+    need_human: done.value?.need_human ?? false,
+    context: done.value?.context,
   });
 
   return { streaming, sources, phase, draft, done, error, start, stop, toMessage };

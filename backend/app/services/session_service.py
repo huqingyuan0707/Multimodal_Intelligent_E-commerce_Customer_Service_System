@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import BusinessError, ErrorCode
@@ -31,8 +31,10 @@ def session_to_dict(row: Session, message_count: int = 0) -> dict[str, Any]:
     return {
         "id": row.id,
         "title": row.title,
-        "created_at": _dt_text(row.created_at),
+        "summary": row.summary or "",
         "message_count": message_count,
+        "created_at": _dt_text(row.created_at),
+        "updated_at": _dt_text(row.updated_at),
     }
 
 
@@ -51,17 +53,40 @@ def message_to_dict(row: Message) -> dict[str, Any]:
 
 async def list_sessions(
     db: AsyncSession, *, tenant: str, username: str, page: int = 1, size: int = 20
-) -> list[dict[str, Any]]:
-    """会话列表（按人隔离，倒序；page/size 预留分页，暂返回数组保持前端兼容）。"""
-    stmt = (
-        select(Session)
-        .where(Session.tenant == tenant, Session.username == username)
-        .order_by(Session.created_at.desc())
-        .offset((page - 1) * size)
-        .limit(size)
+) -> dict[str, Any]:
+    """会话列表分页对象（按人隔离，最近活跃倒序；每行带 message_count）。
+
+    出参 {items, total, page, size} 与知识库/B 端列表同口径（前端 Skill §6 分页）。
+    """
+    total = (
+        await db.execute(
+            select(func.count())
+            .select_from(Session)
+            .where(Session.tenant == tenant, Session.username == username)
+        )
+    ).scalar_one()
+    rows = list(
+        (
+            await db.execute(
+                select(Session)
+                .where(Session.tenant == tenant, Session.username == username)
+                .order_by(Session.updated_at.desc(), Session.created_at.desc())
+                .offset((page - 1) * size)
+                .limit(size)
+            )
+        ).scalars()
     )
-    rows = list((await db.execute(stmt)).scalars())
-    return [session_to_dict(r) for r in rows]
+    items = []
+    for row in rows:
+        count = (
+            await db.execute(
+                select(func.count())
+                .select_from(Message)
+                .where(Message.session_id == row.id)
+            )
+        ).scalar_one()
+        items.append(session_to_dict(row, int(count)))
+    return {"items": items, "total": int(total), "page": page, "size": size}
 
 
 async def create_session(
@@ -74,10 +99,10 @@ async def create_session(
     return row
 
 
-async def get_session_detail(
+async def _owned_session(
     db: AsyncSession, *, tenant: str, username: str, session_id: str
-) -> dict[str, Any]:
-    """会话详情（含消息；跨租户/跨用户 404，前端 404 回退 mock 演示）。"""
+) -> Session:
+    """取本人会话行（跨租户/跨用户 404 不泄露存在性，各读操作同源）。"""
     session = (
         await db.execute(
             select(Session).where(
@@ -87,33 +112,81 @@ async def get_session_detail(
     ).scalar_one_or_none()
     if session is None:
         raise BusinessError(ErrorCode.NOT_FOUND, "会话不存在或已过期", 404)
+    return session
+
+
+async def get_session_detail(
+    db: AsyncSession,
+    *,
+    tenant: str,
+    username: str,
+    session_id: str,
+    page: int = 1,
+    size: int = 50,
+) -> dict[str, Any]:
+    """会话详情（含摘要 + 消息倒序翻页；page=1 为最新页，has_more 供前端加载更早）。
+
+    跨租户/跨用户 404，前端回退 mock 演示；messages 倒序，前端渲染前反转即正序。
+    """
+    session = await _owned_session(db, tenant=tenant, username=username, session_id=session_id)
+    total = (
+        await db.execute(
+            select(func.count()).select_from(Message).where(Message.session_id == session_id)
+        )
+    ).scalar_one()
     msgs = list(
         (
             await db.execute(
                 select(Message)
                 .where(Message.session_id == session_id)
-                .order_by(Message.created_at.asc())
+                .order_by(Message.created_at.desc(), Message.id.desc())
+                .offset((page - 1) * size)
+                .limit(size)
             )
         ).scalars()
     )
     return {
         "id": session.id,
         "title": session.title,
+        "summary": session.summary or "",
         "messages": [message_to_dict(m) for m in msgs],
+        "total": int(total),
+        "page": page,
+        "size": size,
+        "has_more": page * size < int(total),
     }
 
 
+async def rename_session(
+    db: AsyncSession, *, tenant: str, username: str, session_id: str, title: str
+) -> Session:
+    """重命名会话（空标题 1001；顺手刷新活跃时间）。"""
+    cleaned = (title or "").strip()
+    if not cleaned:
+        raise BusinessError(ErrorCode.PARAM_INVALID, "标题不能为空", 400)
+    session = await _owned_session(db, tenant=tenant, username=username, session_id=session_id)
+    session.title = cleaned[:20]
+    await db.commit()
+    return session
+
+
+async def touch_session(
+    db: AsyncSession, *, tenant: str, username: str, session_id: str
+) -> None:
+    """刷新会话活跃时间（每轮落库后调，列表按最近活跃排；flush 不提交由调用方收口）。
+
+    必须显式赋值：ORM onupdate 只在行有变更时触发，纯插消息行不会联动更新 sessions。
+    """
+    from app.db.base import _now
+
+    session = await _owned_session(db, tenant=tenant, username=username, session_id=session_id)
+    session.updated_at = _now()
+    await db.flush()
+
+
 async def delete_session(db: AsyncSession, *, tenant: str, username: str, session_id: str) -> None:
-    """删除会话（含消息级联遗忘；不存在 404）。"""
-    session = (
-        await db.execute(
-            select(Session).where(
-                Session.id == session_id, Session.tenant == tenant, Session.username == username
-            )
-        )
-    ).scalar_one_or_none()
-    if session is None:
-        raise BusinessError(ErrorCode.NOT_FOUND, "会话不存在或已过期", 404)
+    """删除会话（含消息级联遗忘；不存在 404；附件文件随 media_store TTL 清理不阻塞删除）。"""
+    session = await _owned_session(db, tenant=tenant, username=username, session_id=session_id)
     msgs = list(
         (await db.execute(select(Message).where(Message.session_id == session_id))).scalars()
     )
@@ -191,14 +264,17 @@ async def save_user_message(
     session_id: str,
     content: str,
     client_msg_id: str = "",
+    modality: str = "text",
+    attachments: list[dict[str, Any]] | None = None,
 ) -> Message:
-    """落用户消息行（调用方先经 find_user_message 去重）。"""
+    """落用户消息行（调用方先经 find_user_message 去重；图文轮 modality=image）。"""
     row = Message(
         session_id=session_id,
         tenant=tenant,
         role="user",
-        modality="text",
+        modality=modality if modality in ("text", "image", "voice") else "text",
         content=content,
+        attachments=json.dumps(attachments or [], ensure_ascii=False),
         client_msg_id=(client_msg_id or "").strip(),
     )
     db.add(row)
@@ -217,14 +293,19 @@ async def save_agent_message(
     faithfulness: float,
     trace_id: str,
     client_msg_id: str = "",
+    attachments: list[dict[str, Any]] | None = None,
 ) -> Message:
-    """落助手回复行（引用/guard/忠实度/trace 随行持久化，刷新历史可回放）。"""
+    """落助手回复行（引用/guard/忠实度/trace 随行持久化，刷新历史可回放；
+
+    图文轮 attachments 存 VLM 检测结果，历史回放直接复原检测卡）。
+    """
     row = Message(
         session_id=session_id,
         tenant=tenant,
         role="agent",
-        modality="text",
+        modality="image" if attachments else "text",
         content=content,
+        attachments=json.dumps(attachments or [], ensure_ascii=False),
         citations=json.dumps(citations, ensure_ascii=False),
         guard=json.dumps(guard, ensure_ascii=False),
         faithfulness=faithfulness,

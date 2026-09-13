@@ -1,14 +1,14 @@
-"""知识库端点（真实落库，对齐 API 规范 §4.4）
+"""知识库端点（13 步上传侧，对齐 API 规范 §4.4 + RAG 规范 §1）
 
-链路：FormData 上传 → document_service（SHA256 租户内去重）→ ok()；重建索引落 tasks 行。
-上传/重建/删除为敏感写操作，叠加 require_perm("kb") 做 Scope 校验；列表登录即放行。
+链路：FormData 上传 → ingest_upload（解析→切分→向量→audit）→ ok()；重建落 tasks。
+上传/重建/删除敏感写叠加 require_perm("kb")；列表登录即放行。
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, Form, Query, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -36,21 +36,29 @@ class DocUpdateRequest(BaseModel):
 @router.post("/upload", dependencies=[Depends(require_perm("kb"))])
 async def upload_document(
     file: UploadFile | None = None,
+    security_level: str = Form(default="internal"),
+    channels: str = Form(default="all"),
+    valid_from: str = Form(default=""),
+    valid_to: str = Form(default=""),
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(get_current_user),
 ) -> object:
-    """上传入库：空文件 1001；重复 SHA256 返回已跳过（中文可操作提示）。"""
+    """上传入库：解析→切分→向量→audit 全在 service；空文件 1001；重复 SHA256 已跳过。"""
     if file is None or not (file.filename or "").strip():
         return fail(ErrorCode.PARAM_INVALID, "请至少选择一个文件", 400)
     raw = await file.read()
     if not raw:
         return fail(ErrorCode.PARAM_INVALID, "请至少选择一个文件", 400)
-    try:
-        text = raw[:20000].decode("utf-8", errors="ignore")
-    except ValueError:
-        text = ""
-    row, skipped = await document_service.get_or_create_doc(
-        db, tenant=user.tenant, title=file.filename or "未命名文档", content=text, raw=raw
+    row, skipped = await document_service.ingest_upload(
+        db,
+        tenant=user.tenant,
+        actor=user.username,
+        filename=file.filename or "未命名文档",
+        raw=raw,
+        security_level=(security_level or "internal").strip(),
+        channels=[c.strip() for c in (channels or "all").split(",") if c.strip()],
+        valid_from=(valid_from or "").strip(),
+        valid_to=(valid_to or "").strip(),
     )
     if skipped:
         return ok(
@@ -115,8 +123,8 @@ async def delete_document(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """删除文档（破坏性操作，前端先 confirm）。"""
-    await document_service.delete_doc(db, tenant=user.tenant, doc_id=doc_id)
+    """删除文档（分块+向量级联删+审计；前端先 confirm）。"""
+    await document_service.delete_doc(db, tenant=user.tenant, doc_id=doc_id, actor=user.username)
     return ok({"id": doc_id}, "文档已删除")
 
 

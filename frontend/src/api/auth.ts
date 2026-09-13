@@ -14,9 +14,22 @@ export const createSessionApi = async (params?: { title?: string }) =>
     params: { title: params?.title ?? '新会话' },
   });
 
-export const getSessionApi = async (params: { id: string }) =>
+export const getSessionApi = async (params: { id: string; page?: number; size?: number }) =>
   request({
     path: `/api/v1/sessions/${encodeURIComponent(params.id)}`,
+    params: { page: params.page ?? 1, size: params.size ?? 50 },
+  });
+
+export const renameSessionApi = async (params: { id: string; title: string }) =>
+  request({
+    method: 'PUT',
+    path: `/api/v1/sessions/${encodeURIComponent(params.id)}`,
+    params: { title: params.title },
+  });
+
+export const getSessionContextApi = async (params: { id: string }) =>
+  request({
+    path: `/api/v1/sessions/${encodeURIComponent(params.id)}/context`,
   });
 
 export const deleteSessionApi = async (params: { id: string }) =>

@@ -1,18 +1,13 @@
-"""问答编排（RAG 生成段：检索 → 本地大模型作答 → 降级，对齐 RAG 规范 §4 + ADR-0001）
+"""问答编排（RAG 生成段 8-12 步，对齐 RAG 规范 §4 + ADR-0001）
 
-链路：access_context 取租户 → knowledge_service.retrieve（db 双路链：租户/密级/生效期治理）
-       → 无据抛 NoEvidenceError(2001)
-       → 有据交 llm_service（本地 Ollama qwen2.5）依据资料作答
-       → 模型不可用 → fallback_answer() 片段摘要降级，**绝不 500**。
-稳定性口径：函数签名与拒答码 2001 不变；出参新增 model / degraded 两字段（API 规范 §4.2 已同步），
-            前端不识别也能正常渲染（只读 answer/references）。
+链路：access_context 取租户 → retrieve（三路召回+治理，trace）→ 无据 2001
+      → build_messages（拼接预算）→ llm_service 生成/降级 → validate 引用校验
+      → 落库（messages+cost+audit）→ SSE done。
+红线：每步 trace_step 带 tenant/trace_id；模型不可用降级绝不 500。
 """
 
 from __future__ import annotations
 
-import hashlib
-import json
-import re
 import time
 import uuid
 
@@ -21,92 +16,130 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.core.observability import record
 from app.core.user_context import CurrentUser, access_context
-from app.services import knowledge_service, llm_service, session_service
-
-# 提示词硬约束：宁可不答不可答错（换模型不改这里）
-_SYSTEM_PROMPT = (
-    "你是电商店铺的在线客服，代表商家回答买家问题。必须遵守："
-    "1) 只依据【资料】作答，资料里没有的价格、尺码、面料、发货时限、快递单号、政策一律不得编造；"
-    "2) 资料不足以回答时，直接说明「这点资料里没有，我帮你转人工确认」，不要猜测；"
-    "3) 用简体中文，简洁分点，引用来源时在句末标注编号，例如 [1]。"
+from app.services import (
+    context_service,
+    knowledge_service,
+    llm_service,
+    rag_governance,
+    session_service,
 )
+from app.services.chat_prompt import (
+    build_messages,
+    faithfulness,
+    fallback_answer,
+    validate_references,
+)
+from app.services.chat_stream import chunk_text, loads_dict, loads_list, stream_id_for
+from app.services.vision_service import build_vision_context, sanitize_inspections
 
-_CITED = re.compile(r"\[(\d{1,2})\]")
+# 兼容：传输件/提示词/校验已下沉 chat_stream/chat_prompt，本模块薄转发（端点/历史测试导入口径不变）。
+_loads_list = loads_list
+_loads_dict = loads_dict
+
+__all__ = [
+    "NoEvidenceError",
+    "answer",
+    "build_messages",
+    "build_vision_context",
+    "chunk_text",
+    "faithfulness",
+    "fallback_answer",
+    "run_text_turn",
+    "sanitize_inspections",
+    "stream_id_for",
+    "validate_references",
+]
 
 
 class NoEvidenceError(Exception):
     """无据拒答（端点转 fail(ErrorCode.NO_EVIDENCE, 中文话术, 200)）。"""
 
 
-def build_messages(query: str, refs: list[dict[str, object]]) -> list[dict[str, str]]:
-    """拼提示词：资料按 [n] 编号注入（单条按 LLM_REF_CHARS 截断，控制本地模型上下文压力）。"""
-    blocks = "\n".join(
-        f"[{i}]《{ref.get('title', '')}》{str(ref.get('content', ''))[: settings.LLM_REF_CHARS]}"
-        for i, ref in enumerate(refs, 1)
-    )
-    return [
-        {"role": "system", "content": _SYSTEM_PROMPT},
-        {
-            "role": "user",
-            "content": (f"【资料】\n{blocks}\n\n【问题】{query[:500]}\n请只依据上面资料作答。"),
-        },
-    ]
-
-
-def fallback_answer(query: str, refs: list[dict[str, object]]) -> str:
-    """降级回复（模型不可用时）：逐条列资料摘要，不编造引用之外的单号与政策。"""
-    lines = ["已为你找到相关的店内政策（以下为知识库原文摘要）："]
-    for i, ref in enumerate(refs, 1):
-        lines.append(f"[{i}]《{ref.get('title', '')}》：{str(ref.get('content', ''))[:120]}")
-    lines.append("如需人工跟进，可直接回复“转人工”。")
-    _ = query
-    return "\n".join(lines)
-
-
-def faithfulness(text: str, ref_count: int) -> float:
-    """忠实度：答案自报的引用编号必须都落在实际资料范围内，越界按比例扣分（疑似编造）。"""
-    cited = {int(num) for num in _CITED.findall(text)}
-    if not cited:
-        return 0.9
-    valid = set(range(1, ref_count + 1))
-    return round(len(cited & valid) / len(cited), 2)
+# ---------------- 图文售后（FR-1.2，执行步骤 A） ----------------
+# 定级/清洗收口 vision_service，提示词/校验收口 chat_prompt（阈值/方案/预算单源），
+# 本模块只做编排；历史测试导入口径经 __all__ 薄转发保持不变。
 
 
 async def answer(
-    query: str, db: AsyncSession | None = None, roles: list[str] | None = None
+    query: str,
+    db: AsyncSession | None = None,
+    roles: list[str] | None = None,
+    inspections: list[dict[str, object]] | None = None,
+    history: str = "",
+    context: dict[str, int] | None = None,
 ) -> dict[str, object]:
-    """问答主入口，返回 {answer, references, guard, faithfulness, model, degraded, trace_id}。
+    """问答主入口，返回 {answer, references, guard, faithfulness, model, degraded, trace_id, usage,
+    vision, need_human, context}。
 
-    db 有值走 DB 双路链（租户/密级/生效期治理）；db=None 走历史种子路径（离线兼容）。
+    db 有值走 DB 三路链（租户/密级/生效期/渠道治理）；db=None 走历史种子路径。
+    图文轮 inspections 拼进提示词（定级+方案+时效），need_human 透给端点转人工卡。
+    多轮 history（context_service 已裁剪/清洗）拼进提示词解指代；context 原样透给 done。
+    每步 trace_step 带 tenant/trace_id；引用校验不通过记 guard.pass=False（进 Mining）。
     """
     started = time.perf_counter()
     trace_id = uuid.uuid4().hex[:16]
     ctx = access_context()
-    refs = await knowledge_service.retrieve(query, ctx["tenant"], db=db, roles=roles)
+    vision = sanitize_inspections(inspections or [], settings.IMAGE_MAX_COUNT)
+    need_human = any(bool(v.get("need_human")) for v in vision)
+    vision_block = build_vision_context(vision)
+    refs = await knowledge_service.retrieve(
+        query, ctx["tenant"], db=db, roles=roles, trace_id=trace_id
+    )
     if not refs:
+        rag_governance.trace_step(
+            "rag.reject", tenant=ctx["tenant"], trace_id=trace_id, extra={"refs": 0}
+        )
         record("chat", {"trace_id": trace_id, "refs": 0, "reject": True})
         raise NoEvidenceError("这个问题我暂时没查到权威政策，已为你转人工")
 
     degraded = False
     model = "template"
+    usage: dict[str, int] = {}
+    # 低置信图文轮：不硬答，直接转人工话术（仍走 RAG 退换政策引用透出）
+    if need_human:
+        rag_governance.trace_step(
+            "vlm.human", tenant=ctx["tenant"], trace_id=trace_id, extra={"vision": len(vision)}
+        )
     try:
-        reply = await llm_service.complete(build_messages(query, refs))
-        text, model = reply.text, reply.model
+        reply = await llm_service.complete(build_messages(query, refs, vision_block, history))
+        text, model, usage = reply.text, reply.model, dict(reply.usage or {})
+        rag_governance.trace_step(
+            "llm.generate", tenant=ctx["tenant"], trace_id=trace_id, extra={"model": model}
+        )
     except llm_service.LlmUnavailableError as exc:
         degraded = True
-        text = fallback_answer(query, refs)
+        text = fallback_answer(query, refs, vision_block, history)
+        rag_governance.trace_step(
+            "llm.degraded", tenant=ctx["tenant"], trace_id=trace_id, extra={"reason": str(exc)[:120]}
+        )
         record("chat", {"trace_id": trace_id, "llm_degraded": str(exc)[:200]})
-    faith = faithfulness(text, len(refs))
+    checked = validate_references(text, refs)
+    raw_faith: object = checked.get("faithfulness", 0.0)
+    faith = float(raw_faith) if isinstance(raw_faith, (int, float)) else 0.0
+    raw_guard: object = checked.get("guard", {})
+    guard_src = raw_guard if isinstance(raw_guard, dict) else {}
+    guard = {"pass": bool(guard_src.get("pass")), "degraded": degraded}
 
     result: dict[str, object] = {
         "answer": text,
         "references": refs,
-        "guard": {"pass": True, "degraded": degraded},
+        "guard": guard,
         "faithfulness": faith,
         "model": model,
         "degraded": degraded,
         "trace_id": trace_id,
+        "usage": usage,
+        "vision": vision,
+        "need_human": need_human,
+        "context": dict(context or {"rounds": 0, "tokens": 0, "dropped": 0}),
     }
+    if not guard["pass"]:
+        rag_governance.trace_step(
+            "mining.candidate",
+            tenant=ctx["tenant"],
+            trace_id=trace_id,
+            extra={"faith": faith, "bad": checked["bad"]},
+        )
     record(
         "chat",
         {
@@ -120,43 +153,6 @@ async def answer(
     return result
 
 
-def stream_id_for(client_msg_id: str | None) -> str:
-    """SSE 事件 id 前缀：由幂等键确定性派生，重放产出相同 id，前端天然去重。
-
-    无键（旧客户端）则随机，本轮内去重、跨轮不保证。
-    """
-    key = (client_msg_id or "").strip()
-    if not key:
-        return uuid.uuid4().hex[:8]
-    return hashlib.sha1(key.encode("utf-8")).hexdigest()[:8]
-
-
-def chunk_text(text: str, size: int | None = None) -> list[str]:
-    """message 事件分片（增量渲染粒度，长度走 Settings.SSE_CHUNK_CHARS）。"""
-    width = size if size and size > 0 else settings.SSE_CHUNK_CHARS
-    if width <= 0:
-        width = 120
-    return [text[i : i + width] for i in range(0, len(text), width)] or [""]
-
-
-def _loads_list(raw: str) -> list[dict[str, object]]:
-    """回放解析：citations JSON 文本 → 引用列表，坏数据兜底空列表不断流。"""
-    try:
-        data = json.loads(raw or "")
-    except json.JSONDecodeError:
-        return []
-    return [dict(item) for item in data if isinstance(item, dict)] if isinstance(data, list) else []
-
-
-def _loads_dict(raw: str) -> dict[str, object]:
-    """回放解析：guard JSON 文本 → 字典，坏数据兜底通过不断流。"""
-    try:
-        data = json.loads(raw or "")
-    except json.JSONDecodeError:
-        return {"pass": True}
-    return dict(data) if isinstance(data, dict) else {"pass": True}
-
-
 async def run_text_turn(
     db: AsyncSession,
     *,
@@ -164,16 +160,26 @@ async def run_text_turn(
     query: str,
     thread_id: str | None = None,
     client_msg_id: str = "",
+    inspections: list[dict[str, object]] | None = None,
+    image_ids: list[str] | None = None,
 ) -> dict[str, object]:
-    """文本轮次（含落库，对齐 API 规范 §4.2/§5）：会话归位 → 用户消息幂等落库 →
-    有已存助手回复则重放（不再调模型）→ 否则 answer() 生成并落库 → commit。
+    """文本/图文轮次（含落库，对齐 API 规范 §4.2/§5）：会话归位 → 上下文装配 →
+    幂等落库 → 重放 short-circuit → answer 生成 → 引用校验 → 落库 + 活跃刷新。
 
-    无据拒答不抛异常，以 rejected=True 随结果返回（端点转 2001/流式照常发完四帧）。
-    返回 answer() 同形结果 + session_id/replayed/rejected，前端 done 原样透传。
+    上下文（三层之 Context）：本轮落库前取历史窗口（不含本轮，避免自重复），
+    满窗则刷新摘要；窗口 + 摘要拼 history 进 LLM 解指代，用量透给 done.context。
+    图文轮 inspections 经清洗后拼上下文 + 随 agent 行 attachments 持久化；
+    image_ids 存 user 行 attachments（回放可溯源）。无据拒答不抛异常。
     """
     session, _ = await session_service.ensure_session(
         db, tenant=user.tenant, username=user.username, thread_id=thread_id, title_hint=query
     )
+    vision = sanitize_inspections(inspections or [], settings.IMAGE_MAX_COUNT)
+    files = [str(f)[:64] for f in (image_ids or [])[: settings.IMAGE_MAX_COUNT] if str(f).strip()]
+    user_modality = "image" if (vision or files) else "text"
+    user_attachments = [{"file_id": f} for f in files]
+    history_block, ctx_stats, summary = await context_service.assemble(db, session=session)
+    history_ctx = {**ctx_stats, "summarized": bool(summary)}
     key = (client_msg_id or "").strip()
     if key:
         saved = await session_service.find_agent_message(
@@ -189,6 +195,9 @@ async def run_text_turn(
                 "model": "replay",
                 "degraded": False,
                 "trace_id": saved.trace_id,
+                "vision": _loads_list(saved.attachments),
+                "need_human": False,
+                "context": history_ctx,
                 "session_id": session.id,
                 "replayed": True,
                 "rejected": False,
@@ -198,14 +207,28 @@ async def run_text_turn(
             is None
         ):
             await session_service.save_user_message(
-                db, tenant=user.tenant, session_id=session.id, content=query, client_msg_id=key
+                db,
+                tenant=user.tenant,
+                session_id=session.id,
+                content=query,
+                client_msg_id=key,
+                modality=user_modality,
+                attachments=user_attachments,
             )
     else:
         await session_service.save_user_message(
-            db, tenant=user.tenant, session_id=session.id, content=query
+            db,
+            tenant=user.tenant,
+            session_id=session.id,
+            content=query,
+            modality=user_modality,
+            attachments=user_attachments,
         )
     try:
-        result = await answer(query, db=db, roles=user.roles)
+        result = await answer(
+            query, db=db, roles=user.roles, inspections=vision,
+            history=history_block, context=history_ctx,
+        )
     except NoEvidenceError as exc:
         trace = uuid.uuid4().hex[:16]
         await session_service.save_agent_message(
@@ -218,6 +241,10 @@ async def run_text_turn(
             faithfulness=0.0,
             trace_id=trace,
             client_msg_id=key,
+            attachments=vision,
+        )
+        await session_service.touch_session(
+            db, tenant=user.tenant, username=user.username, session_id=session.id
         )
         await db.commit()
         return {
@@ -228,6 +255,9 @@ async def run_text_turn(
             "model": "template",
             "degraded": False,
             "trace_id": trace,
+            "vision": vision,
+            "need_human": any(bool(v.get("need_human")) for v in vision),
+            "context": history_ctx,
             "session_id": session.id,
             "replayed": False,
             "rejected": True,
@@ -246,6 +276,55 @@ async def run_text_turn(
         else 0.0,
         trace_id=str(result["trace_id"]),
         client_msg_id=key,
+        attachments=vision,
+    )
+    await _record_cost_and_audit(
+        db, user=user, session_id=session.id, result=result, query=query
+    )
+    await session_service.touch_session(
+        db, tenant=user.tenant, username=user.username, session_id=session.id
     )
     await db.commit()
     return {**result, "session_id": session.id, "replayed": False, "rejected": False}
+
+
+
+
+
+async def _record_cost_and_audit(
+    db: AsyncSession, *, user: CurrentUser, session_id: str, result: dict[str, object], query: str
+) -> None:
+    """落库第 12 步：cost_records 成本归因 + audit_logs 问答审计（同事务 flush）。
+
+    token 无上游 usage 时走 context_service.estimate_tokens 统一估算（中文 1.5 字/token，
+    与预算裁剪同源），保证看板不断流。
+    """
+    from app.db.models import CostRecord
+
+    usage = result.get("usage")
+    usage_map = dict(usage) if isinstance(usage, dict) else {}
+    prompt_tok = int(usage_map.get("prompt_tokens", 0) or 0)
+    comp_tok = int(usage_map.get("completion_tokens", 0) or 0)
+    if not prompt_tok:
+        prompt_tok = context_service.estimate_tokens(query + str(result.get("answer", "")))
+    if not comp_tok:
+        comp_tok = context_service.estimate_tokens(str(result.get("answer", "")))
+    db.add(
+        CostRecord(
+            tenant=user.tenant,
+            session_id=session_id,
+            model=str(result.get("model", "template")),
+            prompt_tokens=prompt_tok,
+            completion_tokens=comp_tok,
+            cost_cents=0,
+        )
+    )
+    await db.flush()
+    await rag_governance.audit_write(
+        db,
+        tenant=user.tenant,
+        actor=user.username,
+        action="chat.answer",
+        target=session_id,
+        detail={"trace_id": str(result.get("trace_id", "")), "faith": result.get("faithfulness")},
+    )

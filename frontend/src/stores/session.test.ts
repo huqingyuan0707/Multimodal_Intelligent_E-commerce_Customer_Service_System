@@ -51,11 +51,43 @@ describe('useSessionStore', () => {
     expect(store.sessions).toEqual(mockSessions);
   });
 
-  it('loadSessions 成功采用后端列表', async () => {
+  it('loadSessions 成功采用后端分页对象', async () => {
     const rows = [{ id: 's-1', title: ' histories ' }];
+    vi.mocked(listSessionsApi).mockResolvedValue({ items: rows, total: 3, page: 1, size: 20 });
+    const store = useSessionStore();
+    await store.loadSessions();
+    expect(store.sessions).toEqual(rows);
+    expect(store.total).toBe(3);
+  });
+
+  it('loadSessions 兼容旧数组信封', async () => {
+    const rows = [{ id: 's-1', title: 'old' }];
     vi.mocked(listSessionsApi).mockResolvedValue(rows);
     const store = useSessionStore();
     await store.loadSessions();
     expect(store.sessions).toEqual(rows);
+    expect(store.total).toBe(1);
+  });
+
+  it('renameLocal 改标题不动其他行', async () => {
+    const store = useSessionStore();
+    store.sessions = [
+      { id: 's-1', title: 'a' },
+      { id: 's-2', title: 'b' },
+    ];
+    store.renameLocal('s-1', '改名');
+    expect(store.sessions[0]?.title).toBe('改名');
+    expect(store.sessions[1]?.title).toBe('b');
+  });
+
+  it('removeLocal 删行并清理 currentId', async () => {
+    const store = useSessionStore();
+    store.sessions = [{ id: 's-1', title: 'a' }];
+    store.total = 1;
+    store.currentId = 's-1';
+    store.removeLocal('s-1');
+    expect(store.sessions).toEqual([]);
+    expect(store.total).toBe(0);
+    expect(store.currentId).toBeNull();
   });
 });

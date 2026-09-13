@@ -121,3 +121,20 @@ class CostRecord(Base):
     completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
     cost_cents: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(default=_now)
+
+
+class Feedback(Base):
+    """问答反馈（Mining 闭环输入：差评/纠错聚成待补知识，租户隔离）。
+
+    链路：chat 落库 message → POST /mining/feedback → 本表 → candidates 聚类 → reindex。
+    """
+
+    __tablename__ = "feedbacks"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uid)
+    tenant: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    message_id: Mapped[str] = mapped_column(String(32), default="", index=True)
+    session_id: Mapped[str] = mapped_column(String(32), default="", index=True)
+    vote: Mapped[str] = mapped_column(String(16), default="down")
+    comment: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(default=_now)

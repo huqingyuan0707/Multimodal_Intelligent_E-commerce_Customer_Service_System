@@ -7,6 +7,14 @@ export type Reference = {
   score: number;
 };
 
+export type VisionInspection = {
+  category: string;
+  confidence: number;
+  desc: string;
+  need_human: boolean;
+  degraded: boolean;
+};
+
 export type AgentMessage = {
   id: string;
   role: ChatRole;
@@ -14,6 +22,10 @@ export type AgentMessage = {
   content: string;
   references?: Reference[];
   trace_id?: string;
+  vision?: VisionInspection[];
+  need_human?: boolean;
+  images?: string[];
+  context?: SessionContext;
 };
 
 export type AgentEvent =
@@ -29,6 +41,15 @@ export type AgentEvent =
 export type Session = {
   id: string;
   title: string;
+  summary?: string;
+  message_count?: number;
+};
+
+export type SessionContext = {
+  rounds: number;
+  tokens: number;
+  dropped: number;
+  summarized: boolean;
 };
 
 export const LEVEL_TAG = {

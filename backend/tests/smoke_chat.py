@@ -115,7 +115,12 @@ def main() -> int:
     if session_id:
         detail = client.get(f"/api/v1/sessions/{session_id}", headers=headers).json()
         roles = [m.get("role") for m in detail.get("data", {}).get("messages", [])]
-        check("history persisted user+agent", roles == ["user", "agent"], str(roles)[:200])
+        # 详情消息倒序（page=1 最新页），反转即正序 [user, agent]
+        check(
+            "history persisted user+agent",
+            list(reversed(roles)) == ["user", "agent"],
+            str(roles)[:200],
+        )
         # 同键重发：幂等不翻倍
         with client.stream("POST", "/api/v1/agent/chat/stream", json=body, headers=headers) as s:
             list(s.iter_lines())
