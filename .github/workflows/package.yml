@@ -1,0 +1,80 @@
+# 容器镜像发版：构建前后端镜像并推送 GHCR，Packages 页即软件包
+# 对应文档：部署工程化.md 第三节容器化/第五节 CI-CD；镜像标签禁止只用 latest（带 sha/版本号）
+# 触发：main 分支代码变更，或推送 v*.*.* 标签（与 release.yml 同节奏出版本号）
+name: package
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*.*.*']
+    paths:
+      - 'frontend/**'
+      - 'backend/**'
+      - '.github/workflows/package.yml'
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  frontend:
+    name: package · 前端镜像 → GHCR
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 登录 GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 镜像元数据（分支 latest + 短 sha + 版本号）
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/reai-frontend
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,prefix=,format=short
+            type=ref,event=tag
+
+      - name: 构建并推送
+        uses: docker/build-push-action@v6
+        with:
+          context: frontend
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  backend:
+    name: package · 后端镜像 → GHCR
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 登录 GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 镜像元数据（分支 latest + 短 sha + 版本号）
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/reai-backend
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,prefix=,format=short
+            type=ref,event=tag
+
+      - name: 构建并推送
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
