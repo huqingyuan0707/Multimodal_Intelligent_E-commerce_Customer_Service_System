@@ -11,13 +11,27 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.core.exceptions import BusinessError, ErrorCode
 from app.db.models import LogisticsOrder
 from app.services import order_service
 
-COMPANIES = ("顺丰", "中通", "圆通", "韵达", "申通", "京东", "邮政", "德邦")
+COMPANIES = tuple(settings.LOGISTICS_COMPANIES)  # 快递白名单唯一口径（Settings 可配）
 EXCEPTION_KINDS = ("stuck", "damaged", "rejected")
 EXCEPTION_LABELS = {"stuck": "滞留", "damaged": "破损", "rejected": "拒收"}
+# 运单状态（含异常登记后置位；前端状态胶囊走 status_label）
+LOGISTICS_STATUSES = ("created", "picked", "in_transit", "exception")
+LOGISTICS_STATUS_LABELS = {
+    "created": "已创建",
+    "picked": "已揽收",
+    "in_transit": "运输中",
+    "exception": "异常",
+}
+
+
+def _dt_text(value) -> str:
+    """时间统一口径：空格秒（与订单/商品/审批一致，禁止裸 isoformat）。"""
+    return value.isoformat(sep=" ", timespec="seconds") if value else ""
 
 
 def logistics_to_dict(row: LogisticsOrder) -> dict[str, Any]:
@@ -27,7 +41,8 @@ def logistics_to_dict(row: LogisticsOrder) -> dict[str, Any]:
         "company": row.company,
         "tracking_no": row.tracking_no,
         "status": row.status,
-        "created_at": row.created_at.isoformat(),
+        "status_label": LOGISTICS_STATUS_LABELS.get(row.status, row.status),
+        "created_at": _dt_text(row.created_at),
     }
 
 

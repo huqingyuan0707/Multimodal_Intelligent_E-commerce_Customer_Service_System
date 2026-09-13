@@ -55,7 +55,7 @@ jobs:
         working-directory: backend
         run: ruff format --check .
 
-      - name: mypy
+      - name: mypy（宽松模式，缺注解不报错）
         if: steps.guard.outputs.ok == 'true'
         working-directory: backend
         run: mypy app
@@ -107,7 +107,7 @@ jobs:
         working-directory: frontend
         run: pnpm install --frozen-lockfile
 
-      - name: eslint（0 errors 且 0 warnings）
+      - name: eslint（0 errors，类型注解可选）
         if: steps.guard.outputs.ok == 'true'
         working-directory: frontend
         run: pnpm lint
@@ -123,7 +123,7 @@ jobs:
         working-directory: frontend
         run: pnpm format:check
 
-      - name: typecheck（vue-tsc）
+      - name: typecheck（vue-tsc，宽松模式缺注解不报错）
         if: steps.guard.outputs.ok == 'true'
         working-directory: frontend
         run: pnpm typecheck

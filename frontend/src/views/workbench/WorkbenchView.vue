@@ -140,11 +140,11 @@ const draft = ref('');
 const currentName = computed(() => sessions.find(s => s.id === currentId.value)?.name ?? '');
 const confidenceText = computed(() => `${Math.round(vlm.confidence * 100)}%`);
 
-const select = (id: string): void => {
+const select = (id: string) => {
   currentId.value = id;
 };
 
-const send = (): void => {
+const send = () => {
   const content = draft.value.trim();
   if (!content) {
     return;
@@ -157,19 +157,19 @@ const send = (): void => {
   ];
 };
 
-const upload = (): void => {
+const upload = () => {
   ElMessage.info('图片上传后续接真实接口（演示占位）');
 };
 
-const voice = (): void => {
+const voice = () => {
   ElMessage.info('语音输入后续补（演示占位）');
 };
 
-const openDoc = (source: string): void => {
+const openDoc = (source: string) => {
   ElMessage.info(`打开原文 ${source}（演示占位，知识库就绪后跳转）`);
 };
 
-const sendTool = (): void => {
+const sendTool = () => {
   ElMessage.success('已发送（演示占位，工具调用就绪后执行）');
 };
 </script>

@@ -27,7 +27,7 @@
 // 知识库：列表 + 上传(FormData) + 重建索引；删除/版本/检索测试后端暂无接口，以禁用态 TODO 占位
 import { ElMessage } from 'element-plus';
 import { computed, onMounted, ref } from 'vue';
-import { knowledgeApi } from '@/api';
+import { listDocumentsApi, reindexDocumentsApi, uploadDocumentApi } from '@/api';
 import { mockDocs } from '@/mock/knowledge';
 import AiButton from '@/shared/components/AiButton.vue';
 import AiInput from '@/shared/components/AiInput.vue';
@@ -45,10 +45,10 @@ const filtered = computed(() =>
     : docs.value,
 );
 
-const loadDocs = async (): Promise<void> => {
+const loadDocs = async () => {
   loading.value = true;
   try {
-    const rows = await knowledgeApi.list();
+    const rows = await listDocumentsApi();
     docs.value = (rows as KnowledgeDoc[]).filter(r => r && r.doc_id);
   } catch {
     docs.value = mockDocs;
@@ -58,10 +58,10 @@ const loadDocs = async (): Promise<void> => {
   }
 };
 
-const upload = async (opt: { file: File }): Promise<void> => {
+const upload = async (opt: { file: File }) => {
   uploading.value = true;
   try {
-    const r = await knowledgeApi.upload(opt.file);
+    const r = await uploadDocumentApi({ file: opt.file });
     ElMessage.success(r.skipped ? '内容一致，已跳过重复入库' : '上传成功');
     await loadDocs();
   } catch (e) {
@@ -71,10 +71,10 @@ const upload = async (opt: { file: File }): Promise<void> => {
   }
 };
 
-const reindex = async (): Promise<void> => {
+const reindex = async () => {
   reindexing.value = true;
   try {
-    const r = await knowledgeApi.reindex();
+    const r = await reindexDocumentsApi();
     ElMessage.success(`重建索引任务已提交：${r.task_id || '演示任务'}，请到任务中心跟进`);
   } catch (e) {
     ElMessage.error(e instanceof Error ? e.message : '提交失败');
@@ -84,7 +84,7 @@ const reindex = async (): Promise<void> => {
 };
 
 onMounted(() => {
-  void loadDocs();
+  loadDocs();
 });
 </script>
 

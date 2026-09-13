@@ -77,7 +77,7 @@
 // 订单履约（平台订单镜像 + 打单发货 + 建售后关联会话 trace；按钮按 allowed_actions 置灰，对齐页面设计 §3.13）
 import { ElMessage, ElMessageBox, ElPagination, ElSelect, ElOption, ElTable, ElTableColumn, ElTag } from 'element-plus';
 import { onMounted, ref } from 'vue';
-import { api } from '@/api';
+import { createAftersaleApi, listOrdersApi, shipOrderApi } from '@/api';
 import { mockOrders } from '@/mock';
 import AiButton from '@/shared/components/AiButton.vue';
 import AiInput from '@/shared/components/AiInput.vue';
@@ -103,13 +103,13 @@ const status = ref('');
 const loading = ref(false);
 const demo = ref(false);
 
-const waybill = (row: OrderItem): string =>
+const waybill = (row: OrderItem) =>
   row.company && row.tracking_no ? `${row.company} ${row.tracking_no}` : '-';
 
-const load = async (): Promise<void> => {
+const load = async () => {
   loading.value = true;
   try {
-    const res = await api.listOrders({
+    const res = await listOrdersApi({
       status: status.value,
       keyword: keyword.value.trim(),
       page: page.value,
@@ -131,24 +131,24 @@ const load = async (): Promise<void> => {
   }
 };
 
-const reload = (): void => {
+const reload = () => {
   page.value = 1;
-  void load();
+  load();
 };
 
-const onPage = (p: number): void => {
+const onPage = (p: number) => {
   page.value = p;
-  void load();
+  load();
 };
 
-const onSize = (s: number): void => {
+const onSize = (s: number) => {
   size.value = s;
   page.value = 1;
-  void load();
+  load();
 };
 
 // 打单发货：快递公司 + 运单号双确认（后端校验状态机，非法报 3005）
-const ship = async (row: OrderItem): Promise<void> => {
+const ship = async (row: OrderItem) => {
   let company: string;
   try {
     ({ value: company } = await ElMessageBox.prompt(
@@ -173,7 +173,11 @@ const ship = async (row: OrderItem): Promise<void> => {
     return;
   }
   try {
-    await api.shipOrder(row.id, company.trim(), trackingNo.trim());
+    await shipOrderApi({
+      orderId: row.id,
+      company: company.trim(),
+      trackingNo: trackingNo.trim(),
+    });
     ElMessage.success('发货成功，已生成面单');
     await load();
   } catch (e) {
@@ -182,7 +186,7 @@ const ship = async (row: OrderItem): Promise<void> => {
 };
 
 // 建售后：关联会话 trace（红线：售后必须可回放到当时那轮对话）；超阈值自动转审批
-const aftersale = async (row: OrderItem): Promise<void> => {
+const aftersale = async (row: OrderItem) => {
   let reason: string;
   try {
     ({ value: reason } = await ElMessageBox.prompt('请输入售后原因', '建售后'));
@@ -201,13 +205,17 @@ const aftersale = async (row: OrderItem): Promise<void> => {
     return;
   }
   try {
-    await api.createAftersale({
+    const res = await createAftersaleApi({
       order_id: row.id,
       reason: reason.trim() || '工作台建售后',
       amount: Math.round(amount * 100),
       trace_id: row.trace_id,
     });
-    ElMessage.success('售后单已创建（超阈值会自动转审批）');
+    if (res.need_approval) {
+      ElMessage.warning(`退款超阈值，已转审批${res.approval_id ? `（${res.approval_id}）` : ''}，批准后生效`);
+    } else {
+      ElMessage.success('售后单已创建');
+    }
     await load();
   } catch (e) {
     ElMessage.error(e instanceof Error ? e.message : '创建失败');
@@ -215,7 +223,7 @@ const aftersale = async (row: OrderItem): Promise<void> => {
 };
 
 onMounted(() => {
-  void load();
+  load();
 });
 </script>
 

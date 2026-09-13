@@ -206,6 +206,8 @@ export const mockOrders: OrderItem[] = [
     allowed_actions: ['ship'],
     company: '',
     tracking_no: '',
+    logistics_id: '',
+    logistics_status: '',
     created_at: '2026-09-10 09:12:00',
   },
   {
@@ -221,6 +223,8 @@ export const mockOrders: OrderItem[] = [
     allowed_actions: ['aftersale'],
     company: '中通',
     tracking_no: '7310123456',
+    logistics_id: 'l-demo-2',
+    logistics_status: 'in_transit',
     created_at: '2026-09-09 15:40:00',
   },
   {
@@ -236,6 +240,8 @@ export const mockOrders: OrderItem[] = [
     allowed_actions: ['aftersale'],
     company: '京东',
     tracking_no: 'JD00998877',
+    logistics_id: 'l-demo-3',
+    logistics_status: 'in_transit',
     created_at: '2026-09-08 11:20:00',
   },
 ];

@@ -2,11 +2,10 @@
 import { ref } from 'vue';
 import { streamChat } from '@/api';
 import type { DonePayload } from '@/api';
-import type { AgentMessage } from '@/types/agent';
 
 const MAX_RETRIES = 3;
 
-const sleep = (ms: number): Promise<void> =>
+const sleep = (ms: number) =>
   new Promise(resolve => {
     setTimeout(resolve, ms);
   });
@@ -20,7 +19,7 @@ export const useAgentStream = () => {
   const error = ref('');
   const controller = ref<AbortController | null>(null);
 
-  const start = async (query: string): Promise<void> => {
+  const start = async (query: string) => {
     streaming.value = true;
     sources.value = [];
     phase.value = '';
@@ -69,16 +68,16 @@ export const useAgentStream = () => {
     }
   };
 
-  const stop = (): void => {
+  const stop = () => {
     controller.value?.abort();
     streaming.value = false;
   };
 
   // 收尾为一条 AgentMessage（引用/trace 随 done 落盘显示）
-  const toMessage = (id: string): AgentMessage => ({
+  const toMessage = (id: string) => ({
     id,
-    role: 'agent',
-    modality: 'text',
+    role: 'agent' as const,
+    modality: 'text' as const,
     content: draft.value || error.value,
     references: done.value?.references ?? [],
     trace_id: done.value?.trace_id,

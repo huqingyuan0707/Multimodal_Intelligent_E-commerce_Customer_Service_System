@@ -80,7 +80,7 @@
 // 审批中心（列表 + 详情抽屉 + 批准/驳回/改参批准；批驳按钮仅店长/运营/管理员可见，对齐页面设计 §3.4）
 import { ElDrawer, ElMessage, ElMessageBox, ElTable, ElTableColumn, ElTag, ElSelect, ElOption, ElButton } from 'element-plus';
 import { computed, onMounted, ref } from 'vue';
-import { api } from '@/api';
+import { approveApprovalApi, listApprovalsApi, rejectApprovalApi } from '@/api';
 import { mockApprovals } from '@/mock';
 import AiButton from '@/shared/components/AiButton.vue';
 import { approvalTagOf } from '@/types/approval';
@@ -100,10 +100,10 @@ const current = ref<ApprovalItem | null>(null);
 
 const prettyArgs = computed(() => JSON.stringify(current.value?.args ?? {}, null, 2));
 
-const load = async (): Promise<void> => {
+const load = async () => {
   loading.value = true;
   try {
-    rows.value = await api.listApprovals(status.value);
+    rows.value = await listApprovalsApi({ status: status.value });
     demo.value = false;
   } catch {
     rows.value = mockApprovals.filter((a) => !status.value || a.status === status.value);
@@ -113,16 +113,16 @@ const load = async (): Promise<void> => {
   }
 };
 
-const reload = (): void => {
-  void load();
+const reload = () => {
+  load();
 };
 
-const open = (row: ApprovalItem): void => {
+const open = (row: ApprovalItem) => {
   current.value = row;
   drawer.value = true;
 };
 
-const approve = async (row: ApprovalItem): Promise<void> => {
+const approve = async (row: ApprovalItem) => {
   try {
     await ElMessageBox.confirm(`批准「${row.action_label}｜${row.target}」并立即生效吗？`, '批准确认');
   } catch {
@@ -132,7 +132,7 @@ const approve = async (row: ApprovalItem): Promise<void> => {
 };
 
 // 改参批准：审批人改金额/参数后再批（如 199 改成 209）
-const approveWithArgs = async (row: ApprovalItem): Promise<void> => {
+const approveWithArgs = async (row: ApprovalItem) => {
   let raw: string;
   try {
     ({ value: raw } = await ElMessageBox.prompt(
@@ -143,14 +143,14 @@ const approveWithArgs = async (row: ApprovalItem): Promise<void> => {
   } catch {
     return;
   }
-  let modified: Record<string, unknown> = {};
+  let modified: object = {};
   if (raw.trim()) {
     try {
       const parsed: unknown = JSON.parse(raw);
       if (typeof parsed !== 'object' || parsed === null) {
         throw new Error('not object');
       }
-      modified = parsed as Record<string, unknown>;
+      modified = parsed;
     } catch {
       ElMessage.warning('参数不是合法 JSON 对象');
       return;
@@ -159,7 +159,7 @@ const approveWithArgs = async (row: ApprovalItem): Promise<void> => {
   await decide(row, modified, '已按改后参数批准并生效');
 };
 
-const reject = async (row: ApprovalItem): Promise<void> => {
+const reject = async (row: ApprovalItem) => {
   let reason: string;
   try {
     ({ value: reason } = await ElMessageBox.prompt('驳回理由（必填，留痕）', '驳回'));
@@ -171,7 +171,7 @@ const reject = async (row: ApprovalItem): Promise<void> => {
     return;
   }
   try {
-    await api.rejectApproval(row.id, reason.trim());
+    await rejectApprovalApi({ id: row.id, reason: reason.trim() });
     ElMessage.success('已驳回，原数据保持不变');
     drawer.value = false;
     await load();
@@ -180,13 +180,9 @@ const reject = async (row: ApprovalItem): Promise<void> => {
   }
 };
 
-const decide = async (
-  row: ApprovalItem,
-  modified: Record<string, unknown>,
-  okMsg: string,
-): Promise<void> => {
+const decide = async (row: ApprovalItem, modified: object, okMsg: string) => {
   try {
-    await api.approveApproval(row.id, modified);
+    await approveApprovalApi({ id: row.id, modifiedArgs: modified });
     ElMessage.success(okMsg);
     drawer.value = false;
     await load();
@@ -196,7 +192,7 @@ const decide = async (
 };
 
 onMounted(() => {
-  void load();
+  load();
 });
 </script>
 

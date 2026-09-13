@@ -70,7 +70,7 @@
 // 真实对话：会话抽屉 + 图片上传 + 语音录播 + 流式落条（引用/trace/sources）；失败重连后仍不用回 mock 演示（对齐页面设计 §3.1/§4）
 import { ElDrawer, ElMessage } from 'element-plus';
 import { onMounted, ref } from 'vue';
-import { api } from '@/api';
+import { getSessionApi } from '@/api';
 import { useAgentStream } from '@/composables/useAgentStream';
 import { useImageUpload } from '@/composables/useImageUpload';
 import { useVoiceRecorder } from '@/composables/useVoiceRecorder';
@@ -105,7 +105,7 @@ const {
   discard: discardRec,
 } = useVoiceRecorder();
 
-const toAgentMessages = (list: unknown[]): AgentMessage[] => {
+const toAgentMessages = (list: unknown[]) => {
   if (!Array.isArray(list)) {
     return [];
   }
@@ -113,7 +113,7 @@ const toAgentMessages = (list: unknown[]): AgentMessage[] => {
     if (typeof m !== 'object' || m === null) {
       return [];
     }
-    const r = m as Record<string, unknown>;
+    const r = m as { content?: string; role?: string };
     if (typeof r.content !== 'string') {
       return [];
     }
@@ -128,20 +128,20 @@ const toAgentMessages = (list: unknown[]): AgentMessage[] => {
   });
 };
 
-const openSessions = (): void => {
+const openSessions = () => {
   drawer.value = true;
-  void sessionStore.loadSessions();
+  sessionStore.loadSessions();
 };
 
-const newSession = (): void => {
+const newSession = () => {
   sessionStore.createLocalSession();
   messages.value = [];
   drawer.value = false;
 };
 
-const restore = async (id: string): Promise<void> => {
+const restore = async (id: string) => {
   try {
-    const data = await api.getSession(id);
+    const data = await getSessionApi({ id });
     sessionStore.currentId = id;
     messages.value = toAgentMessages(data.messages);
     drawer.value = false;
@@ -151,27 +151,31 @@ const restore = async (id: string): Promise<void> => {
   }
 };
 
-const pick = (): void => {
+const pick = () => {
   fileRef.value?.click();
 };
 
-const onPick = (e: Event): void => {
+const onPick = (e: Event) => {
   const files = (e.target as HTMLInputElement).files;
   if (files) {
-    void addFiles(files);
+    addFiles(files);
   }
   (e.target as HTMLInputElement).value = '';
 };
 
-const toggleRec = (): void => {
-  void (recording.value ? stopRec() : startRec());
+const toggleRec = () => {
+  if (recording.value) {
+    stopRec();
+  } else {
+    startRec();
+  }
 };
 
-const transcribe = (): void => {
+const transcribe = () => {
   ElMessage.info('语音转写待后端 ASR 接口（录音与播放已可用）');
 };
 
-const send = async (): Promise<void> => {
+const send = async () => {
   const query = input.value.trim();
   const attached = pendingImages.value.length;
   if ((!query && attached === 0) || streaming.value) {
@@ -206,7 +210,7 @@ const send = async (): Promise<void> => {
   messages.value = [...messages.value, toMessage(`a-${Date.now()}`)];
 };
 
-const transfer = (): void => {
+const transfer = () => {
   messages.value = [
     ...messages.value,
     {
@@ -219,7 +223,7 @@ const transfer = (): void => {
 };
 
 onMounted(() => {
-  void sessionStore.loadSessions();
+  sessionStore.loadSessions();
 });
 </script>
 

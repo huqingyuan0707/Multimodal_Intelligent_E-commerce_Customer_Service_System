@@ -34,12 +34,12 @@
 // 对齐 FRD FR-10.7、页面设计 §3.17
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { ref } from 'vue';
-import { api } from '@/api';
+import { markExceptionApi, trackLogisticsApi } from '@/api';
 import AiButton from '@/shared/components/AiButton.vue';
 import AiInput from '@/shared/components/AiInput.vue';
 
 const trackingNo = ref('');
-const trackInfo = ref<Record<string, unknown> | null>(null);
+const trackInfo = ref(null);
 const trackCompany = ref('');
 const trackNo = ref('');
 const trackStatus = ref('');
@@ -47,17 +47,17 @@ const trackId = ref('');
 const exKind = ref('');
 const exSubmitting = ref(false);
 
-const track = async (): Promise<void> => {
+const track = async () => {
   if (!trackingNo.value) {
     ElMessage.warning('请输入运单号');
     return;
   }
   try {
-    const r = await api.trackLogistics(trackingNo.value);
+    const r = await trackLogisticsApi({ trackingNo: trackingNo.value });
     trackInfo.value = r;
     trackCompany.value = String(r.company ?? '');
     trackNo.value = String(r.tracking_no ?? '');
-    trackStatus.value = String(r.status ?? '');
+    trackStatus.value = String(r.status_label ?? r.status ?? '');
     trackId.value = String(r.id ?? '');
   } catch (e) {
     trackInfo.value = null;
@@ -65,7 +65,7 @@ const track = async (): Promise<void> => {
   }
 };
 
-const submitException = async (): Promise<void> => {
+const submitException = async () => {
   if (!trackId.value || !exKind.value) {
     ElMessage.warning('请先查到运单并选择异常类型');
     return;
@@ -73,7 +73,7 @@ const submitException = async (): Promise<void> => {
   await ElMessageBox.confirm('登记异常将自动建售后单，确认吗？', '提示');
   exSubmitting.value = true;
   try {
-    const r = await api.markException(trackId.value, exKind.value);
+    const r = await markExceptionApi({ logisticsId: trackId.value, kind: exKind.value });
     ElMessage.success(`异常已登记，售后单 ${r.aftersale_id}，请到售后单跟进`);
   } catch (e) {
     ElMessage.error(e instanceof Error ? e.message : '登记失败');

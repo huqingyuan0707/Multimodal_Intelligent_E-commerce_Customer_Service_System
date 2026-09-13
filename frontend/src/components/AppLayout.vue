@@ -51,7 +51,7 @@ const userStore = useUserStore();
 const user = computed(() => userStore.user);
 const env = import.meta.env.MODE ?? 'development';
 
-const hasPerm = (roles: unknown): boolean => {
+const hasPerm = (roles: unknown) => {
   if (!Array.isArray(roles) || roles.length === 0) {
     return true;
   }
@@ -69,20 +69,20 @@ const menus = computed<MenuItem[]>(() =>
     .map(r => ({ path: r.path, title: r.meta.title as string })),
 );
 
-const showNotice = (): void => {
+const showNotice = () => {
   ElMessage.info('暂无新消息（演示占位，通知中心后续补）');
 };
 
-const logout = async (): Promise<void> => {
+const logout = async () => {
   // 走 store：先让服务端确认身份，再清本地态（JWT 无状态，失败也不卡在登录态）
   await userStore.logout();
   ElMessage.success('已退出登录');
-  void router.push('/login');
+  router.push('/login');
 };
 
 onMounted(() => {
   if (!userStore.user) {
-    void userStore.loadMe();
+    userStore.loadMe();
   }
 });
 </script>

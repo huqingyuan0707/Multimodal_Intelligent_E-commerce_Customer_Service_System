@@ -4,7 +4,7 @@
 import type { Directive } from 'vue';
 import { useUserStore } from '@/stores/user';
 
-export const hasPerm = (need: string | string[] | undefined): boolean => {
+export const hasPerm = (need: string | string[] | undefined) => {
   if (!need || (Array.isArray(need) && need.length === 0)) {
     return true;
   }

@@ -11,12 +11,12 @@ export type TaskItem = {
 
 export type CreateTaskInput = {
   type: string;
-  payload?: Record<string, unknown>;
+  payload?: object;
 };
 
-export const TASK_STATUS_TAG: Record<TaskStatus, string> = {
+export const TASK_STATUS_TAG = {
   pending: '待执行',
   running: '执行中',
   done: '已完成',
   error: '失败',
-};
+} as const;

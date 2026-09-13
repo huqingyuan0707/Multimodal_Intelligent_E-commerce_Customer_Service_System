@@ -34,9 +34,14 @@ enabled: true
 - 成功/失败一律 `ElMessage`；删除/停用/归档等破坏性操作**先 `ElMessageBox.confirm`**。
 - 枚举中文化用映射表，禁止模板里散落中文字面量。
 
-## 6. 类型
-- `tsconfig` strict 生效，**新代码不得新增 `any`**（`no-explicit-any` 为 warn，既有 `any` 不扩散）。
-- 组件必须显式 `defineProps` / `defineEmits` 类型。
+## 6. 类型（宽松口径 + 三词禁令）
+- `tsconfig` strict 生效，但**返回值类型注解一律不写**（`: void` / `: Promise<X>` 省略，靠推断）；`any` 可用（`no-explicit-any` 已 off）。
+- **`void`、`Promise<`、`Record<` 三个词禁止在 `src/` 出现**（ESLint `no-restricted-syntax` 硬拦 `void`，vue-tsc 拦不住就靠 lint）：
+  - 映射表用 `as const` + `keyof typeof` 取值；`Record<string, unknown>` 字段/参数一律写 `object`；
+  - 回调类型返回值写 `=> unknown`；`defineEmits` 用运行时数组形式（类型式声明强制 `: void`，与禁令冲突）；
+  - fire-and-forget 异步调用直接写 `fn()`，禁止 `void fn()` 前缀（`no-floating-promises` 未启用）。
+- 保留：`ref<T>` 泛型（删了会推成 `never[]`）、参数对象类型（noImplicitAny 硬需要）、`types/*.ts` 类型定义、必要 `as const`/`as`。
+- 组件必须显式 `defineProps` 类型；`defineEmits` 允许数组形式。
 
 ## 7. 降级
 - 列表页 `onMounted` 调真实接口，`catch` 回退 `@/mock` 演示数据，保证后端不可用时页面可用。

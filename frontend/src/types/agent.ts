@@ -31,8 +31,8 @@ export type Session = {
   title: string;
 };
 
-export const LEVEL_TAG: Record<string, string> = {
+export const LEVEL_TAG = {
   public: '公开',
   internal: '内部',
   confidential: '机密',
-};
+} as const;

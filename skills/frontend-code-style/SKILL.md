@@ -7,7 +7,8 @@ description: breath After modifying any code under frontend/src, follow this ski
 
 ## 1. 基础（必须遵守）
 - 包管理只用 **pnpm**；`<script setup lang="ts">` + Composition API；`@` = `src/`。
-- Prettier（`.prettierrc`）：`semi: true, singleQuote: true, tabWidth: 2, printWidth: 100, arrowParens: avoid, endOfLine: lf`。**ESLint 必须 0 errors**（`@typescript-eslint/no-explicit-any` 为 warn，既有 `any` 不扩散、新代码优先写类型）。
+- Prettier（`.prettierrc`）：`semi: true, singleQuote: true, tabWidth: 2, printWidth: 100, arrowParens: avoid, endOfLine: lf`。**ESLint 必须 0 errors**（类型规则已放宽：`no-explicit-any / explicit-function-return-type / explicit-module-boundary-types` 均为 off，`no-unused-vars` 为 warn）。
+- **类型宽松、推断优先 + 三词禁令**：返回值类型注解一律不写（`: AgentMessage`、`<PromoItem>` 等靠推断）；**`void`、`Promise<`、`Record<` 三个词禁止在 `src/` 出现**——映射表用 `as const` + `keyof typeof`，`Record<string, unknown>` 字段写 `object`，回调类型返回值写 `=> unknown`，`defineEmits` 用运行时数组形式，fire-and-forget 直接 `fn()`（禁 `void fn()` 前缀，ESLint `no-restricted-syntax` 已硬拦）；保留 `ref<T>` 泛型与参数对象类型；`any` 可用。
 - **页面方法一律箭头函数**：禁止 `function foo() {}` / `async function foo() {}` / `export function foo()` 声明，一律写成 `const` 箭头函数（ESLint `func-style: expression` 已硬约束，提交即拦截）：
 ```ts
 // ✅ 页面方法

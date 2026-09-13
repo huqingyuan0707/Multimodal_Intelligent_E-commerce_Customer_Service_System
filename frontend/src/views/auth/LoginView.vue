@@ -167,7 +167,7 @@
 import { ElButton, ElMessage } from 'element-plus';
 import { onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { api } from '@/api';
+import { loginApi } from '@/api';
 import AiButton from '@/shared/components/AiButton.vue';
 import AiInput from '@/shared/components/AiInput.vue';
 
@@ -181,18 +181,18 @@ onMounted(() => {
   tenant.value = sessionStorage.getItem('reai_tenant') ?? '';
 });
 
-const forgot = (): void => {
+const forgot = () => {
   ElMessage.info('请联系管理员重置密码（演示占位）');
 };
 
-const submit = async (): Promise<void> => {
+const submit = async () => {
   if (!username.value || !password.value) {
     ElMessage.warning('请输入用户名和密码');
     return;
   }
   loading.value = true;
   try {
-    const data = await api.login(username.value, password.value);
+    const data = await loginApi({ username: username.value, password: password.value });
     sessionStorage.setItem('reai_token', data.token);
     sessionStorage.setItem('reai_tenant', tenant.value.trim());
     ElMessage.success(`欢迎回来，${data.user.name}`);

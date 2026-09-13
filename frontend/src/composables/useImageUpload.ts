@@ -1,6 +1,6 @@
-// 图片上传（≤9 张/单张 ≤10M/JPG-PNG-WEBP/超限 canvas 压缩；上传走 api.uploadImage，对齐页面设计 §4）
+// 图片上传（≤9 张/单张 ≤10M/JPG-PNG-WEBP/超限 canvas 压缩；上传走 uploadImageApi，对齐页面设计 §4）
 import { ref } from 'vue';
-import { api } from '@/api';
+import { uploadImageApi } from '@/api';
 
 export type PendingImage = {
   id: string;
@@ -13,7 +13,7 @@ const MAX_COUNT = 9;
 const MAX_SIZE = 10 * 1024 * 1024;
 const MAX_EDGE = 1280;
 
-const compress = (file: File): Promise<File> =>
+const compress = (file: File) =>
   new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const img = new Image();
@@ -56,7 +56,7 @@ export const useImageUpload = () => {
   const images = ref<PendingImage[]>([]);
   const error = ref('');
 
-  const addFiles = async (files: FileList | File[]): Promise<void> => {
+  const addFiles = async (files: FileList | File[]) => {
     error.value = '';
     const list = [...files];
     if (images.value.length + list.length > MAX_COUNT) {
@@ -69,7 +69,7 @@ export const useImageUpload = () => {
         continue;
       }
       try {
-        const file = await compress(f);
+        const file = (await compress(f)) as File;
         images.value = [
           ...images.value,
           {
@@ -85,7 +85,7 @@ export const useImageUpload = () => {
     }
   };
 
-  const remove = (id: string): void => {
+  const remove = (id: string) => {
     const found = images.value.find(i => i.id === id);
     if (found) {
       URL.revokeObjectURL(found.preview);
@@ -94,7 +94,7 @@ export const useImageUpload = () => {
   };
 
   // 逐张上传，返回服务端确认的文件名；失败的标 error 继续发文字
-  const uploadAll = async (): Promise<string[]> => {
+  const uploadAll = async () => {
     const names: string[] = [];
     for (const img of images.value) {
       if (img.status === 'done') {
@@ -102,7 +102,7 @@ export const useImageUpload = () => {
       }
       img.status = 'uploading';
       try {
-        const res = await api.uploadImage(img.file);
+        const res = await uploadImageApi({ file: img.file });
         img.status = 'done';
         names.push(res.filename);
       } catch {
@@ -112,7 +112,7 @@ export const useImageUpload = () => {
     return names;
   };
 
-  const clear = (): void => {
+  const clear = () => {
     images.value.forEach(i => URL.revokeObjectURL(i.preview));
     images.value = [];
   };

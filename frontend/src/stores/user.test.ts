@@ -1,22 +1,24 @@
 // user store 单测（登录/登出/登录态恢复，对齐 AGENTS §4 验证要求）
 import { createPinia, setActivePinia } from 'pinia';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { api } from '@/api';
+import { loginApi, logoutApi, meApi } from '@/api';
 import { useUserStore } from './user';
 
 vi.mock('@/api', () => ({
-  api: { me: vi.fn(), login: vi.fn(), logout: vi.fn() },
+  meApi: vi.fn(),
+  loginApi: vi.fn(),
+  logoutApi: vi.fn(),
 }));
 
 const USER = { name: 'demo', tenant: 't1', roles: ['cs'], perms: ['cs'] };
 
 // vitest 跑在 node 环境（vite.config.ts 未配 environment），用内存实现顶掉 sessionStorage
-const createMemoryStorage = (): Storage => {
+const createMemoryStorage = () => {
   const map = new Map<string, string>();
   return {
     getItem: (key: string) => map.get(key) ?? null,
-    setItem: (key: string, value: string) => void map.set(key, String(value)),
-    removeItem: (key: string) => void map.delete(key),
+    setItem: (key: string, value: string) => map.set(key, String(value)),
+    removeItem: (key: string) => map.delete(key),
     clear: () => map.clear(),
     key: (index: number) => Array.from(map.keys())[index] ?? null,
     get length() {
@@ -43,7 +45,7 @@ describe('useUserStore', () => {
   });
 
   it('login 成功写入 token 并回填身份', async () => {
-    vi.mocked(api.login).mockResolvedValue({ token: 'tk', user: USER });
+    vi.mocked(loginApi).mockResolvedValue({ token: 'tk', user: USER });
     const store = useUserStore();
     const user = await store.login('demo', 'demo1234');
     expect(user.name).toBe('demo');
@@ -52,7 +54,7 @@ describe('useUserStore', () => {
   });
 
   it('login 失败抛出中文提示且不落 token', async () => {
-    vi.mocked(api.login).mockRejectedValue(new Error('用户名或密码错误'));
+    vi.mocked(loginApi).mockRejectedValue(new Error('用户名或密码错误'));
     const store = useUserStore();
     await expect(store.login('demo', 'bad')).rejects.toThrow('用户名或密码错误');
     expect(store.hasToken()).toBe(false);
@@ -60,8 +62,8 @@ describe('useUserStore', () => {
   });
 
   it('logout 清本地态（服务端确认失败也照常清）', async () => {
-    vi.mocked(api.login).mockResolvedValue({ token: 'tk', user: USER });
-    vi.mocked(api.logout).mockRejectedValue(new Error('net'));
+    vi.mocked(loginApi).mockResolvedValue({ token: 'tk', user: USER });
+    vi.mocked(logoutApi).mockRejectedValue(new Error('net'));
     const store = useUserStore();
     await store.login('demo', 'demo1234');
     await store.logout();
@@ -72,11 +74,11 @@ describe('useUserStore', () => {
   it('loadMe 无 token 直接判失败且不打接口', async () => {
     const store = useUserStore();
     await expect(store.loadMe()).resolves.toBe(false);
-    expect(api.me).not.toHaveBeenCalled();
+    expect(meApi).not.toHaveBeenCalled();
   });
 
   it('loadMe 成功回填用户信息', async () => {
-    vi.mocked(api.me).mockResolvedValue(USER);
+    vi.mocked(meApi).mockResolvedValue(USER);
     const store = useUserStore();
     sessionStorage.setItem('reai_token', 'tk');
     await expect(store.loadMe()).resolves.toBe(true);
@@ -85,7 +87,7 @@ describe('useUserStore', () => {
   });
 
   it('loadMe 失败（token 失效）判失败并清身份', async () => {
-    vi.mocked(api.me).mockRejectedValue(new Error('401'));
+    vi.mocked(meApi).mockRejectedValue(new Error('401'));
     const store = useUserStore();
     sessionStorage.setItem('reai_token', 'tk');
     await expect(store.loadMe()).resolves.toBe(false);

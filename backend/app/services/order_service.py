@@ -40,7 +40,7 @@ NEXT_ACTIONS: dict[str, tuple[str, ...]] = {
     "aftersale": (),
     "closed": (),
 }
-COMPANIES = ("顺丰", "中通", "圆通", "韵达", "京东", "邮政")
+COMPANIES = tuple(settings.LOGISTICS_COMPANIES)  # 快递白名单唯一口径（Settings 可配）
 
 
 def _items_of(order: SalesOrder) -> list[dict[str, Any]]:
@@ -49,6 +49,15 @@ def _items_of(order: SalesOrder) -> list[dict[str, Any]]:
     except json.JSONDecodeError:
         return []
     return loaded if isinstance(loaded, list) else []
+
+
+def _evidence_of(row: Aftersale) -> list[str]:
+    """证据图 URL 列表（建单时存 JSON 文本，脏数据按空列表处理，链路不断）。"""
+    try:
+        loaded = json.loads(row.evidence or "[]")
+    except json.JSONDecodeError:
+        return []
+    return [str(u) for u in loaded] if isinstance(loaded, list) else []
 
 
 def to_dict(order: SalesOrder, logistics: LogisticsOrder | None = None) -> dict[str, Any]:
@@ -66,6 +75,8 @@ def to_dict(order: SalesOrder, logistics: LogisticsOrder | None = None) -> dict[
         "allowed_actions": list(NEXT_ACTIONS.get(order.status, ())),
         "company": logistics.company if logistics else "",
         "tracking_no": logistics.tracking_no if logistics else "",
+        "logistics_id": (logistics.id or "") if logistics else "",
+        "logistics_status": (logistics.status or "") if logistics else "",
         "created_at": order.created_at.isoformat(sep=" ", timespec="seconds"),
     }
 
@@ -108,9 +119,7 @@ async def list_orders(
     rows = list(
         (
             await db.execute(
-                stmt.order_by(SalesOrder.created_at.desc())
-                .offset((page - 1) * size)
-                .limit(size)
+                stmt.order_by(SalesOrder.created_at.desc()).offset((page - 1) * size).limit(size)
             )
         ).scalars()
     )
@@ -118,7 +127,9 @@ async def list_orders(
     if rows:
         waybills = (
             await db.execute(
-                select(LogisticsOrder).where(LogisticsOrder.sales_order_id.in_([r.id for r in rows]))
+                select(LogisticsOrder).where(
+                    LogisticsOrder.sales_order_id.in_([r.id for r in rows])
+                )
             )
         ).scalars()
         for waybill in waybills:
@@ -131,19 +142,21 @@ async def list_orders(
     }
 
 
-async def get_detail(
-    db: AsyncSession, *, tenant: str, order_id: str
-) -> dict[str, Any]:
+async def get_detail(db: AsyncSession, *, tenant: str, order_id: str) -> dict[str, Any]:
     """订单详情：含面单与售后单（售后抽屉要展示 trace_id 跳转）。"""
     order = await _get_order(db, tenant, order_id)
     waybill = (
-        await db.execute(
-            select(LogisticsOrder)
-            .where(LogisticsOrder.tenant == tenant, LogisticsOrder.sales_order_id == order.id)
-            .order_by(LogisticsOrder.created_at.desc())
-            .limit(1)
+        (
+            await db.execute(
+                select(LogisticsOrder)
+                .where(LogisticsOrder.tenant == tenant, LogisticsOrder.sales_order_id == order.id)
+                .order_by(LogisticsOrder.created_at.desc())
+                .limit(1)
+            )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     aftersales = list(
         (
             await db.execute(
@@ -157,10 +170,13 @@ async def get_detail(
     data["aftersales"] = [
         {
             "id": row.id,
+            "order_id": row.sales_order_id,
             "reason": row.reason,
             "amount": row.amount,
+            "evidence": _evidence_of(row),
             "trace_id": row.trace_id,
             "status": row.status,
+            "status_label": AFTERSALE_STATUS_LABELS.get(row.status, row.status),
             "created_at": row.created_at.isoformat(sep=" ", timespec="seconds"),
         }
         for row in aftersales
@@ -205,7 +221,9 @@ async def ship(
         )
     )
     await db.commit()
-    return to_dict(order, LogisticsOrder(company=text_company, tracking_no=text_no))
+    return to_dict(
+        order, LogisticsOrder(company=text_company, tracking_no=text_no, status="created")
+    )
 
 
 async def create_aftersale(
@@ -265,9 +283,7 @@ async def create_aftersale(
     }
 
 
-async def apply_refund(
-    db: AsyncSession, *, tenant: str, args: dict[str, Any], actor: str
-) -> None:
+async def apply_refund(db: AsyncSession, *, tenant: str, args: dict[str, Any], actor: str) -> None:
     """退款审批通过后的生效动作：售后单置 done、订单转售后中。"""
     aftersale_id = str(args.get("aftersale_id", ""))
     row = (
@@ -291,13 +307,14 @@ AFTERSALE_STATUS_LABELS = {"pending": "待处理", "approving": "审批中", "do
 
 
 def aftersales_to_dicts(rows: list[Aftersale]) -> list[dict[str, Any]]:
-    """售后单出参（列表与详情共用同一口径）。"""
+    """售后单出参（列表与详情共用同一口径，含 evidence 证据链）。"""
     return [
         {
             "id": row.id,
             "order_id": row.sales_order_id,
             "reason": row.reason,
             "amount": row.amount,
+            "evidence": _evidence_of(row),
             "trace_id": row.trace_id,
             "status": row.status,
             "status_label": AFTERSALE_STATUS_LABELS.get(row.status, row.status),

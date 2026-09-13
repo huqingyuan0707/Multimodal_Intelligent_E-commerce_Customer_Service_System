@@ -15,7 +15,14 @@
         <template #default="s">{{ formatCents(s.row.amount) }}</template>
       </el-table-column>
       <el-table-column prop="trace_id" label="关联会话" min-width="160" />
-      <el-table-column prop="status_label" label="状态" width="120" />
+      <el-table-column label="证据" width="100">
+        <template #default="s">{{ s.row.evidence?.length ? `${s.row.evidence.length}张` : '-' }}</template>
+      </el-table-column>
+      <el-table-column label="状态" width="120">
+        <template #default="s">
+          <el-tag :type="aftersaleTagOf(s.row.status)" size="small">{{ s.row.status_label }}</el-tag>
+        </template>
+      </el-table-column>
       <el-table-column label="操作" width="160">
         <template #default="s">
           <AiButton link @click="locate(s.row)">定位会话</AiButton>
@@ -36,6 +43,9 @@
         <el-form-item label="会话trace">
           <AiInput v-model="form.trace_id" placeholder="客服会话 trace_id（可空）" />
         </el-form-item>
+        <el-form-item label="证据图">
+          <AiInput v-model="form.evidence" placeholder="图片 URL，逗号分隔，可空" />
+        </el-form-item>
       </el-form>
       <template #footer>
         <AiButton @click="close">取消</AiButton>
@@ -48,26 +58,26 @@
 <script setup lang="ts">
 // 售后单：列表 + 新建（关联会话 trace_id）+ 定位会话（对齐 FRD FR-10.4/页面设计 §3.13）
 // TODO(P2)：ChatView 支持 ?trace= 直达指定会话，当前定位跳 /chat 并提示 trace
-import { ElMessage, ElMessageBox } from 'element-plus';
+import { ElMessage, ElMessageBox, ElTag } from 'element-plus';
 import { onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { api } from '@/api';
+import { createAftersaleApi, listAftersalesApi } from '@/api';
 import AiButton from '@/shared/components/AiButton.vue';
 import AiInput from '@/shared/components/AiInput.vue';
 import type { AftersaleItem } from '@/types/shop';
-import { formatCents } from '@/types/shop';
+import { aftersaleTagOf, formatCents } from '@/types/shop';
 
 const rows = ref<AftersaleItem[]>([]);
 const loading = ref(false);
 const dialog = ref(false);
 const submitting = ref(false);
-const form = ref({ order_id: '', reason: '', amount: '', trace_id: '' });
+const form = ref({ order_id: '', reason: '', amount: '', trace_id: '', evidence: '' });
 const router = useRouter();
 
-const loadRows = async (): Promise<void> => {
+const loadRows = async () => {
   loading.value = true;
   try {
-    rows.value = await api.listAftersales();
+    rows.value = await listAftersalesApi();
   } catch (e) {
     rows.value = [];
     ElMessage.error(e instanceof Error ? e.message : '加载售后单失败');
@@ -76,32 +86,45 @@ const loadRows = async (): Promise<void> => {
   }
 };
 
-const openCreate = (): void => {
-  form.value = { order_id: '', reason: '', amount: '', trace_id: '' };
+const openCreate = () => {
+  form.value = { order_id: '', reason: '', amount: '', trace_id: '', evidence: '' };
   dialog.value = true;
 };
 
-const close = (): void => {
+const close = () => {
   dialog.value = false;
 };
 
-const submit = async (): Promise<void> => {
+const submit = async () => {
   if (!form.value.order_id) {
     ElMessage.warning('请填写订单ID');
     return;
   }
-  await ElMessageBox.confirm('确认创建售后单吗？', '提示');
+  try {
+    await ElMessageBox.confirm('确认创建售后单吗？', '提示');
+  } catch {
+    return;
+  }
   submitting.value = true;
   try {
-    // 后端金额一律分，页面禁止裸展示/提交分：元→分
+    // 后端金额一律分，页面禁止裸展示/提交分：元→分；证据图按逗号/空格/换行切分
     const cents = Math.round(Number(form.value.amount || 0) * 100);
-    await api.createAftersale({
+    const evidence = form.value.evidence
+      .split(/[,，\s\n]+/)
+      .map((u) => u.trim())
+      .filter(Boolean);
+    const res = await createAftersaleApi({
       order_id: form.value.order_id,
       reason: form.value.reason,
       amount: cents,
       trace_id: form.value.trace_id,
+      evidence,
     });
-    ElMessage.success('售后单已创建');
+    if (res.need_approval) {
+      ElMessage.warning(`退款超阈值，已转审批${res.approval_id ? `（${res.approval_id}）` : ''}，批准后生效`);
+    } else {
+      ElMessage.success('售后单已创建');
+    }
     dialog.value = false;
     await loadRows();
   } catch (e) {
@@ -111,17 +134,17 @@ const submit = async (): Promise<void> => {
   }
 };
 
-const locate = (row: AftersaleItem): void => {
+const locate = (row: AftersaleItem) => {
   if (!row.trace_id) {
     ElMessage.warning('该售后单未关联客服会话');
     return;
   }
   ElMessage.success(`关联会话 trace：${row.trace_id}`);
-  void router.push({ path: '/chat', query: { trace: row.trace_id } });
+  router.push({ path: '/chat', query: { trace: row.trace_id } });
 };
 
 onMounted(() => {
-  void loadRows();
+  loadRows();
 });
 </script>
 

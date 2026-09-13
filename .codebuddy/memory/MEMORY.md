@@ -67,3 +67,11 @@
 
 - `backend-code-style`：FastAPI 分层、统一响应信封 `ok()/fail()`、错误码号段（1xxx 通用 / 2xxx RAG / 3xxx 技能 / 4xxx 任务 / 5xxx 系统）、`governance.access_context()` 租户隔离、降级不 500、smoke 脚本风格。
 - `frontend-code-style`：页面方法一律箭头函数、API 层 `src/api/index.ts` 唯一入口、SSE 必带 `Authorization`、Pinia setup 风格、`var(--reai-*)` 设计 token、401 走中央 `handle401()`。
+
+## 前端 API 层结构（2026-09-13 重构后，写新接口必须遵守）
+
+- `src/api/` 按域拆文件：`http.ts`（dispatch 分发层）+ auth/goods/inventory/orders/marketing/logistics/reviews/approvals/documents/tasks/chat + `index.ts` 纯 barrel；页面仍从 `'@/api'` 导入。
+- 每个接口 = 一个单独箭头函数 `xxxApi`：`dispatch({method, systemId, path, params, idempotent})` → `if (res.code !== 0) throw new Error(res.msg)` → `return res.data`。参数一律单一对象；写操作 `idempotent: true`（自动 Idempotency-Key，可传 idemKey 覆盖）。
+- **类型口径（用户 2026-09-13 明确要求，全前端生效）**：不写返回类型注解；**`void`、`Promise<`、`Record<` 三个词全 src 清零**：映射表用 `as const` + `keyof typeof` 取值，`Record<string, unknown>` 字段/参数一律写 `object`，`DispatchOptions.params` 为 `object | FormData`，`buildHeaders` 用 spread 字面量拼接；**回调类型返回值写 `=> unknown`**（chat.ts StreamHandlers）；**`defineEmits` 用运行时数组形式**（类型式声明强制 `: void`，与禁令冲突，AiInput.vue 已改）；**fire-and-forget 异步调用直接 `fn()`，禁 `void fn()` 前缀**（`no-floating-promises` 未启用，删了不会报）。`Envelope.data` 定为 `any` 兜住调用方。仍保留：参数对象类型（noImplicitAny 硬需要）、`ref<T>` 泛型（删了会推成 never[]）、`types/*.ts` 类型定义、必要 `as const`/`as` 转换。**硬门禁**：eslint.config.js `no-restricted-syntax` 拦 `TSVoidKeyword` + `UnaryExpression[operator='void']`（已用 stdin 探针验证两种形态均 error）。口径同步在 `.codebuddy/rules/frontend-red-lines.mdc` §6、`AGENTS.md` §4、`skills/frontend-code-style/SKILL.md` §1。
+- dispatch 收口：GET/DELETE 拼 query（跳过 undefined/null、保留 ''）、POST/PUT 自动 JSON、FormData 直传不手设头、401/1002 → handle401；`systemId` 预留未参与路由。
+- 该结构由硬门禁倒逼（complexity≤20、max-lines≤400 净行）：新接口若让单文件超线，继续按域拆，禁止 eslint-disable。

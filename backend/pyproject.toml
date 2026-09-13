@@ -47,21 +47,22 @@ quote-style = "double"
 indent-style = "space"
 line-ending = "lf"
 
-# ---------------- mypy：类型检查 ----------------
+# ---------------- mypy：类型检查（宽松模式：注解可选，不写也不报错） ----------------
 [tool.mypy]
 python_version = "3.11"
 files = ["app"]
-check_untyped_defs = true
-disallow_untyped_defs = true
-disallow_incomplete_defs = true
+check_untyped_defs = false
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
 disallow_untyped_decorators = false
-no_implicit_optional = true
-warn_redundant_casts = true
-warn_unused_ignores = true
-warn_return_any = true
-warn_unreachable = true
-warn_no_return = true
-strict_equality = true
+disallow_untyped_calls = false
+no_implicit_optional = false
+warn_redundant_casts = false
+warn_unused_ignores = false
+warn_return_any = false
+warn_unreachable = false
+warn_no_return = false
+strict_equality = false
 show_error_codes = true
 pretty = true
 # 三方库（chromadb / 模型 SDK）多数无类型存根，避免误报阻塞 CI

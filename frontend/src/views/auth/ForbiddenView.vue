@@ -20,8 +20,8 @@ const route = useRoute();
 const router = useRouter();
 const traceId = ref((route.query.trace_id as string | undefined) ?? `t-${Date.now().toString(36)}`);
 
-const goHome = (): void => {
-  void router.push('/chat');
+const goHome = () => {
+  router.push('/chat');
 };
 </script>
 

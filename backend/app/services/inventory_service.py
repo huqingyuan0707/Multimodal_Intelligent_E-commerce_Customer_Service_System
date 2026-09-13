@@ -20,6 +20,9 @@ from app.core.exceptions import BusinessError, ErrorCode
 from app.db.models import Approval, Inventory, Product, Sku, StockMove, Warehouse
 from app.services import approval_service
 
+# 出入库类型口径（唯一出处，前后端以此为准）：
+# - 用户可提交：in 入库 / out 出库 / move 调拨（move 必带 to_warehouse_id，自动拆两行流水）。
+# - adjust 调整：系统内部专用（盘点差异审批通过后 apply_stocktake 写入），不接受用户直接提交。
 MOVE_KINDS = ("in", "out", "move")
 KIND_LABELS = {"in": "入库", "out": "出库", "move": "调拨", "adjust": "调整"}
 
@@ -30,7 +33,12 @@ def available_of(row: Inventory) -> int:
 
 
 async def get_row(
-    db: AsyncSession, tenant: str, warehouse_id: str, sku_id: str, *, create_if_missing: bool = False
+    db: AsyncSession,
+    tenant: str,
+    warehouse_id: str,
+    sku_id: str,
+    *,
+    create_if_missing: bool = False,
 ) -> Inventory | None:
     """取库存行；create_if_missing 用于入库/调拨落到尚无记录的仓库。"""
     row = (
@@ -142,7 +150,9 @@ async def stock_table(
 
 async def list_warehouses(db: AsyncSession, *, tenant: str) -> list[Warehouse]:
     rows = (
-        await db.execute(select(Warehouse).where(Warehouse.tenant == tenant).order_by(Warehouse.name))
+        await db.execute(
+            select(Warehouse).where(Warehouse.tenant == tenant).order_by(Warehouse.name)
+        )
     ).scalars()
     return list(rows)
 
@@ -153,9 +163,7 @@ async def list_moves(
     stmt = select(StockMove).where(StockMove.tenant == tenant)
     if sku_id:
         stmt = stmt.where(StockMove.sku_id == sku_id)
-    rows = (
-        await db.execute(stmt.order_by(StockMove.created_at.desc()).limit(limit))
-    ).scalars()
+    rows = (await db.execute(stmt.order_by(StockMove.created_at.desc()).limit(limit))).scalars()
     return list(rows)
 
 
@@ -168,9 +176,7 @@ def _check_reason(reason: str) -> str:
     """出入库原因必填（报损/退货/盘盈盘亏都要留痕）。"""
     text = reason.strip()
     if not text:
-        raise BusinessError(
-            ErrorCode.PARAM_INVALID, "请填写出入库原因（报损、退货等必须留痕）"
-        )
+        raise BusinessError(ErrorCode.PARAM_INVALID, "请填写出入库原因（报损、退货等必须留痕）")
     return text
 
 
@@ -314,7 +320,8 @@ async def stocktake(
         counted = line.get("counted")
         if not warehouse_id or not sku_id or not isinstance(counted, int) or counted < 0:
             raise BusinessError(
-                ErrorCode.PARAM_INVALID, "盘点明细非法：需要 warehouse_id、sku_id 与非负整数 counted"
+                ErrorCode.PARAM_INVALID,
+                "盘点明细非法：需要 warehouse_id、sku_id 与非负整数 counted",
             )
         row = await get_row(db, tenant, warehouse_id, sku_id)
         if row is None:
@@ -342,7 +349,11 @@ async def stocktake(
             )
         )
     await db.commit()
-    return {"checked": checked, "diff_count": len(approvals), "approval_ids": [a.id for a in approvals]}
+    return {
+        "checked": checked,
+        "diff_count": len(approvals),
+        "approval_ids": [a.id for a in approvals],
+    }
 
 
 async def apply_stocktake(

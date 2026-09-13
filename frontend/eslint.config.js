@@ -7,9 +7,12 @@ import globals from 'globals';
 /**
  * ESLint 扁平配置（ESLint 9）
  *
+ * 类型宽松模式（对应 skill frontend-code-style）：
+ *  - 不强制写类型注解，推断优先；返回值类型（: AgentMessage / <PromoItem> 等）一律省略
+ *  - any 可用，不阻断；泛型参数不强制（但 ref<T> 保留，删了会推成 never[]）
  * 硬约束（提交即拦截，对应 skill frontend-code-style）：
  *  - func-style: expression  → 页面方法一律箭头函数，禁止 function 声明
- *  - no-explicit-any: warn   → 不阻断 CI，但既有 any 不扩散（配合 --max-warnings 0 时按需放宽）
+ *  - no-restricted-syntax    → src 禁用 void（类型注解 + 表达式前缀两种形态都拦）
  */
 export default tseslint.config(
   {
@@ -46,13 +49,29 @@ export default tseslint.config(
       'func-style': ['error', 'expression', { allowArrowFunctions: true }],
       'prefer-arrow-callback': 'error',
 
-      // —— 类型 ——
-      '@typescript-eslint/no-explicit-any': 'warn',
-      '@typescript-eslint/no-unused-vars': [
+      // —— 类型宽松：注解一律可选，不强制（返回值类型靠推断，泛型不强制）——
+      // void 三词禁令的硬门禁：类型注解 `: void` 与表达式前缀 `void fn()` 一律拦截
+      'no-restricted-syntax': [
         'error',
+        {
+          selector: 'TSVoidKeyword',
+          message:
+            '禁用 void 类型注解：返回值类型省略靠推断；回调类型写 => unknown；defineEmits 用数组形式',
+        },
+        {
+          selector: "UnaryExpression[operator='void']",
+          message: '禁用 void 表达式前缀：fire-and-forget 异步调用直接写 fn()',
+        },
+      ],
+      '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/explicit-function-return-type': 'off',
+      '@typescript-eslint/explicit-module-boundary-types': 'off',
+      '@typescript-eslint/no-inferrable-types': 'off',
+      '@typescript-eslint/no-unused-vars': [
+        'warn',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
       ],
-      '@typescript-eslint/consistent-type-imports': ['error', { prefer: 'type-imports' }],
+      '@typescript-eslint/consistent-type-imports': 'off',
 
       // —— 通用 ——
       'no-console': ['warn', { allow: ['warn', 'error'] }],

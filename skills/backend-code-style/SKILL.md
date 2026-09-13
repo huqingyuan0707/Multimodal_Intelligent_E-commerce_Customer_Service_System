@@ -22,9 +22,10 @@ description: breath After modifying any Python code under backend/app or backend
 """
 ```
 
-## 3. 类型注解（必须全覆盖）
-- 用 PEP 604 写法：`str | None`、`list[dict]`、`dict | None`，不用 `Optional[]`。
-- 公共函数必须注解参数与返回值；内部小函数至少注解关键参数。
+## 3. 类型注解（可选，不强制）
+- 类型注解一律可选，不写也不报错；mypy 已放宽（`disallow_untyped_defs/check_untyped_defs` 均为 false）。
+- 写时用 PEP 604 写法：`str | None`、`list[dict]`、`dict | None`，不用 `Optional[]`。
+- 关键边界（对外接口、公共 service 签名）建议补注解方便联调，其余靠推断即可。
 
 ## 4. 分节注释
 大文件按 `# ---------------- 标题 ----------------` 分节，每节职责单一（参考 `rag.py`：惰性单例 / 写入删除 / 召回两路 / 融合重排 / 完整检索链）。

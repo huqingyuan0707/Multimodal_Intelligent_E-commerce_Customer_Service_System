@@ -66,6 +66,17 @@ class Settings(BaseSettings):
     REFUND_APPROVAL_LIMIT_CENTS: int = 10000  # 退款超此金额（100 元）恒进审批（3003）
     # 物流单号格式（打单发货校验，非法返回 1001）：8~24 位字母数字
     TRACKING_NO_PATTERN: str = r"^[A-Za-z0-9]{8,24}$"
+    # 快递公司白名单（发货校验 + 物流公司列表唯一口径，8 家全量；order/logistics 双服务同源）
+    LOGISTICS_COMPANIES: list[str] = [
+        "顺丰",
+        "中通",
+        "圆通",
+        "韵达",
+        "申通",
+        "京东",
+        "邮政",
+        "德邦",
+    ]
 
     @model_validator(mode="after")
     def _guard_prod(self) -> Settings:

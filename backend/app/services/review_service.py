@@ -27,6 +27,11 @@ def _parse_json(text: str, fallback: Any) -> Any:
         return fallback
 
 
+def _dt_text(value) -> str:
+    """时间统一口径：空格秒（与订单/商品/审批一致，禁止裸 isoformat）。"""
+    return value.isoformat(sep=" ", timespec="seconds") if value else ""
+
+
 def review_to_dict(row: Review) -> dict[str, Any]:
     return {
         "id": row.id,
@@ -38,7 +43,7 @@ def review_to_dict(row: Review) -> dict[str, Any]:
         "replied": row.replied,
         "reply": row.reply,
         "ticket_id": row.ticket_id,
-        "created_at": row.created_at.isoformat(),
+        "created_at": _dt_text(row.created_at),
     }
 
 
@@ -48,10 +53,10 @@ def ticket_to_dict(row: Ticket) -> dict[str, Any]:
         "kind": row.kind,
         "source_ref": row.source_ref,
         "assignee": row.assignee,
-        "sla_due": row.sla_due.isoformat() if row.sla_due else "",
+        "sla_due": _dt_text(row.sla_due),
         "status": row.status,
         "conclusion": row.conclusion,
-        "created_at": row.created_at.isoformat(),
+        "created_at": _dt_text(row.created_at),
     }
 
 

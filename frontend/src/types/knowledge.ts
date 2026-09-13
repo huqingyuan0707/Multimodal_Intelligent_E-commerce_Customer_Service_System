@@ -7,8 +7,8 @@ export type KnowledgeDoc = {
   skipped?: boolean;
 };
 
-export const DOC_LEVEL_TAG: Record<string, string> = {
+export const DOC_LEVEL_TAG = {
   public: '公开',
   internal: '内部',
   confidential: '机密',
-};
+} as const;

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import func, select
@@ -24,6 +25,24 @@ def _parse_json(text: str, fallback: Any) -> Any:
         return fallback
 
 
+def _dt_text(value) -> str:
+    """时间统一口径：空格秒（空值落空串，前端直接展示不判空崩）。"""
+    return value.isoformat(sep=" ", timespec="seconds") if value else ""
+
+
+def _parse_valid_dt(text: str, field: str):
+    """生效期解析（YYYY-MM-DD [HH:mm:ss]，空串=不限；非法 1001 中文提示）。"""
+    text = (text or "").strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        raise BusinessError(
+            ErrorCode.PARAM_INVALID, f"{field}格式不正确（YYYY-MM-DD HH:mm:ss）"
+        ) from None
+
+
 def promo_to_dict(row: Promo) -> dict[str, Any]:
     return {
         "id": row.id,
@@ -34,6 +53,9 @@ def promo_to_dict(row: Promo) -> dict[str, Any]:
         "per_user": row.per_user,
         "status": row.status,
         "remaining": max(0, row.budget - row.granted),
+        "valid_from": _dt_text(row.valid_from),
+        "valid_to": _dt_text(row.valid_to),
+        "created_at": _dt_text(row.created_at),
     }
 
 
@@ -44,6 +66,8 @@ def grant_to_dict(row: CouponGrant) -> dict[str, Any]:
         "user_ref": row.user_ref,
         "order_ref": row.order_ref,
         "status": row.status,
+        "idem_key": row.idem_key,
+        "created_at": _dt_text(row.created_at),
     }
 
 
@@ -55,13 +79,30 @@ async def create_promo(
     budget: int,
     total: int = 0,
     per_user: int = 1,
+    valid_from: str = "",
+    valid_to: str = "",
 ) -> Promo:
-    """建活动（草稿态；发布流 P2，当前建完即 published 可发券）。"""
+    """建活动（草稿态；发布流 P2，当前建完即 published 可发券）。
+
+    金额 budget 单位：分（整数，禁浮点）。生效期空串=不限，前后都填时起必须早于止。
+    """
     if not name.strip():
         raise BusinessError(ErrorCode.PARAM_INVALID, "活动名称不能为空")
     if budget <= 0:
         raise BusinessError(ErrorCode.PARAM_INVALID, "预算必须为正数")
-    row = Promo(tenant=tenant, name=name.strip(), budget=budget, total=total, per_user=per_user)
+    start = _parse_valid_dt(valid_from, "生效起")
+    end = _parse_valid_dt(valid_to, "生效止")
+    if start and end and start > end:
+        raise BusinessError(ErrorCode.PARAM_INVALID, "生效起不能晚于生效止")
+    row = Promo(
+        tenant=tenant,
+        name=name.strip(),
+        budget=budget,
+        total=total,
+        per_user=per_user,
+        valid_from=start,
+        valid_to=end,
+    )
     db.add(row)
     await db.flush()
     return row

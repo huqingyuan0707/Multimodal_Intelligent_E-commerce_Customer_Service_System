@@ -25,7 +25,15 @@ from app.db import session as session_mod
 from app.db.models import Inventory, Product, SalesOrder, Sku, StockMove, Warehouse
 from app.db.seed import ensure_b2b_demo
 from app.db.session import get_engine, init_models
-from app.services import approval_service, goods_service, inventory_service, order_service
+from app.services import (
+    approval_service,
+    goods_service,
+    inventory_service,
+    logistics_service,
+    order_service,
+    promo_service,
+    review_service,
+)
 
 TENANT = settings.SEED_TENANT
 
@@ -44,9 +52,7 @@ async def db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[A
 
 
 async def _sku(db: AsyncSession, spu_no: str, color: str, size: str) -> Sku:
-    product = (
-        await db.execute(select(Product).where(Product.spu_no == spu_no))
-    ).scalar_one()
+    product = (await db.execute(select(Product).where(Product.spu_no == spu_no))).scalar_one()
     return (
         await db.execute(
             select(Sku).where(Sku.product_id == product.id, Sku.color == color, Sku.size == size)
@@ -62,7 +68,9 @@ async def _order(db: AsyncSession, outer_id: str) -> SalesOrder:
 
 async def _wh(db: AsyncSession, name: str) -> Warehouse:
     return (
-        await db.execute(select(Warehouse).where(Warehouse.tenant == TENANT, Warehouse.name == name))
+        await db.execute(
+            select(Warehouse).where(Warehouse.tenant == TENANT, Warehouse.name == name)
+        )
     ).scalar_one()
 
 
@@ -276,3 +284,87 @@ async def test_aftersale_refund_threshold(db: AsyncSession) -> None:
     detail = await order_service.get_detail(db, tenant=TENANT, order_id=shipped.id)
     assert detail["status"] == "aftersale"
     assert [a["status"] for a in detail["aftersales"]].count("done") == 1
+
+
+async def test_fieldfix_evidence_roundtrip(db: AsyncSession) -> None:
+    """修复1：evidence 建单→列表→详情同一口径，不再丢失。"""
+    shipped = await _order(db, "WX20260911003")
+    proof = ["https://cdn/x/1.jpg", "https://cdn/x/2.jpg"]
+    created = await order_service.create_aftersale(
+        db,
+        tenant=TENANT,
+        order_id=shipped.id,
+        reason="袖口脱线",
+        amount=100,
+        trace_id="t-ev",
+        applicant="tester",
+        evidence=proof,
+    )
+    listed = [
+        d
+        for d in order_service.aftersales_to_dicts(
+            await order_service.list_aftersales(db, tenant=TENANT)
+        )
+        if d["id"] == created["aftersale_id"]
+    ]
+    assert listed and listed[0]["evidence"] == proof
+    detail = await order_service.get_detail(db, tenant=TENANT, order_id=shipped.id)
+    nested = [a for a in detail["aftersales"] if a["id"] == created["aftersale_id"]]
+    assert nested and nested[0]["evidence"] == proof
+    assert nested[0]["order_id"] == shipped.id and nested[0]["status_label"]
+
+
+async def test_fieldfix_promo_valid_dates(db: AsyncSession) -> None:
+    """修复3：活动有效期落库可查；发券回 idem_key/created_at；非法日期 1001。"""
+    row = await promo_service.create_promo(
+        db,
+        tenant=TENANT,
+        name="秋促",
+        budget=10,
+        valid_from="2026-09-01 00:00:00",
+        valid_to="2026-09-30 23:59:59",
+    )
+    promo = promo_service.promo_to_dict(row)
+    assert promo["valid_from"] == "2026-09-01 00:00:00"
+    assert promo["valid_to"] == "2026-09-30 23:59:59"
+    granted, replayed = await promo_service.grant(
+        db, tenant=TENANT, promo_id=row.id, user_ref="u1", idem_key="k-fieldfix-1"
+    )
+    assert replayed is False and granted["idem_key"] == "k-fieldfix-1"
+    assert granted["created_at"] and "T" not in granted["created_at"]
+    with pytest.raises(BusinessError) as bad_fmt:
+        await promo_service.create_promo(
+            db, tenant=TENANT, name="坏日期", budget=5, valid_from="9月1日"
+        )
+    assert bad_fmt.value.code == ErrorCode.PARAM_INVALID
+    with pytest.raises(BusinessError) as bad_range:
+        await promo_service.create_promo(
+            db,
+            tenant=TENANT,
+            name="倒挂",
+            budget=5,
+            valid_from="2026-10-01 00:00:00",
+            valid_to="2026-09-01 00:00:00",
+        )
+    assert bad_range.value.code == ErrorCode.PARAM_INVALID
+
+
+async def test_fieldfix_logistics_and_time_format(db: AsyncSession) -> None:
+    """修复2/4/5：公司名单统一 8 家；运单 status_label；时间空格秒口径。"""
+    assert "申通" in order_service.COMPANIES and "德邦" in logistics_service.COMPANIES
+    paid = await _order(db, "TB20260912001")
+    shipped = await order_service.ship(
+        db, tenant=TENANT, order_id=paid.id, company="顺丰", tracking_no="SF9999000011"
+    )
+    assert shipped["logistics_status"] == "created" and shipped["company"] == "顺丰"
+    tracked = await logistics_service.track(db, tenant=TENANT, tracking_no="SF9999000011")
+    assert tracked["id"] and tracked["status_label"] == "已创建"
+    assert " " in tracked["created_at"] and "T" not in tracked["created_at"]
+    review = await review_service.create_review(
+        db, tenant=TENANT, platform="淘宝", outer_id="TB-1", level="bad", content="差"
+    )
+    review_dict = review_service.review_to_dict(review)
+    assert "T" not in review_dict["created_at"]
+    ticket, _ = await review_service.create_review_ticket(db, tenant=TENANT, review_id=review.id)
+    ticket_dict = review_service.ticket_to_dict(ticket)
+    assert "T" not in ticket_dict["created_at"] and "T" not in ticket_dict["sla_due"]

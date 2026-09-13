@@ -28,7 +28,7 @@
 ## 3. 后端红线（FastAPI）
 
 - 分层：`endpoints/*.py` 薄封装（解析→调 service→`ok()/fail()`），业务进 `services/` 纯函数，不依赖 FastAPI 对象。私有 `*Request` 可放端点文件内。
-- 类型：PEP 604（`str | None`），公共函数全注解；Ruff `UP` 规则已强制。
+- 类型：注解可选（PEP 604 写法 `str | None`，写时用它）；mypy 已放宽，不写不报错；Ruff `UP` 规则已强制。
 - 信封：成功 `ok(data, 中文msg)`，失败 `fail(ErrorCode.*, 中文可操作msg, http)`，`trace_id` 框架带。新增错误码落号段：1xxx 通用 / 2xxx 对话（2001 拒答 / 2002 限流）/ 3xxx 业务 / 4xxx 任务 / 5xxx 系统。
 - 安全：路由级 `Depends(get_current_user)`，敏感加 `Depends(require_perm(...))`；**绝不信任请求体 `tenant_id/user_id`**，一律 `governance.access_context()` + service 用 `current_user()`；记忆/检索键 `(tenant, Token用户名, thread)` 同一口径。
 - 配置：可调全进 `app/config.py::Settings`，热更走 `_HOT_FIELDS`；向量/关键词走适配层，业务不直连具体库，不可用回退且 `status()` 可见。
@@ -38,7 +38,7 @@
 
 ## 4. 前端红线（Vue3 + TS + Element Plus）
 
-- 基线：`pnpm`，`<script setup lang="ts">`，`@`= `src/`，Prettier（semi/singleQuote/2/printWidth 100/arrowParens avoid/lf），`pnpm lint` 0 errors。
+- 基线：`pnpm`，`<script setup lang="ts">`，`@`= `src/`，Prettier（semi/singleQuote/2/printWidth 100/arrowParens avoid/lf），`pnpm lint` 0 errors；类型宽松推断优先，返回值注解一律不写；**`void`/`Promise<`/`Record<` 三词 src 禁用**（ESLint `no-restricted-syntax` 硬拦 void；映射表 `as const`+`keyof typeof`，回调返回值 `=> unknown`，`defineEmits` 数组形式，fire-and-forget 直接 `fn()`；保留 `ref<T>` 与参数对象类型）。
 - **页面方法一律箭头函数**（`func-style: expression` 硬拦截）：`const loadDocs = async () => {}`，先定义后调用；禁 `function foo(){}`。
 - 目录：页面 `src/views/<domain>/` 按域分目录，逻辑按层放顶层 `src/{components,composables,stores,types}/`（无 `features/`）；Agent 类型先行 `src/types/agent.ts`。
 - API 唯一入口 `src/api/index.ts`：JSON 走 `request<T>`（自动解包，`code!==0` 抛错）；上传 FormData 不手设 Content-Type；SSE fetch 必带 `Authorization`；GET 参数 `encodeURIComponent`；页面禁直写 `fetch`（ESLint 已拦，仅 `src/api` /测试/配置豁免）。

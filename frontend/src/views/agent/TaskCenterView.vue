@@ -39,7 +39,7 @@
 // 长任务 >30s 转异步 + 轮询；SSE progress/complete/error 待后端补后接入
 import { ElMessage } from 'element-plus';
 import { onUnmounted, ref } from 'vue';
-import { tasksApi } from '@/api';
+import { createTaskApi, getTaskApi } from '@/api';
 import AiButton from '@/shared/components/AiButton.vue';
 import type { TaskItem, TaskStatus } from '@/types/task';
 import { TASK_STATUS_TAG } from '@/types/task';
@@ -49,26 +49,25 @@ const tasks = ref<TaskItem[]>([]);
 const creating = ref(false);
 let timer: ReturnType<typeof setInterval> | null = null;
 
-const statusType = (s: TaskStatus): 'info' | 'warning' | 'success' | 'danger' => {
-  const map: Record<TaskStatus, 'info' | 'warning' | 'success' | 'danger'> = {
+const statusType = (s: TaskStatus) => {
+  const map = {
     pending: 'info',
     running: 'warning',
     done: 'success',
     error: 'danger',
-  };
+  } as const;
   return map[s];
 };
 
-const normalizeStatus = (s: string): TaskStatus =>
+const normalizeStatus = (s: string) =>
   s === 'running' || s === 'done' || s === 'error' ? s : 'pending';
 
 // el-table 行在模板中为隐式 any，经此收窄后再索引映射表（过 strict）
-const statusLabel = (row: { status: TaskStatus }): string => TASK_STATUS_TAG[row.status];
+const statusLabel = (row: { status: TaskStatus }) => TASK_STATUS_TAG[row.status];
 
-const statusTag = (row: { status: TaskStatus }): 'info' | 'warning' | 'success' | 'danger' =>
-  statusType(row.status);
+const statusTag = (row: { status: TaskStatus }) => statusType(row.status);
 
-const poll = async (): Promise<void> => {
+const poll = async () => {
   const actives = tasks.value.filter(t => t.status === 'pending' || t.status === 'running');
   if (!actives.length) {
     return;
@@ -76,7 +75,7 @@ const poll = async (): Promise<void> => {
   await Promise.all(
     actives.map(async t => {
       try {
-        const r = await tasksApi.get(t.task_id);
+        const r = await getTaskApi({ taskId: t.task_id });
         t.status = normalizeStatus(r.status);
         t.progress = r.progress ?? t.progress;
       } catch (e) {
@@ -87,19 +86,19 @@ const poll = async (): Promise<void> => {
   );
 };
 
-const ensureTimer = (): void => {
+const ensureTimer = () => {
   if (timer) {
     return;
   }
   timer = setInterval(() => {
-    void poll();
+    poll();
   }, 3000);
 };
 
-const create = async (): Promise<void> => {
+const create = async () => {
   creating.value = true;
   try {
-    const r = await tasksApi.create({ type: form.value.type });
+    const r = await createTaskApi({ type: form.value.type });
     // 后端 stub 暂返空 task_id：本地生成占位 id，保证列表可用
     const id = r.task_id || `t-${Date.now()}`;
     tasks.value = [

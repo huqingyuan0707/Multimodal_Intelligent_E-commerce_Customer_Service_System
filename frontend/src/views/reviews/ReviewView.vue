@@ -82,7 +82,14 @@
 // 对齐 FRD FR-10.8/FR-12.3、页面设计 §3.17/§3.18；独立 /tickets 页为 P2，本页先行承载
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { onMounted, ref } from 'vue';
-import { api } from '@/api';
+import {
+  closeTicketApi,
+  createReviewTicketApi,
+  listReviewsApi,
+  listTicketsApi,
+  replyReviewApi,
+  transferTicketApi,
+} from '@/api';
 import AiButton from '@/shared/components/AiButton.vue';
 import AiInput from '@/shared/components/AiInput.vue';
 import type { ReviewItem, TicketItem } from '@/types/shop';
@@ -104,10 +111,10 @@ const assignee = ref('');
 const conclusion = ref('');
 const activeTicket = ref<TicketItem | null>(null);
 
-const loadBad = async (): Promise<void> => {
+const loadBad = async () => {
   loading.value = true;
   try {
-    bads.value = await api.listReviews('bad');
+    bads.value = await listReviewsApi({ level: 'bad' });
   } catch (e) {
     bads.value = [];
     ElMessage.error(e instanceof Error ? e.message : '加载差评失败');
@@ -116,20 +123,20 @@ const loadBad = async (): Promise<void> => {
   }
 };
 
-const openReply = (row: ReviewItem): void => {
+const openReply = (row: ReviewItem) => {
   replyRow.value = row;
   replyText.value = '';
   replyDialog.value = true;
 };
 
-const submitReply = async (): Promise<void> => {
+const submitReply = async () => {
   if (!replyRow.value || !replyText.value.trim()) {
     ElMessage.warning('请填写回复内容');
     return;
   }
   replying.value = true;
   try {
-    await api.replyReview(replyRow.value.id, replyText.value.trim());
+    await replyReviewApi({ id: replyRow.value.id, reply: replyText.value.trim() });
     ElMessage.success('回复成功');
     replyDialog.value = false;
     await loadBad();
@@ -140,10 +147,10 @@ const submitReply = async (): Promise<void> => {
   }
 };
 
-const makeTicket = async (row: ReviewItem): Promise<void> => {
+const makeTicket = async (row: ReviewItem) => {
   await ElMessageBox.confirm('为该差评建协同工单（SLA 2h）吗？', '提示');
   try {
-    await api.createReviewTicket(row.id);
+    await createReviewTicketApi({ id: row.id });
     ElMessage.success('工单已创建，请到工单中心跟进');
     await loadBad();
     await loadTickets();
@@ -152,10 +159,10 @@ const makeTicket = async (row: ReviewItem): Promise<void> => {
   }
 };
 
-const loadTickets = async (): Promise<void> => {
+const loadTickets = async () => {
   tLoading.value = true;
   try {
-    tickets.value = await api.listTickets();
+    tickets.value = await listTicketsApi();
   } catch (e) {
     tickets.value = [];
     ElMessage.error(e instanceof Error ? e.message : '加载工单失败');
@@ -164,20 +171,20 @@ const loadTickets = async (): Promise<void> => {
   }
 };
 
-const openTransfer = (row: TicketItem): void => {
+const openTransfer = (row: TicketItem) => {
   activeTicket.value = row;
   assignee.value = '';
   transferDialog.value = true;
 };
 
-const submitTransfer = async (): Promise<void> => {
+const submitTransfer = async () => {
   if (!activeTicket.value || !assignee.value) {
     ElMessage.warning('请填写新负责人');
     return;
   }
   tSubmitting.value = true;
   try {
-    await api.transferTicket(activeTicket.value.id, assignee.value);
+    await transferTicketApi({ id: activeTicket.value.id, assignee: assignee.value });
     ElMessage.success('转交成功');
     transferDialog.value = false;
     await loadTickets();
@@ -188,20 +195,20 @@ const submitTransfer = async (): Promise<void> => {
   }
 };
 
-const openClose = (row: TicketItem): void => {
+const openClose = (row: TicketItem) => {
   activeTicket.value = row;
   conclusion.value = '';
   closeDialog.value = true;
 };
 
-const submitClose = async (): Promise<void> => {
+const submitClose = async () => {
   if (!activeTicket.value || !conclusion.value.trim()) {
     ElMessage.warning('关闭结论不能为空');
     return;
   }
   tSubmitting.value = true;
   try {
-    await api.closeTicket(activeTicket.value.id, conclusion.value.trim());
+    await closeTicketApi({ id: activeTicket.value.id, conclusion: conclusion.value.trim() });
     ElMessage.success('工单已关闭');
     closeDialog.value = false;
     await loadTickets();
@@ -213,8 +220,8 @@ const submitClose = async (): Promise<void> => {
 };
 
 onMounted(() => {
-  void loadBad();
-  void loadTickets();
+  loadBad();
+  loadTickets();
 });
 </script>
 

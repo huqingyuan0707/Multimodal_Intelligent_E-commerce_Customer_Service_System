@@ -12,12 +12,12 @@ export const useVoiceRecorder = () => {
   let timer: number | null = null;
   let chunks: Blob[] = [];
 
-  const stopTracks = (): void => {
+  const stopTracks = () => {
     stream?.getTracks().forEach(t => t.stop());
     stream = null;
   };
 
-  const start = async (): Promise<void> => {
+  const start = async () => {
     error.value = '';
     if (!supported) {
       error.value = '浏览器不支持录音';
@@ -51,12 +51,12 @@ export const useVoiceRecorder = () => {
     timer = window.setInterval(() => {
       seconds.value += 1;
       if (seconds.value >= 60) {
-        void stop();
+        stop();
       }
     }, 1000);
   };
 
-  const stop = async (): Promise<void> => {
+  const stop = async () => {
     if (timer !== null) {
       window.clearInterval(timer);
       timer = null;
@@ -69,7 +69,7 @@ export const useVoiceRecorder = () => {
     }
   };
 
-  const discard = (): void => {
+  const discard = () => {
     if (audioUrl.value) {
       URL.revokeObjectURL(audioUrl.value);
     }

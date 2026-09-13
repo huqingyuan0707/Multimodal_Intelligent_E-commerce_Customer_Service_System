@@ -23,12 +23,14 @@ members_router = APIRouter(prefix="/members", tags=["members"])
 
 
 class PromoCreateRequest(BaseModel):
-    """建活动入参（金额/预算单位：分）。"""
+    """建活动入参（金额/预算单位：分；生效期空串=不限）。"""
 
     name: str
     budget: int
     total: int = 0
     per_user: int = 1
+    valid_from: str = ""
+    valid_to: str = ""
 
 
 class GrantRequest(BaseModel):
@@ -68,6 +70,8 @@ async def create_promo(
         budget=payload.budget,
         total=payload.total,
         per_user=payload.per_user,
+        valid_from=payload.valid_from,
+        valid_to=payload.valid_to,
     )
     await db.commit()
     return ok(promo_service.promo_to_dict(row), "活动已创建")

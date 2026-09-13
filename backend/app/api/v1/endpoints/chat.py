@@ -1,7 +1,7 @@
 """对话端点（真实 RAG 问答 + SSE，对齐 API 规范 §4.2/§5）
 
 链路：POST /chat → chat_service.answer → ok() / 2001 拒答；
-POST /chat/stream → phase/message/done 真实帧（Nginx 需 proxy_buffering off）。
+POST /chat/stream → source/phase/message/done 真实帧（Nginx 需 proxy_buffering off）。
 """
 
 from __future__ import annotations
@@ -45,7 +45,8 @@ def _frame(event: str, payload: dict[str, object]) -> str:
 
 
 async def _real_events(query: str) -> AsyncIterator[str]:
-    """真实帧：phase 检索中 → message 分片 → done（含引用/guard/faithfulness/trace）。"""
+    """真实帧：source 来源 → phase 检索中 → message 分片 → done（含引用/guard/faithfulness/trace）。"""
+    yield _frame("source", {"name": "知识库"})
     yield _frame("phase", {"name": "retrieving"})
     try:
         result = await chat_service.answer(query)

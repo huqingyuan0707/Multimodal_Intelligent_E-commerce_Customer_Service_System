@@ -32,7 +32,7 @@
                 <el-tag :type="goodsTagOf(s.row.status)" size="small">{{ s.row.status_label }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="110">
+            <el-table-column label="操作" width="170">
               <template #default="s">
                 <el-button
                   v-permission="['shop', 'ops', 'admin']"
@@ -42,6 +42,15 @@
                   @click="changePrice(s.row as SkuItem)"
                 >
                   改价
+                </el-button>
+                <el-button
+                  v-permission="['shop', 'ops', 'admin']"
+                  link
+                  type="primary"
+                  size="small"
+                  @click="changeBarcode(s.row as SkuItem)"
+                >
+                  改条码
                 </el-button>
               </template>
             </el-table-column>
@@ -87,7 +96,7 @@
 // 商品管理（SPU 列表 + SKU 矩阵展开 + 改价进审批 + 上下架，对齐页面设计 §3.10；后端未就绪回 mock）
 import { ElMessage, ElMessageBox, ElPagination, ElSelect, ElOption, ElTable, ElTableColumn, ElTag } from 'element-plus';
 import { onMounted, ref } from 'vue';
-import { api } from '@/api';
+import { listGoodsApi, setGoodsStatusApi, submitPriceChangeApi, updateSkuApi } from '@/api';
 import { mockGoods } from '@/mock';
 import AiButton from '@/shared/components/AiButton.vue';
 import AiInput from '@/shared/components/AiInput.vue';
@@ -110,10 +119,10 @@ const status = ref('');
 const loading = ref(false);
 const demo = ref(false);
 
-const load = async (): Promise<void> => {
+const load = async () => {
   loading.value = true;
   try {
-    const res = await api.listGoods({
+    const res = await listGoodsApi({
       keyword: keyword.value.trim(),
       status: status.value,
       page: page.value,
@@ -136,24 +145,24 @@ const load = async (): Promise<void> => {
   }
 };
 
-const reload = (): void => {
+const reload = () => {
   page.value = 1;
-  void load();
+  load();
 };
 
-const onPage = (p: number): void => {
+const onPage = (p: number) => {
   page.value = p;
-  void load();
+  load();
 };
 
-const onSize = (s: number): void => {
+const onSize = (s: number) => {
   size.value = s;
   page.value = 1;
-  void load();
+  load();
 };
 
 // 上下架：下架二次确认（对齐后端注释），上架直接执行
-const toggleStatus = async (row: GoodsItem): Promise<void> => {
+const toggleStatus = async (row: GoodsItem) => {
   const toOff = row.status === 'on';
   if (toOff) {
     try {
@@ -163,7 +172,7 @@ const toggleStatus = async (row: GoodsItem): Promise<void> => {
     }
   }
   try {
-    await api.setGoodsStatus(row.id, toOff ? 'off' : 'on');
+    await setGoodsStatusApi({ productId: row.id, status: toOff ? 'off' : 'on' });
     ElMessage.success(toOff ? '已下架' : '已上架');
     await load();
   } catch (e) {
@@ -172,7 +181,7 @@ const toggleStatus = async (row: GoodsItem): Promise<void> => {
 };
 
 // 改价恒进审批：此刻价格不变，审批通过后自动生效（资损红线）
-const changePrice = async (sku: SkuItem): Promise<void> => {
+const changePrice = async (sku: SkuItem) => {
   let value: string;
   try {
     ({ value } = await ElMessageBox.prompt(
@@ -188,15 +197,42 @@ const changePrice = async (sku: SkuItem): Promise<void> => {
     return;
   }
   try {
-    await api.submitPriceChange(sku.id, Math.round(yuan * 100), '工作台改价');
+    await submitPriceChangeApi({
+      skuId: sku.id,
+      newPrice: Math.round(yuan * 100),
+      reason: '工作台改价',
+    });
     ElMessage.success('改价已提交审批，通过后自动生效');
   } catch (e) {
     ElMessage.error(e instanceof Error ? e.message : '提交失败');
   }
 };
 
+// SKU 行内改条码（价格不在此列，必须走审批；对齐后端 SkuUpdateRequest）
+const changeBarcode = async (sku: SkuItem) => {
+  let value: string;
+  try {
+    ({ value } = await ElMessageBox.prompt('请输入新条码', '改条码', {
+      inputValue: sku.barcode,
+    }));
+  } catch {
+    return;
+  }
+  if (!value.trim()) {
+    ElMessage.warning('条码不能为空');
+    return;
+  }
+  try {
+    await updateSkuApi({ skuId: sku.id, barcode: value.trim() });
+    ElMessage.success('条码已保存');
+    await load();
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '保存失败');
+  }
+};
+
 onMounted(() => {
-  void load();
+  load();
 });
 </script>
 

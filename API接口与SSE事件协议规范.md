@@ -92,9 +92,9 @@ api_router.include_router(chat.router, dependencies=[Depends(get_current_user)])
 ### 4.7 B端商家后台（对齐 FRDv2 附录 D，同基座 JWT/Scope/幂等键/审计）
 > 已实现（本期，路由级 `get_current_user` + 端点 `require_any_perm`）；采购/财务/大屏为 P2 待建。
 - 商品：`GET /goods?keyword=&status=&page=&size=`（SPU 列表含 SKU 矩阵与聚合 attrs/库存可用量，`goods:read|write`）、`POST /goods/skus/{sku_id}/price-change {new_price,reason}`（恒进审批返回审批单，`goods:write`）、`PUT /goods/skus/{sku_id} {barcode?,status?}`（行内编辑不含价格）、`PUT /goods/{product_id}/status {status}`（on|off|draft|archived）。
-- 库存：`GET /inventory?warehouse_id=&sku_id=&only_warn=`（qty/reserved/locked/available/warning，available=qty-reserved-locked 唯一口径）、`GET /inventory/warehouses`、`GET /inventory/moves?sku_id=`（流水审计，`stock:read|write`）；`POST /inventory/moves {kind:in|out|move,…}`（move 带 `to_warehouse_id` 自动拆两行流水，缺货 `3004`）、`POST /inventory/stocktake {lines[{warehouse_id,sku_id,counted}],reason}`（差异恒进审批、账实一致免审）、`POST /inventory/replenish {sku_id,qty,reason}`（恒进审批）（`stock:write`）。
-- 订单：`GET /orders?status=&platform=&keyword=`（列表不含收件人 PII，含 `allowed_actions`）、`GET /orders/{id}`（详情+面单+售后单，跨租户 404）、`POST /orders/{id}/ship {company,tracking_no}`（仅「待发货」可发否则 `3005`；公司限枚举、单号过 `TRACKING_NO_PATTERN` 否则 `1001`）（`order:read|fulfill`）。
-- 售后：`POST /aftersales {order_id,reason,amount,trace_id,evidence}`（状态须 shipped/completed 否则 `3005`；金额> `REFUND_APPROVAL_LIMIT_CENTS` 恒进审批返回 `{need_approval,approval_id,status:"approving"}`）、`GET /aftersales?limit=`（`order:fulfill`）。
+- 库存：`GET /inventory?warehouse_id=&sku_id=&only_warn=`（qty/reserved/locked/available/warning，available=qty-reserved-locked 唯一口径）、`GET /inventory/warehouses`、`GET /inventory/moves?sku_id=`（流水审计，`stock:read|write`）；`POST /inventory/moves {kind:in|out|move,…}`（move 带 `to_warehouse_id` 自动拆两行流水，缺货 `3004`；`adjust` 仅系统内部盘点审批写入，不接受直接提交）、`POST /inventory/stocktake {lines[{warehouse_id,sku_id,counted}],reason}`（差异恒进审批、账实一致免审）、`POST /inventory/replenish {sku_id,qty,reason}`（恒进审批）（`stock:write`）。
+- 订单：`GET /orders?status=&platform=&keyword=`（列表不含收件人 PII，含 `allowed_actions` + 面单 `logistics_id/logistics_status`）、`GET /orders/{id}`（详情+面单+售后单，跨租户 404）、`POST /orders/{id}/ship {company,tracking_no}`（仅「待发货」可发否则 `3005`；公司限 `Settings.LOGISTICS_COMPANIES` 枚举、单号过 `TRACKING_NO_PATTERN` 否则 `1001`）（`order:read|fulfill`）。
+- 售后：`POST /aftersales {order_id,reason,amount,trace_id,evidence}`（状态须 shipped/completed 否则 `3005`；金额> `REFUND_APPROVAL_LIMIT_CENTS` 恒进审批返回 `{need_approval,approval_id,status:"approving"}`）、`GET /aftersales?limit=`（`order:fulfill`，列表与详情均回 `evidence[] + status_label`，与建单入参同一口径）。
 - 审批联动：`POST /approvals/{id}/approve|reject` 已对接 `approval_service` 处理器——改价应用 / 补货入库 / 盘点调账（可传 `modified_args.lines` 修正实盘数）/ 退款执行；执行前服务端复校验，非法则整体回滚。
 - 采购：`POST /purchase`、`POST /purchase/{id}/approve|receive|qc`（`purchase:write`，P2）；供应商 `GET/POST /suppliers`（P2）。
 - 财务：`GET /finance/bills`、`POST /finance/settle`（`finance:read/write`，P2）。
@@ -102,8 +102,8 @@ api_router.include_router(chat.router, dependencies=[Depends(get_current_user)])
 - B端单据写操作必须带 `Idempotency-Key`；采购/调拨/报损/超阈值退款恒进审批流。
 
 ### 4.8 横向域端点（对齐 FRDv2 FR-10.6-10.8/FR-12，附录 D 同源）
-- 营销：`GET/POST /promos`、`POST /coupons/grant {promo_id, user_ref}`（幂等 `idem_key` + 预算原子扣减，超预算 `3006`）。
-- 物流：`GET /logistics/companies`、`POST /ship`、`POST /logistics/exception`（异常件自动建售后单）。
+- 营销：`GET/POST /promos`（建活动 `budget` 单位张计数，`valid_from/valid_to` 空串=不限，格式 `YYYY-MM-DD HH:mm:ss` 否则 `1001`；列表回 `remaining/valid_from/valid_to/created_at`）、`POST /coupons/grant {promo_id, user_ref}`（幂等 `idem_key` + 预算原子扣减，超预算 `3006`，回 `idem_key/created_at` 供对账）。
+- 物流：`GET /logistics/companies`（`Settings.LOGISTICS_COMPANIES` 唯一口径）、`POST /ship`、`POST /logistics/exception`（异常件自动建售后单；`track` 回 `status_label`，状态含 `exception` 异常位）。
 - 评价：`GET /reviews?level=bad`、`POST /reviews/{id}/reply|ticket`（差评 2h SLA 倒计时由前端算）。
 - 风控：`GET /risk/events`、`POST /risk/{id}/pass|block`（`risk:review`，拦截 `3007`，禁全自动封号）。
 - 消息：`POST /notify/send {channel, template, user_ref}`（`notify:send`，频控 429 走 `1006`）。

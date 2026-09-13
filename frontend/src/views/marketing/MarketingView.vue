@@ -14,6 +14,9 @@
           <el-table-column label="预算/已发/剩余" min-width="180">
             <template #default="s">{{ s.row.budget }} / {{ s.row.granted }} / {{ s.row.remaining }}</template>
           </el-table-column>
+          <el-table-column label="有效期" min-width="200">
+            <template #default="s">{{ validRange(s.row) }}</template>
+          </el-table-column>
           <el-table-column prop="status" label="状态" width="100" />
           <el-table-column label="操作" width="160">
             <template #default="s">
@@ -48,6 +51,12 @@
         <el-form-item label="预算(张)">
           <AiInput v-model="form.budget" />
         </el-form-item>
+        <el-form-item label="生效起">
+          <AiInput v-model="form.valid_from" placeholder="YYYY-MM-DD HH:mm:ss，可空=不限" />
+        </el-form-item>
+        <el-form-item label="生效止">
+          <AiInput v-model="form.valid_to" placeholder="YYYY-MM-DD HH:mm:ss，可空=不限" />
+        </el-form-item>
       </el-form>
       <template #footer>
         <AiButton @click="dialog = false">取消</AiButton>
@@ -76,7 +85,13 @@
 // 对齐 FRD FR-10.6/附录 D、页面设计 §3.16
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { onMounted, ref } from 'vue';
-import { api } from '@/api';
+import {
+  adjustPointsApi,
+  createPromoApi,
+  getMemberApi,
+  grantCouponApi,
+  listPromosApi,
+} from '@/api';
 import AiButton from '@/shared/components/AiButton.vue';
 import AiInput from '@/shared/components/AiInput.vue';
 import type { MemberItem, PromoItem } from '@/types/shop';
@@ -86,7 +101,7 @@ const promos = ref<PromoItem[]>([]);
 const loading = ref(false);
 const dialog = ref(false);
 const submitting = ref(false);
-const form = ref({ name: '', budget: '' });
+const form = ref({ name: '', budget: '', valid_from: '', valid_to: '' });
 const grantDialog = ref(false);
 const granting = ref(false);
 const grantPromo = ref<PromoItem | null>(null);
@@ -95,10 +110,10 @@ const memberRef = ref('');
 const member = ref<MemberItem | null>(null);
 const delta = ref('');
 
-const loadPromos = async (): Promise<void> => {
+const loadPromos = async () => {
   loading.value = true;
   try {
-    promos.value = await api.listPromos();
+    promos.value = await listPromosApi();
   } catch (e) {
     promos.value = [];
     ElMessage.error(e instanceof Error ? e.message : '加载活动失败');
@@ -107,19 +122,31 @@ const loadPromos = async (): Promise<void> => {
   }
 };
 
-const openCreate = (): void => {
-  form.value = { name: '', budget: '' };
+const openCreate = () => {
+  form.value = { name: '', budget: '', valid_from: '', valid_to: '' };
   dialog.value = true;
 };
 
-const submit = async (): Promise<void> => {
+const validRange = (row: PromoItem) => {
+  if (row.valid_from && row.valid_to) {
+    return `${row.valid_from} ~ ${row.valid_to}`;
+  }
+  return row.valid_from ? `${row.valid_from} 起` : row.valid_to ? `至 ${row.valid_to}` : '不限';
+};
+
+const submit = async () => {
   if (!form.value.name || !Number(form.value.budget)) {
     ElMessage.warning('请填写名称与正数预算');
     return;
   }
   submitting.value = true;
   try {
-    await api.createPromo({ name: form.value.name, budget: Number(form.value.budget) });
+    await createPromoApi({
+      name: form.value.name,
+      budget: Number(form.value.budget),
+      valid_from: form.value.valid_from.trim() || undefined,
+      valid_to: form.value.valid_to.trim() || undefined,
+    });
     ElMessage.success('活动已创建');
     dialog.value = false;
     await loadPromos();
@@ -130,13 +157,13 @@ const submit = async (): Promise<void> => {
   }
 };
 
-const openGrant = (row: PromoItem): void => {
+const openGrant = (row: PromoItem) => {
   grantPromo.value = row;
   grantForm.value = { user_ref: '', order_ref: '' };
   grantDialog.value = true;
 };
 
-const submitGrant = async (): Promise<void> => {
+const submitGrant = async () => {
   if (!grantPromo.value || !grantForm.value.user_ref) {
     ElMessage.warning('请填写用户标识');
     return;
@@ -146,11 +173,12 @@ const submitGrant = async (): Promise<void> => {
   try {
     // 幂等键： promo + 用户 + 时间戳，同单重复提交由后端回放去重
     const idemKey = `${grantPromo.value.id}:${grantForm.value.user_ref}:${Date.now()}`;
-    await api.grantCoupon(
-      grantPromo.value.id,
-      { user_ref: grantForm.value.user_ref, order_ref: grantForm.value.order_ref },
+    await grantCouponApi({
+      promoId: grantPromo.value.id,
+      user_ref: grantForm.value.user_ref,
+      order_ref: grantForm.value.order_ref,
       idemKey,
-    );
+    });
     ElMessage.success('发券成功');
     grantDialog.value = false;
     await loadPromos();
@@ -161,27 +189,30 @@ const submitGrant = async (): Promise<void> => {
   }
 };
 
-const loadMember = async (): Promise<void> => {
+const loadMember = async () => {
   if (!memberRef.value) {
     ElMessage.warning('请填写会员标识');
     return;
   }
   try {
-    member.value = await api.getMember(memberRef.value);
+    member.value = await getMemberApi({ userRef: memberRef.value });
   } catch (e) {
     member.value = null;
     ElMessage.error(e instanceof Error ? e.message : '查询失败');
   }
 };
 
-const adjust = async (): Promise<void> => {
+const adjust = async () => {
   if (!member.value || !Number(delta.value)) {
     ElMessage.warning('请先查询会员并填写非零分值');
     return;
   }
   await ElMessageBox.confirm(`确认调整 ${delta.value} 分吗？`, '提示');
   try {
-    member.value = await api.adjustPoints(member.value.user_ref, Number(delta.value));
+    member.value = await adjustPointsApi({
+      userRef: member.value.user_ref,
+      delta: Number(delta.value),
+    });
     ElMessage.success('积分已更新');
     delta.value = '';
   } catch (e) {
@@ -190,7 +221,7 @@ const adjust = async (): Promise<void> => {
 };
 
 onMounted(() => {
-  void loadPromos();
+  loadPromos();
 });
 </script>
 

@@ -44,7 +44,7 @@ onMounted(() => {
   }
 });
 
-const send = async (): Promise<void> => {
+const send = async () => {
   const query = input.value.trim();
   if (!query || streaming.value) {
     return;
