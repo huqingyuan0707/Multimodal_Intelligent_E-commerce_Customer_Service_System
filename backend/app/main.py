@@ -8,12 +8,15 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.api.v1.router import api_router
 from app.config import settings
+from app.core.exceptions import BusinessError
 from app.core.middleware import TraceMiddleware
+from app.core.responses import fail
 from app.db.seed import seed_on_startup
 from app.db.session import init_models
 
@@ -37,6 +40,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(api_router, prefix="/api/v1")
+
+
+@app.exception_handler(BusinessError)
+async def business_error_handler(_: Request, exc: BusinessError) -> JSONResponse:
+    """业务失败统一转 fail() 信封：services 抛 BusinessError，端点不写 try/except（分层红线）。"""
+    return fail(exc.code, exc.msg, exc.http_status)
 
 
 @app.get("/health")

@@ -45,3 +45,17 @@ def require_perm(perm: str) -> Callable[..., Awaitable[CurrentUser]]:
         return user
 
     return _check
+
+
+def require_any_perm(*perms: str) -> Callable[..., Awaitable[CurrentUser]]:
+    """任一权限命中即放行（B 端同一动作允许多个域角色，如改价限 shop/ops/admin）。
+
+    与 require_perm 同「角色即权限」口径：user.roles 里既放域角色也放权限令牌。
+    """
+
+    async def _check(user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+        if "*" in user.roles or any(perm in user.roles for perm in perms):
+            return user
+        raise HTTPException(status_code=403, detail="权限不足")
+
+    return _check

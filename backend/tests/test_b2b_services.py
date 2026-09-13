@@ -1,0 +1,278 @@
+"""B 端服务层单测（商品/库存/订单/审批，对齐数据模型文档 §2.1 + API 规范 §4.7）
+
+红线口径逐一验证：
+- 改价恒进审批（未批不改价）；审批不可重复处理。
+- available = qty - reserved - locked 唯一口径；出库不足 3004；调拨拆两行流水。
+- 盘点差异不自动改账，批准后生效。
+- 状态机：仅「待发货」可发货（3005）；物流单号格式校验（1001）。
+- 退款超阈值转审批；退款金额与订单不一致拒绝执行。
+- B2B_SEED_DEMO 幂等（已有商品即跳过）。
+运行（backend/ 目录）：pytest tests/test_b2b_services.py
+"""
+
+from __future__ import annotations
+
+from collections.abc import AsyncIterator
+from pathlib import Path
+
+import pytest
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from app.config import settings
+from app.core.exceptions import BusinessError, ErrorCode
+from app.db import session as session_mod
+from app.db.models import Inventory, Product, SalesOrder, Sku, StockMove, Warehouse
+from app.db.seed import ensure_b2b_demo
+from app.db.session import get_engine, init_models
+from app.services import approval_service, goods_service, inventory_service, order_service
+
+TENANT = settings.SEED_TENANT
+
+
+@pytest.fixture
+async def db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[AsyncSession]:
+    """独立临时库 + 灌 B 端演示数据（引擎单例在夹具结束后自动还原）。"""
+    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'b2b.db'}")
+    monkeypatch.setattr(session_mod, "_engine", None)
+    monkeypatch.setattr(session_mod, "_SessionFactory", None)
+    await init_models()
+    factory = async_sessionmaker(get_engine(), expire_on_commit=False)
+    async with factory() as session:
+        assert await ensure_b2b_demo(session) is True
+        yield session
+
+
+async def _sku(db: AsyncSession, spu_no: str, color: str, size: str) -> Sku:
+    product = (
+        await db.execute(select(Product).where(Product.spu_no == spu_no))
+    ).scalar_one()
+    return (
+        await db.execute(
+            select(Sku).where(Sku.product_id == product.id, Sku.color == color, Sku.size == size)
+        )
+    ).scalar_one()
+
+
+async def _order(db: AsyncSession, outer_id: str) -> SalesOrder:
+    return (
+        await db.execute(select(SalesOrder).where(SalesOrder.outer_id == outer_id))
+    ).scalar_one()
+
+
+async def _wh(db: AsyncSession, name: str) -> Warehouse:
+    return (
+        await db.execute(select(Warehouse).where(Warehouse.tenant == TENANT, Warehouse.name == name))
+    ).scalar_one()
+
+
+async def _inv(db: AsyncSession, warehouse_id: str, sku_id: str) -> Inventory:
+    return (
+        await db.execute(
+            select(Inventory).where(
+                Inventory.tenant == TENANT,
+                Inventory.warehouse_id == warehouse_id,
+                Inventory.sku_id == sku_id,
+            )
+        )
+    ).scalar_one()
+
+
+async def test_seed_idempotent_and_stock_math(db: AsyncSession) -> None:
+    """种子幂等；available/warning 口径在 stock_table 一次算好（演示行 6-2=4 < 10）。"""
+    assert await ensure_b2b_demo(db) is False
+    data = await inventory_service.stock_table(db, tenant=TENANT, only_warn=True, size=200)
+    white_m = [i for i in data["items"] if i["sku_code"] == "TSIRT-001-白-M"]
+    center_rows = [i for i in white_m if i["warehouse"] == "中心仓"]
+    assert center_rows and center_rows[0]["available"] == 4
+    assert center_rows[0]["warning"] is True
+    goods = await goods_service.list_goods(db, tenant=TENANT)
+    assert goods["total"] == 2  # T 恤 + 卫衣
+    assert goods["items"][0]["attrs"]["材质"]  # 扩展属性给 workbench 属性卡
+
+
+async def test_seed_disabled_by_settings(db: AsyncSession, monkeypatch: pytest.MonkeyPatch) -> None:
+    """B2B_SEED_DEMO=false（生产口径）不再灌演示数据。"""
+    monkeypatch.setattr(settings, "B2B_SEED_DEMO", False)
+    assert await ensure_b2b_demo(db) is False
+
+
+async def test_price_change_needs_approval(db: AsyncSession) -> None:
+    """改价红线：提交只生成审批单（价格不动），批准才生效，且不可重复处理。"""
+    sku = await _sku(db, "TSIRT-001", "白", "M")
+    old_price = sku.sale_price
+    approval = await goods_service.submit_price_change(
+        db,
+        tenant=TENANT,
+        sku_id=sku.id,
+        new_price=11900,
+        reason="大促报名",
+        applicant="tester",
+    )
+    assert approval.status == "pending"
+    assert old_price == 12900  # 防呆：演示数据原价确为 129 元
+    after = (await db.execute(select(Sku).where(Sku.id == sku.id))).scalar_one()
+    assert after.sale_price == old_price  # 未批不改价
+
+    with pytest.raises(BusinessError) as bad:
+        await goods_service.submit_price_change(
+            db, tenant=TENANT, sku_id=sku.id, new_price=0, reason="x", applicant="tester"
+        )
+    assert bad.value.code == ErrorCode.PARAM_INVALID
+
+    decided = await approval_service.decide(
+        db, tenant=TENANT, approval_id=approval.id, approve=True, approver="boss"
+    )
+    assert decided.status == "approved"
+    applied = (await db.execute(select(Sku).where(Sku.id == sku.id))).scalar_one()
+    assert applied.sale_price == 11900
+    with pytest.raises(BusinessError) as twice:
+        await approval_service.decide(
+            db, tenant=TENANT, approval_id=approval.id, approve=True, approver="boss"
+        )
+    assert twice.value.code == ErrorCode.APPROVAL_DENIED
+
+
+async def test_stock_out_shortage_and_transfer(db: AsyncSession) -> None:
+    """出库超可用量 3004；调拨拆两行流水且总量守恒。"""
+    sku = await _sku(db, "TSIRT-001", "白", "M")
+    center, east = await _wh(db, "中心仓"), await _wh(db, "华东仓")
+    before = (await _inv(db, center.id, sku.id)).qty + (await _inv(db, east.id, sku.id)).qty
+    with pytest.raises(BusinessError) as short:
+        await inventory_service.move_stock(
+            db,
+            tenant=TENANT,
+            kind="out",
+            warehouse_id=center.id,
+            sku_id=sku.id,
+            delta=999,
+            reason="卖断货",
+            actor="tester",
+        )
+    assert short.value.code == ErrorCode.STOCK_SHORTAGE
+    result = await inventory_service.move_stock(
+        db,
+        tenant=TENANT,
+        kind="move",
+        warehouse_id=center.id,
+        sku_id=sku.id,
+        delta=1,
+        reason="补华东仓",
+        actor="tester",
+        to_warehouse_id=east.id,
+    )
+    assert result["available"] == 3  # 6→5，reserved 2 → 5-2
+    moves = await inventory_service.list_moves(db, tenant=TENANT, sku_id=sku.id)
+    assert len(moves) == 2
+    assert {m.delta for m in moves} == {-1, 1}
+    after = (await _inv(db, center.id, sku.id)).qty + (await _inv(db, east.id, sku.id)).qty
+    assert after == before  # 调拨不产生账实差
+
+
+async def test_stocktake_diff_applies_only_after_approval(db: AsyncSession) -> None:
+    """盘点差异不直接改账；批准后 qty 改为实盘并留 adjust 流水。"""
+    sku = await _sku(db, "HOODIE-002", "米白", "M")
+    center = await _wh(db, "中心仓")
+    row = await _inv(db, center.id, sku.id)
+    assert row.qty == 12
+    result = await inventory_service.stocktake(
+        db,
+        tenant=TENANT,
+        lines=[{"warehouse_id": center.id, "sku_id": sku.id, "counted": 10}],
+        reason="季度盘点",
+        actor="tester",
+    )
+    assert result["diff_count"] == 1
+    assert (await _inv(db, center.id, sku.id)).qty == 12  # 未批不改账
+    await approval_service.decide(
+        db,
+        tenant=TENANT,
+        approval_id=result["approval_ids"][0],
+        approve=True,
+        approver="boss",
+    )
+    assert (await _inv(db, center.id, sku.id)).qty == 10
+    adjust = (
+        await db.execute(
+            select(StockMove).where(StockMove.sku_id == sku.id, StockMove.kind == "adjust")
+        )
+    ).scalar_one()
+    assert adjust.delta == -2
+
+
+async def test_ship_state_machine_and_tracking(db: AsyncSession) -> None:
+    """仅「待发货」可发货（3005）；单号非法 1001；成功发货后面单可查。"""
+    pending = await _order(db, "DY20260912002")
+    with pytest.raises(BusinessError) as illegal:
+        await order_service.ship(
+            db, tenant=TENANT, order_id=pending.id, company="顺丰", tracking_no="SF1234567890"
+        )
+    assert illegal.value.code == ErrorCode.ORDER_STATE_ILLEGAL
+
+    paid = await _order(db, "TB20260912001")
+    with pytest.raises(BusinessError) as bad_no:
+        await order_service.ship(
+            db, tenant=TENANT, order_id=paid.id, company="顺丰", tracking_no="SF 12!"
+        )
+    assert bad_no.value.code == ErrorCode.PARAM_INVALID
+    with pytest.raises(BusinessError) as bad_co:
+        await order_service.ship(
+            db, tenant=TENANT, order_id=paid.id, company="宅急送", tracking_no="ZJS12345678"
+        )
+    assert bad_co.value.code == ErrorCode.PARAM_INVALID
+
+    data = await order_service.ship(
+        db, tenant=TENANT, order_id=paid.id, company="顺丰", tracking_no="SF1234567890"
+    )
+    assert data["status"] == "shipped"
+    detail = await order_service.get_detail(db, tenant=TENANT, order_id=paid.id)
+    assert detail["tracking_no"] == "SF1234567890"
+    assert detail["allowed_actions"] == ["aftersale"]
+
+
+async def test_aftersale_refund_threshold(db: AsyncSession) -> None:
+    """小额退款直接建单；超阈值转审批且金额与订单不符时拒绝执行。"""
+    shipped = await _order(db, "WX20260911003")
+    small = await order_service.create_aftersale(
+        db,
+        tenant=TENANT,
+        order_id=shipped.id,
+        reason="袖口线头",
+        amount=100,
+        trace_id="t-1",
+        applicant="tester",
+    )
+    assert small["need_approval"] is False and small["status"] == "pending"
+
+    big = await order_service.create_aftersale(
+        db,
+        tenant=TENANT,
+        order_id=shipped.id,
+        reason="整单退",
+        amount=shipped.total,
+        trace_id="t-2",
+        applicant="tester",
+        evidence=["photo-1.jpg"],
+    )
+    assert big["need_approval"] is True and big["status"] == "approving"
+    assert big["approval_id"]
+
+    # 篡改金额（大于订单总额）→ 批准时拒绝执行并整体回滚
+    row = await approval_service.get_or_raise(db, TENANT, big["approval_id"])
+    with pytest.raises(BusinessError) as tamper:
+        await approval_service.decide(
+            db,
+            tenant=TENANT,
+            approval_id=row.id,
+            approve=True,
+            approver="boss",
+            modified_args={"amount": shipped.total + 1},
+        )
+    assert tamper.value.code == ErrorCode.ORDER_STATE_ILLEGAL
+
+    await approval_service.decide(
+        db, tenant=TENANT, approval_id=row.id, approve=True, approver="boss"
+    )
+    detail = await order_service.get_detail(db, tenant=TENANT, order_id=shipped.id)
+    assert detail["status"] == "aftersale"
+    assert [a["status"] for a in detail["aftersales"]].count("done") == 1

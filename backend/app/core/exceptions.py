@@ -26,6 +26,10 @@ class ErrorCode(IntEnum):
     ORDER_NOT_FOUND = 3001
     ORDER_NOT_OWNED = 3002
     REFUND_NEED_APPROVAL = 3003
+    STOCK_SHORTAGE = 3004
+    ORDER_STATE_ILLEGAL = 3005
+    COUPON_EXHAUSTED = 3006
+    RISK_BLOCKED = 3007
     TASK_NOT_FOUND = 4001
     TASK_TIMEOUT = 4002
     APPROVAL_REQUIRED = 4003
@@ -33,3 +37,17 @@ class ErrorCode(IntEnum):
     INTERNAL = 5000
     UPSTREAM_FAILED = 5001
     MODEL_UNAVAILABLE = 5002
+
+
+class BusinessError(Exception):
+    """业务失败（带号段码 + 中文可操作提示）。
+
+    链路：services 抛 BusinessError → main.py 异常处理器统一转 fail() 信封。
+    这样端点只负责解析入参与调服务，业务分支判断全部留在服务层（分层红线）。
+    """
+
+    def __init__(self, code: ErrorCode, msg: str, http_status: int = 400) -> None:
+        super().__init__(msg)
+        self.code = code
+        self.msg = msg
+        self.http_status = http_status

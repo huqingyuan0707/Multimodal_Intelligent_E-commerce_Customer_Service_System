@@ -66,7 +66,9 @@ api_router.include_router(chat.router, dependencies=[Depends(get_current_user)])
 - 开发默认账号：**租户 `demo-tenant` / 用户名 `admin` / 密码 `admin123` / 角色 `cs,kb`**（`.env` 的 `SEED_*` 可覆盖）。种子幂等且**不覆盖已存在账号**，改 `SEED_PASSWORD` 只对新建账号生效。
 
 ### 4.2 对话（非流式，调试/短问答）
-- `POST /chat {query, thread_id?, security_level?}` → `ok({answer, references[], guard, faithfulness, trace_id})`。
+- `POST /chat {query, thread_id?, security_level?}` → `ok({answer, references[], guard:{pass,degraded}, faithfulness, model, degraded, trace_id})`。
+- 生成走适配层 `llm_service`（本地 Ollama `qwen2.5`，ADR-0001）；模型不可用**不 500**：降级片段摘要，`degraded=true`、`model="template"`。
+- `faithfulness`：回答内 `[n]` 引用越界按比例扣分（无引用记 0.9），低分前端可提示核对来源。
 - `2001` 表示无据拒答，前端渲染拒答话术 + 转人工按钮，不当错误抛异常。
 
 ### 4.3 会话与记忆
@@ -84,16 +86,19 @@ api_router.include_router(chat.router, dependencies=[Depends(get_current_user)])
 - `POST /tasks {type, payload}` → `{task_id}`；`GET /tasks/{id}` → `{status, progress, result}`。SSE 任务类事件另含 `progress/complete/error`。
 
 ### 4.6 治理与可观测
-- `GET /governance/status` → 向量/关键词后端可用性 + 阈值 + 热更字段。
+- `GET /governance/status` → 向量/关键词后端可用性 + 阈值 + 热更字段 + `llm:{available,endpoint,model,detail}`（`llm_service.probe()` 实测本地 Ollama，绝不抛异常）。
 - `GET /observability/summary` → 耗时/召回/拦截/token 成本聚合（后端 `_record() → observability.record()` 必埋）。
 
 ### 4.7 B端商家后台（对齐 FRDv2 附录 D，同基座 JWT/Scope/幂等键/审计）
-- 商品：`GET/POST /goods`、`PUT /goods/{id}`、`POST /goods/{id}/on|off`（`goods:read/write`）；SKU：`GET /goods/{id}/skus`、`PUT /skus/{id}`。改价恒进审批。
-- 库存：`GET /inventory?sku=&warehouse=`（返回在库/预占/锁定/可用）、`POST /inventory/in|out|move`、`POST /inventory/stocktake`（`stock:read/write`）；并发扣减原子化，缺货返回 `3004`。
-- 采购：`POST /purchase`、`POST /purchase/{id}/approve|receive|qc`（`purchase:write`）；供应商 `GET/POST /suppliers`。
-- 订单：`GET /orders`、`POST /orders/{id}/ship`、`POST /aftersales {order_id, trace_id}`（`order:fulfill`）；非法状态操作返回 `3005`，前端置灰。
-- 财务：`GET /finance/bills`、`POST /finance/settle`（`finance:read/write`）。
-- 大屏：`GET /screen/summary?range=today|week`（`screen:read`，Redis 缓存 1min，PII 脱敏）。
+> 已实现（本期，路由级 `get_current_user` + 端点 `require_any_perm`）；采购/财务/大屏为 P2 待建。
+- 商品：`GET /goods?keyword=&status=&page=&size=`（SPU 列表含 SKU 矩阵与聚合 attrs/库存可用量，`goods:read|write`）、`POST /goods/skus/{sku_id}/price-change {new_price,reason}`（恒进审批返回审批单，`goods:write`）、`PUT /goods/skus/{sku_id} {barcode?,status?}`（行内编辑不含价格）、`PUT /goods/{product_id}/status {status}`（on|off|draft|archived）。
+- 库存：`GET /inventory?warehouse_id=&sku_id=&only_warn=`（qty/reserved/locked/available/warning，available=qty-reserved-locked 唯一口径）、`GET /inventory/warehouses`、`GET /inventory/moves?sku_id=`（流水审计，`stock:read|write`）；`POST /inventory/moves {kind:in|out|move,…}`（move 带 `to_warehouse_id` 自动拆两行流水，缺货 `3004`）、`POST /inventory/stocktake {lines[{warehouse_id,sku_id,counted}],reason}`（差异恒进审批、账实一致免审）、`POST /inventory/replenish {sku_id,qty,reason}`（恒进审批）（`stock:write`）。
+- 订单：`GET /orders?status=&platform=&keyword=`（列表不含收件人 PII，含 `allowed_actions`）、`GET /orders/{id}`（详情+面单+售后单，跨租户 404）、`POST /orders/{id}/ship {company,tracking_no}`（仅「待发货」可发否则 `3005`；公司限枚举、单号过 `TRACKING_NO_PATTERN` 否则 `1001`）（`order:read|fulfill`）。
+- 售后：`POST /aftersales {order_id,reason,amount,trace_id,evidence}`（状态须 shipped/completed 否则 `3005`；金额> `REFUND_APPROVAL_LIMIT_CENTS` 恒进审批返回 `{need_approval,approval_id,status:"approving"}`）、`GET /aftersales?limit=`（`order:fulfill`）。
+- 审批联动：`POST /approvals/{id}/approve|reject` 已对接 `approval_service` 处理器——改价应用 / 补货入库 / 盘点调账（可传 `modified_args.lines` 修正实盘数）/ 退款执行；执行前服务端复校验，非法则整体回滚。
+- 采购：`POST /purchase`、`POST /purchase/{id}/approve|receive|qc`（`purchase:write`，P2）；供应商 `GET/POST /suppliers`（P2）。
+- 财务：`GET /finance/bills`、`POST /finance/settle`（`finance:read/write`，P2）。
+- 大屏：`GET /screen/summary?range=today|week`（`screen:read`，Redis 缓存 1min，PII 脱敏，P2）。
 - B端单据写操作必须带 `Idempotency-Key`；采购/调拨/报损/超阈值退款恒进审批流。
 
 ### 4.8 横向域端点（对齐 FRDv2 FR-10.6-10.8/FR-12，附录 D 同源）

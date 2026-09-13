@@ -46,7 +46,10 @@ ranked = await reranker.rerank(query, fused)  # bge-reranker，不可用回退�
 ## 4. 生成与可观测
 
 - System Prompt 强制“仅基于引用回答，无据拒答”，输出必带 `references[]`（doc_id/chunk/source/score）。
-- 关键链路 `_record() → observability.record()`：耗时/召回数/拦截原因/token 成本/trace_id；`done` 事件回 `references+guard+faithfulness+trace_id`。
+- 生成模型走适配层 `services/llm_service.py`（ADR-0001）：默认本地 Ollama `qwen2.5:0.5b`，OpenAI 兼容协议，URL/模型名/阈值全在 `Settings.LLM_*`；资料按 `LLM_REF_CHARS` 截断编号注入（`[1]《标题》`），与引用校验同口径。
+- 降级红线：`LlmUnavailableError`（未启用/超时/非 2xx/空回复）→ `fallback_answer()` 片段摘要，仍返回 200 且 `degraded=true`、`model="template"`，**绝不 500**。
+- faithfulness：扫描回答中 `[n]` 引用，越界即按比例扣分（无引用记 0.9），随 `done` 载荷下发前端。
+- 关键链路 `_record() → observability.record()`：耗时/召回数/拦截原因/token 成本（`usage.total_tokens`）/trace_id；`done` 事件回 `references+guard+faithfulness+trace_id`。
 - 前端 `CitationList` 必显引用；复杂指标旁写一行中文口径注释。
 - 反馈闭环：`feedbacks{message_id, vote, comment}` → mining 待补知识 → reindex → 回归评测。
 

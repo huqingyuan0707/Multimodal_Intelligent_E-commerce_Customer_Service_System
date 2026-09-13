@@ -48,8 +48,13 @@
 | 后端 venv | `backend/.venv`，启动命令 `.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000` |
 | 前端启动 | `cd frontend; pnpm dev` |
 | 依赖 | `.env` 可不建（`Settings` 默认值够用）；后端依赖清单见 `backend/requirements.txt` |
-| 开发默认账号 | 租户 `demo-tenant` / 用户名 **admin** / 密码 **admin123** / 角色 `cs,kb`（全走 `Settings.SEED_*`，`.env` 可覆盖；改密码只对**新建**账号生效，种子不覆盖已存在账号） |
+| 开发默认账号 | 租户 `demo-tenant` / 用户名 **admin** / 密码 **admin123** / 角色含 B 端权限（全走 `Settings.SEED_*`，`.env` 可覆盖；改密码/改角色只对**新建**账号生效，种子不覆盖已存在账号——老 dev.db 需手动补 roles 或删库重起） |
 | 鉴权配置 | `Settings`: `ACCESS_TOKEN_EXPIRE_SECONDS` / `JWT_ALGORITHM` / `PASSWORD_HASH_ITERATIONS` / `PASSWORD_SALT_BYTES` / `ROLES_SEPARATOR` / `SEED_*`；角色解析唯一口径 `core/security.py::split_roles()`；`ENV=prod` 有 fail-fast 护栏（默认或 <32 字符的 `JWT_SECRET`、`SEED_ON_START=true` 都会**导入配置即报错**）；改哈希迭代次数须重刷存量密码 |
+| 大模型（ADR-0001） | 生成走**本地 Ollama `qwen2.5:0.5b`**，OpenAI 兼容端点 `http://127.0.0.1:11434/v1`；唯一出口 `app/services/llm_service.py`（`complete()/probe()`，`_post/_get` 打桩，**`trust_env=False` 防系统代理劫持 localhost**）。`LLM_*` 九项进 Settings；任何失败收敛为 `LlmUnavailableError`→`chat_service` 降级片段摘要（仍 200、`degraded=true`、`model=template`），绝不 500。回滚：改 `.env` 三行切云端，或 `LLM_ENABLED=false` 全量降级 |
+
+- **Ollama 坑**：OpenAI 兼容 `/v1/models` 的模型名字段是 `id`（原生 `/api/tags` 才是 `name`），`probe()` 取值须 `item.get("id") or item.get("name")`，否则误报「在线但无模型」。
+- **端口 8000 遗留进程坑**：改动后跑冒烟若命中旧行为（governance 全 stub、`/goods` 404），是上一会话 uvicorn 仍占 8000、新进程静默退出。`Get-NetTCPConnection -LocalPort 8000 -State Listen` 找 OwningProcess 杀掉再重启。
+- **文件漂移坑**：本会话多次遇到磁盘版本 ≠ 早先读取版本（用户并行改过 `goods.py` 等）。写文档/断言前用反射（`inspect.signature`）或重读磁盘为准，别信上下文里的旧快照。
 
 - 本机：Python 3.14.5 / Node v22.18.0 / pnpm 12.x（前端 `engines` 要求 Node `>=20.11 <21`，Node 22 只 WARN）。
 - 踩过的坑：`requirements.txt` 漏 `python-multipart` → 因 `documents.py` 用 `UploadFile`，FastAPI 在**导入路由阶段**就抛 `RuntimeError` 导致服务起不来。**新增上传/表单端点时必须同步补该依赖。**

@@ -7,7 +7,18 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from app.api.v1.endpoints import approvals, auth, chat, documents, governance, sessions, tasks
+from app.api.v1.endpoints import (
+    approvals,
+    auth,
+    chat,
+    documents,
+    goods,
+    governance,
+    inventory,
+    orders,
+    sessions,
+    tasks,
+)
 from app.core.rbac import get_current_user
 
 api_router = APIRouter()
@@ -18,3 +29,8 @@ api_router.include_router(documents.router, dependencies=[Depends(get_current_us
 api_router.include_router(approvals.router, dependencies=[Depends(get_current_user)])
 api_router.include_router(tasks.router, dependencies=[Depends(get_current_user)])
 api_router.include_router(governance.router, dependencies=[Depends(get_current_user)])
+# B 端业务路由：登录统一在挂载处强制，细粒度权限由各端点 require_any_perm 把关
+api_router.include_router(goods.router, dependencies=[Depends(get_current_user)])
+api_router.include_router(inventory.router, dependencies=[Depends(get_current_user)])
+api_router.include_router(orders.router, dependencies=[Depends(get_current_user)])
+api_router.include_router(orders.aftersales_router, dependencies=[Depends(get_current_user)])

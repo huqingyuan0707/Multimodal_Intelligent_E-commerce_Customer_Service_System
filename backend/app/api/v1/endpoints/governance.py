@@ -5,14 +5,25 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter
 
 from app.core.responses import ok
+from app.services import llm_service
 
 router = APIRouter(prefix="/governance", tags=["governance"])
 
 
 @router.get("/status")
-async def status() -> dict[str, object]:
-    """后端健康占位（向量/关键词/重排可用性后续补）。"""
-    return ok({"vector": "stub", "keyword": "stub", "reranker": "stub"}, "治理框架已就绪")
+async def status() -> dict[str, Any]:
+    """适配层可用性巡检：大模型走真实 probe()，向量/关键词/重排待接。"""
+    llm = await llm_service.probe()
+    data: dict[str, Any] = {
+        "llm": llm,
+        "vector": "stub",
+        "keyword": "stub",
+        "reranker": "stub",
+    }
+    msg = "模型服务在线" if llm.get("available") else "模型服务不可用，问答将降级为片段摘要"
+    return ok(data, msg)

@@ -36,11 +36,32 @@ class Settings(BaseSettings):
     SEED_TENANT: str = "demo-tenant"
     SEED_USERNAME: str = "admin"
     SEED_PASSWORD: SecretStr = SecretStr("admin123")
-    SEED_ROLES: str = "cs,kb"
+    SEED_ROLES: str = "cs,kb,shop,stock,ops,admin,goods:read,goods:write,stock:read,stock:write,order:read,order:fulfill"
 
     # RAG 热更字段（_HOT_FIELDS 子集，详见 RAG 规范）
     TOP_K: int = 5
     RAG_THRESHOLD: float = 0.6
+
+    # 大模型：本地 Ollama（OpenAI 兼容协议 /v1），见 ADR-0001。业务代码只调 llm_service，禁止写地址/模型名。
+    LLM_ENABLED: bool = True
+    LLM_BASE_URL: str = "http://127.0.0.1:11434/v1"
+    LLM_MODEL: str = "qwen2.5:0.5b"
+    # Ollama 不校验密钥，此占位仅为满足 OpenAI 协议头；换云端模型时在 .env 覆盖真密钥即可。
+    LLM_API_KEY: SecretStr = SecretStr("ollama")
+    LLM_TIMEOUT_SECONDS: float = 60.0
+    LLM_TEMPERATURE: float = 0.2
+    LLM_MAX_TOKENS: int = 512
+    # 单条资料进提示词的截断长度（控制本地小模型上下文压力，超长会显著变慢）
+    LLM_REF_CHARS: int = 400
+    # 模型不可用时降级为「片段摘要」而非 500（AGENTS.md §3 降级红线）
+    LLM_FALLBACK_TO_TEMPLATE: bool = True
+
+    # B 端业务阈值（数据模型文档 §2.1 / API 规范 §4.7）：金额一律整数「分」，禁浮点。
+    B2B_SEED_DEMO: bool = True  # 演示数据（商品/仓库/库存/订单），生产置 false
+    STOCK_WARN_DEFAULT: int = 10  # 新建库存行的默认安全线
+    REFUND_APPROVAL_LIMIT_CENTS: int = 10000  # 退款超此金额（100 元）恒进审批（3003）
+    # 物流单号格式（打单发货校验，非法返回 1001）：8~24 位字母数字
+    TRACKING_NO_PATTERN: str = r"^[A-Za-z0-9]{8,24}$"
 
     @model_validator(mode="after")
     def _guard_prod(self) -> Settings:
