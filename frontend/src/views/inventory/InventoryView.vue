@@ -51,8 +51,9 @@
       <el-pagination
         :current-page="page"
         :page-size="size"
+        :page-sizes="[10, 20, 50, 100]"
         :total="total"
-        layout="prev, pager, next, total"
+        layout="sizes, prev, pager, next, total"
         @current-change="onPage"
         @size-change="onSize"
       />
@@ -83,7 +84,7 @@ import type { InventoryRow, StockMoveItem } from '@/types/shop';
 const rows = ref<InventoryRow[]>([]);
 const total = ref(0);
 const page = ref(1);
-const size = ref(50);
+const size = ref(20);
 const keyword = ref('');
 const onlyWarn = ref(false);
 const warehouses = ref<{ id: string; name: string }[]>([]);

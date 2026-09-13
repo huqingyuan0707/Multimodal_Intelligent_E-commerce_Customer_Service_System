@@ -43,7 +43,12 @@ enabled: true
 - 保留：`ref<T>` 泛型（删了会推成 `never[]`）、参数对象类型（noImplicitAny 硬需要）、`types/*.ts` 类型定义、必要 `as const`/`as`。
 - 组件必须显式 `defineProps` 类型；`defineEmits` 允许数组形式。
 
-## 7. 降级
+## 7. 列表分页（默认 20）
+- 所有列表页**必须分页**：`el-pagination`（`layout="sizes, prev, pager, next, total"` + `:page-sizes="[10, 20, 50, 100]"`）+ 服务端 `page`/`size` 参数。
+- **默认页大小一律 20、可切换 10/20/50/100**：页面 `const size = ref(20)`，API 层分页参数默认 `?? 20`；禁止 10/50 等散写默认值。
+- 存量未分页列表页记为债务（棘轮）：触碰对应页面时必须补分页，新写列表页不得再全量拉取。
+
+## 8. 降级
 - 列表页 `onMounted` 调真实接口，`catch` 回退 `@/mock` 演示数据，保证后端不可用时页面可用。
 
 ## 交付前必跑

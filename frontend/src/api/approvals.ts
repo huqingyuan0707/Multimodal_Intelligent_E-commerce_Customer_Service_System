@@ -51,7 +51,7 @@ export const getApprovalListApi = async (params) => {
   const page = params?.pageConfig ?? {};
   const status = search.status ?? 'pending';
   const pageNum = page.pageNum ?? 1;
-  const pageSize = page.pageSize ?? 10;
+  const pageSize = page.pageSize ?? 20;
   const res = await dispatch({
     path: '/api/v1/approvals',
     params: { status, limit: 200 },

@@ -45,6 +45,7 @@
 - 状态：Pinia setup 风格按域拆；逻辑抽 `composables/useXxx`；SSE 按 `event:/data:` 分帧→`phase/message/done` 分支，`done` 的 `JSON.parse` 必 try/catch。
 - UI：优先 `AiButton/AiInput`；按需引入；样式用 `var(--reai-*)` + `scoped`；成功/失败 `ElMessage`，破坏操作先 `ElMessageBox.confirm`；枚举走映射表（如 `LEVEL_TAG`）；文案注释中文。
 - 数据：`onMounted` 调真接口，`catch` 回退 `@/mock`；新会话本地 `t-${Date.now()}` 占位；切会话优先 `api.getSession(id)`，404 回退 mock。
+- **列表分页：所有列表页必须分页（`el-pagination` + 服务端 `page`/`size`），默认页大小一律 20、可切换 10/20/50/100**（`:page-sizes="[10, 20, 50, 100]"`，`ref(20)` / API 默认 `?? 20`，禁止散写默认值）；存量未分页页面为债务，触碰即补。
 - 401（HTTP 或业务码 `1002`）走中央 `handle401()`，禁页面自跳。
 - 验证：`pnpm lint` + `pnpm typecheck` + `pnpm build`；改 store/composable 加 `vitest`（`src/**/*.test.ts`）；提交走 commitlint（feat/fix/docs/style/refactor/perf/test/chore/revert/build/ci + sentence-case ≤100）。
 

@@ -64,8 +64,9 @@
       <el-pagination
         :current-page="page"
         :page-size="size"
+        :page-sizes="[10, 20, 50, 100]"
         :total="total"
-        layout="prev, pager, next, total"
+        layout="sizes, prev, pager, next, total"
         @current-change="onPage"
         @size-change="onSize"
       />
