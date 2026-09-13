@@ -65,7 +65,16 @@
 
 <script setup lang="ts">
 // 数据看板：指标卡 + 按租户/渠道归因表框架（趋势图与慢 Trace 下钻后续补，对齐页面设计 §3.7）
-import { ElButton, ElCard, ElEmpty, ElMessage, ElPagination, ElTable, ElTableColumn, ElTag } from 'element-plus';
+import {
+  ElButton,
+  ElCard,
+  ElEmpty,
+  ElMessage,
+  ElPagination,
+  ElTable,
+  ElTableColumn,
+  ElTag,
+} from 'element-plus';
 import { onMounted, ref } from 'vue';
 import { getGovernanceStatusApi, listAttributionApi } from '@/api';
 import { mockAttributions, mockMetrics } from '@/mock/dashboard';

@@ -277,14 +277,14 @@ async def ensure_b2b_demo(db: AsyncSession) -> bool:
 async def ensure_seed_tenant(db: AsyncSession) -> bool:
     """幂等灌种子租户行（code 与 SEED_TENANT 同源，供 /admin 首屏有数据）。"""
     tenant = settings.SEED_TENANT.strip()
-    existed = (
-        await db.execute(select(Tenant).where(Tenant.code == tenant))
-    ).scalar_one_or_none()
+    existed = (await db.execute(select(Tenant).where(Tenant.code == tenant))).scalar_one_or_none()
     if existed is not None:
         return False
     db.add(
         Tenant(
-            code=tenant, name="演示租户", plan="trial",
+            code=tenant,
+            name="演示租户",
+            plan="trial",
             quota_tokens=settings.DEFAULT_QUOTA_TOKENS,
             quota_concurrency=settings.DEFAULT_QUOTA_CONCURRENCY,
         )

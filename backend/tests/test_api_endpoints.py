@@ -74,6 +74,11 @@ async def test_api_happy_paths_cover_endpoints(client: httpx.AsyncClient) -> Non
     me = await _ok(await client.get("/api/v1/auth/me"))
     assert me["name"] == "tester"
     await _ok(await client.post("/api/v1/auth/logout"))
+    # 代入切换：通配 tester 切种子 admin 成功（审计同事务提交），幽灵用户 404
+    sw = await _ok(await client.post("/api/v1/auth/switch", json={"username": "admin"}))
+    assert sw["user"]["name"] == "admin" and sw["token"]
+    ghost = await client.post("/api/v1/auth/switch", json={"username": "ghost"})
+    assert ghost.json()["code"] == 1004
 
     # 会话：真实落库（空 body 建默认标题；列表空/有数据均 200；未知 id 404 回 mock）
     created = await _ok(await client.post("/api/v1/sessions"))
@@ -346,3 +351,6 @@ async def test_api_error_paths_map_to_fail_envelope(client: httpx.AsyncClient) -
     )
     resp = await client.get("/api/v1/approvals")
     assert resp.status_code == 403
+    # 非 admin 代入被拦 403/1003（无 admin Scope，审计不落）
+    resp = await client.post("/api/v1/auth/switch", json={"username": "admin"})
+    assert resp.status_code == 403 and resp.json()["code"] == 1003

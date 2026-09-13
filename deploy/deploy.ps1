@@ -37,7 +37,7 @@ if ($LASTEXITCODE -ne 0) { Write-Output 'FAIL: 容器启动失败'; exit 1 }
 # 1) 后端容器运行中 2) 前端首页 200 3) Nginx 反代 /api 200 4) 登录拿 token（种子+全链路）
 $backendOk = $false
 $frontOk = $false
-for ($i = 0; $i -lt 30; $i++) {
+for ($i = 0; $i -lt 60; $i++) {
   try {
     $st = docker compose -f $compose ps backend --format json 2>$null | ConvertFrom-Json
     if ($st.State -eq 'running') { $backendOk = $true }
@@ -52,16 +52,21 @@ for ($i = 0; $i -lt 30; $i++) {
 Check '后端容器运行中' $backendOk '(reai-backend-1)'
 Check '前端首页' $frontOk '(8080)'
 if ($frontOk) {
-  try {
-    $r = Invoke-WebRequest -Uri 'http://127.0.0.1:8080/api/v1/governance/status' -TimeoutSec 5 -UseBasicParsing
-    Check 'Nginx 反代 /api' ($r.StatusCode -eq 200) ''
-  } catch { Check 'Nginx 反代 /api' $false $_.Exception.Message }
+  $token = ''
   try {
     $body = @{ username = 'admin'; password = 'admin123' } | ConvertTo-Json
     $r = Invoke-WebRequest -Uri 'http://127.0.0.1:8080/api/v1/auth/login' -Method POST -Body $body -ContentType 'application/json' -TimeoutSec 10 -UseBasicParsing
-    $loginOk = ($r.StatusCode -eq 200) -and ($r.Content | ConvertFrom-Json).code -eq 0
+    $loginBody = $r.Content | ConvertFrom-Json
+    $loginOk = ($r.StatusCode -eq 200) -and ($loginBody.code -eq 0)
+    if ($loginOk) { $token = $loginBody.data.token }
     Check '登录拿 token' $loginOk '(admin/admin123)'
   } catch { Check '登录拿 token' $false $_.Exception.Message }
+  if ($token) {
+    try {
+      $r = Invoke-WebRequest -Uri 'http://127.0.0.1:8080/api/v1/governance/status' -Headers @{ Authorization = "Bearer $token" } -TimeoutSec 5 -UseBasicParsing
+      Check 'Nginx 反代 /api' ($r.StatusCode -eq 200) ''
+    } catch { Check 'Nginx 反代 /api' $false $_.Exception.Message }
+  }
 }
 Write-Output "RESULT: $passed passed, $failed failed"
 if ($failed -gt 0) { exit 1 }

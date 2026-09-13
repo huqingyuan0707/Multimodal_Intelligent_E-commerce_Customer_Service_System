@@ -74,7 +74,12 @@ async def list_tenants(
     _ = user
     return ok(
         await admin_service.list_tenants(
-            db, keyword=keyword, plan=plan, status=status, page=page, size=size,
+            db,
+            keyword=keyword,
+            plan=plan,
+            status=status,
+            page=page,
+            size=size,
         ),
         "获取成功",
     )
@@ -88,9 +93,13 @@ async def create_tenant(
 ) -> dict[str, Any]:
     """新建租户（同步记 tenant.create 审计）。"""
     row = await admin_service.create_tenant(
-        db, code=payload.code, name=payload.name, plan=payload.plan,
+        db,
+        code=payload.code,
+        name=payload.name,
+        plan=payload.plan,
         quota_tokens=payload.quota_tokens,
-        quota_concurrency=payload.quota_concurrency, actor=user.username,
+        quota_concurrency=payload.quota_concurrency,
+        actor=user.username,
     )
     return ok(admin_service.tenant_to_dict(row), "租户已创建")
 
@@ -116,8 +125,11 @@ async def update_quota(
 ) -> dict[str, Any]:
     """改配额（同步记 tenant.quota 审计）。"""
     row = await admin_service.update_quota(
-        db, code=code, quota_tokens=payload.quota_tokens,
-        quota_concurrency=payload.quota_concurrency, actor=user.username,
+        db,
+        code=code,
+        quota_tokens=payload.quota_tokens,
+        quota_concurrency=payload.quota_concurrency,
+        actor=user.username,
     )
     return ok(admin_service.tenant_to_dict(row), "配额已更新")
 
@@ -131,7 +143,10 @@ async def set_status(
 ) -> dict[str, Any]:
     """停服/恢复（同步记 tenant.status 审计）。"""
     row = await admin_service.set_status(
-        db, code=code, status=payload.status, actor=user.username,
+        db,
+        code=code,
+        status=payload.status,
+        actor=user.username,
     )
     return ok(admin_service.tenant_to_dict(row), "租户状态已更新")
 
@@ -149,7 +164,11 @@ async def list_users(
     _ = user
     return ok(
         await admin_service.list_users(
-            db, tenant=tenant, keyword=keyword, page=page, size=size,
+            db,
+            tenant=tenant,
+            keyword=keyword,
+            page=page,
+            size=size,
         ),
         "获取成功",
     )
@@ -164,7 +183,10 @@ async def update_roles(
 ) -> dict[str, Any]:
     """改用户角色（同步记 user.roles 审计）。"""
     row = await admin_service.update_user_roles(
-        db, user_id=user_id, roles=payload.roles, actor=user.username,
+        db,
+        user_id=user_id,
+        roles=payload.roles,
+        actor=user.username,
     )
     return ok(admin_service.user_to_dict(row), "用户角色已更新")
 
@@ -183,7 +205,12 @@ async def list_audits(
     _ = user
     return ok(
         await admin_service.list_audits(
-            db, tenant=tenant, action=action, keyword=keyword, page=page, size=size,
+            db,
+            tenant=tenant,
+            action=action,
+            keyword=keyword,
+            page=page,
+            size=size,
         ),
         "获取成功",
     )

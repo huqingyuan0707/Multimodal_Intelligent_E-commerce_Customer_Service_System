@@ -33,7 +33,14 @@ export const loginApi = async (params: { username: string; password: string }) =
     authRedirect: false,
   });
 
-export const logoutApi = async () =>
-  request({ method: 'POST', path: '/api/v1/auth/logout' });
+export const logoutApi = async () => request({ method: 'POST', path: '/api/v1/auth/logout' });
 
 export const meApi = async () => request({ path: '/api/v1/auth/me' });
+
+// 管理员免密代入同租户用户（顶栏“切换用户”，返回新 token+身份；401 走中央 handle401）
+export const switchUserApi = async (params: { username: string }) =>
+  request({
+    method: 'POST',
+    path: '/api/v1/auth/switch',
+    params,
+  });

@@ -15,6 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import Settings, settings
+from app.core.exceptions import BusinessError, ErrorCode
 from app.core.security import (
     decode_token,
     hash_password,
@@ -22,6 +23,7 @@ from app.core.security import (
     split_roles,
     verify_password,
 )
+from app.core.user_context import CurrentUser
 from app.db import session as session_mod
 from app.db.models import User
 from app.db.seed import ensure_seed_user, seed_on_startup
@@ -97,6 +99,74 @@ async def test_authenticate_trims_username(db: AsyncSession) -> None:
     await ensure_seed_user(db)
     user = await auth_service.authenticate(db, f"  {_seed_user()}  ", _seed_pwd())
     assert user.username == _seed_user()
+
+
+async def _add_user(db: AsyncSession, username: str, roles: str, tenant: str = "") -> None:
+    """直插用户行（代入用例的被切目标，不走种子幂等）。"""
+    db.add(
+        User(
+            tenant=tenant or settings.SEED_TENANT,
+            username=username,
+            pwd_hash=hash_password("x"),
+            roles=roles,
+        )
+    )
+    await db.commit()
+
+
+async def _seed_admin(db: AsyncSession) -> CurrentUser:
+    """种子管理员身份（SEED_ROLES 含 admin，代入操作人）。"""
+    await ensure_seed_user(db)
+    admin = await auth_service.authenticate(db, _seed_user(), _seed_pwd())
+    assert "admin" in admin.roles or "*" in admin.roles, "种子角色须含 admin（切换用户前置）"
+    return admin
+
+
+async def test_impersonate_ok_issues_target_token(db: AsyncSession) -> None:
+    """admin 免密代入同租户用户：返回目标身份且 token 可验签解出目标名。"""
+    admin = await _seed_admin(db)
+    await _add_user(db, "cs1", "cs")
+    target = await auth_service.impersonate(db, actor=admin, username="cs1")
+    assert target.username == "cs1"
+    assert target.tenant == admin.tenant
+    assert target.roles == ["cs"]
+    claims = decode_token(auth_service.to_token(target))
+    assert claims["sub"] == "cs1"
+
+
+async def test_impersonate_forbids_non_admin(db: AsyncSession) -> None:
+    """非 admin 代入一律 1003（中文可操作，不泄露目标是否存在）。"""
+    await _seed_admin(db)
+    await _add_user(db, "cs1", "cs")
+    actor = CurrentUser(username="cs1", tenant=settings.SEED_TENANT, roles=["cs"])
+    with pytest.raises(BusinessError) as exc_info:
+        await auth_service.impersonate(db, actor=actor, username=_seed_user())
+    assert exc_info.value.code == ErrorCode.FORBIDDEN
+
+
+async def test_impersonate_missing_target_is_404(db: AsyncSession) -> None:
+    """目标不存在 → 1004（与跨租户同码，不泄露存在性）。"""
+    admin = await _seed_admin(db)
+    with pytest.raises(BusinessError) as exc_info:
+        await auth_service.impersonate(db, actor=admin, username="ghost")
+    assert exc_info.value.code == ErrorCode.NOT_FOUND
+
+
+async def test_impersonate_cross_tenant_is_404(db: AsyncSession) -> None:
+    """跨租户用户名即使存在也判 404（租户隔离红线）。"""
+    admin = await _seed_admin(db)
+    await _add_user(db, "cs1", "cs", tenant="other-tenant")
+    with pytest.raises(BusinessError) as exc_info:
+        await auth_service.impersonate(db, actor=admin, username="cs1")
+    assert exc_info.value.code == ErrorCode.NOT_FOUND
+
+
+async def test_impersonate_empty_username_is_1001(db: AsyncSession) -> None:
+    """空目标名 → 1001 参数错误（前端弹窗必选一行，兜底）。"""
+    admin = await _seed_admin(db)
+    with pytest.raises(BusinessError) as exc_info:
+        await auth_service.impersonate(db, actor=admin, username="  ")
+    assert exc_info.value.code == ErrorCode.PARAM_INVALID
 
 
 async def test_seed_user_idempotent(db: AsyncSession) -> None:

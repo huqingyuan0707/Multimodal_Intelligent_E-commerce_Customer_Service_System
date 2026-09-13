@@ -1,13 +1,14 @@
 // user store 单测（登录/登出/登录态恢复，对齐 AGENTS §4 验证要求）
 import { createPinia, setActivePinia } from 'pinia';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { loginApi, logoutApi, meApi } from '@/api';
+import { loginApi, logoutApi, meApi, switchUserApi } from '@/api';
 import { useUserStore } from './user';
 
 vi.mock('@/api', () => ({
   meApi: vi.fn(),
   loginApi: vi.fn(),
   logoutApi: vi.fn(),
+  switchUserApi: vi.fn(),
 }));
 
 const USER = { name: 'demo', tenant: 't1', roles: ['cs'], perms: ['cs'] };
@@ -92,5 +93,36 @@ describe('useUserStore', () => {
     sessionStorage.setItem('reai_token', 'tk');
     await expect(store.loadMe()).resolves.toBe(false);
     expect(store.user).toBeNull();
+  });
+
+  it('switchUser 成功换 token 并回填目标身份', async () => {
+    const target = { name: 'cs1', tenant: 't1', roles: ['cs'], perms: ['cs'] };
+    vi.mocked(switchUserApi).mockResolvedValue({ token: 'tk2', user: target });
+    const store = useUserStore();
+    sessionStorage.setItem('reai_token', 'old');
+    const user = await store.switchUser('cs1');
+    expect(user.name).toBe('cs1');
+    expect(sessionStorage.getItem('reai_token')).toBe('tk2');
+    expect(store.user?.name).toBe('cs1');
+  });
+
+  it('switchUser 失败抛错且保留原登录态', async () => {
+    vi.mocked(switchUserApi).mockRejectedValue(new Error('目标用户不存在或无权访问'));
+    const store = useUserStore();
+    sessionStorage.setItem('reai_token', 'old');
+    store.setUser(USER);
+    await expect(store.switchUser('ghost')).rejects.toThrow('目标用户不存在或无权访问');
+    expect(sessionStorage.getItem('reai_token')).toBe('old');
+    expect(store.user?.name).toBe('demo');
+  });
+
+  it('isAdmin 仅 admin 与通配为真', () => {
+    const store = useUserStore();
+    store.setUser(USER);
+    expect(store.isAdmin).toBe(false);
+    store.setUser({ ...USER, roles: ['cs', 'admin'], perms: ['cs', 'admin'] });
+    expect(store.isAdmin).toBe(true);
+    store.setUser({ ...USER, roles: ['*'], perms: ['*'] });
+    expect(store.isAdmin).toBe(true);
   });
 });

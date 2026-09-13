@@ -40,7 +40,12 @@ import type { AdminOverview, TenantItem } from '@/types/admin';
 
 const tab = ref('tenant');
 const demo = ref(false);
-const overview = ref<AdminOverview>({ tenant_total: 0, user_total: 0, suspended: 0, audit_total: 0 });
+const overview = ref<AdminOverview>({
+  tenant_total: 0,
+  user_total: 0,
+  suspended: 0,
+  audit_total: 0,
+});
 const quotaRef = ref<{ setTenant: (c: string, t: number, cc: number) => unknown } | null>(null);
 
 const loadOverview = async () => {

@@ -2,7 +2,7 @@
 // token 存 sessionStorage.reai_token（与 api 层同一口径）；401 一律走中央 handle401，页面不自行跳转。
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
-import { loginApi, logoutApi, meApi } from '@/api';
+import { loginApi, logoutApi, meApi, switchUserApi } from '@/api';
 import type { AppUser } from '@/types/user';
 
 export type { AppUser };
@@ -14,6 +14,8 @@ export const useUserStore = defineStore('user', () => {
 
   const roles = computed(() => user.value?.roles ?? []);
   const perms = computed(() => user.value?.perms ?? user.value?.roles ?? []);
+  // 代入口：admin 或通配才可在应用内免密代入同租户用户（与后端 has_scope 同源）
+  const isAdmin = computed(() => roles.value.includes('admin') || roles.value.includes('*'));
 
   const hasToken = () => Boolean(sessionStorage.getItem(TOKEN_KEY));
 
@@ -34,6 +36,14 @@ export const useUserStore = defineStore('user', () => {
   const logout = async () => {
     await logoutApi().catch(() => undefined);
     clearLocal();
+  };
+
+  /** 管理员代入切换：换 token 并回填目标身份；失败抛错由调用方提示 */
+  const switchUser = async (username: string) => {
+    const data = await switchUserApi({ username });
+    sessionStorage.setItem(TOKEN_KEY, data.token);
+    user.value = data.user;
+    return data.user;
   };
 
   /** 刷新页面后凭 token 恢复身份；返回是否拿到身份（false 交由路由守卫回登录页） */
@@ -59,5 +69,17 @@ export const useUserStore = defineStore('user', () => {
     user.value = null;
   };
 
-  return { user, roles, perms, hasToken, login, logout, loadMe, setUser, clearUser };
+  return {
+    user,
+    roles,
+    perms,
+    isAdmin,
+    hasToken,
+    login,
+    logout,
+    switchUser,
+    loadMe,
+    setUser,
+    clearUser,
+  };
 });

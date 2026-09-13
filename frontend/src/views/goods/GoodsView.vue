@@ -7,12 +7,7 @@
     <div class="filters">
       <AiInput v-model="keyword" placeholder="搜 SPU/名称" class="kw" @keyup.enter="reload" />
       <el-select v-model="status" placeholder="状态" class="sel" @change="reload">
-        <el-option
-          v-for="o in STATUS_OPTIONS"
-          :key="o.value"
-          :label="o.label"
-          :value="o.value"
-        />
+        <el-option v-for="o in STATUS_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
       </el-select>
       <AiButton @click="reload">查询</AiButton>
     </div>
@@ -29,7 +24,9 @@
             </el-table-column>
             <el-table-column label="状态" width="90">
               <template #default="s">
-                <el-tag :type="goodsTagOf(s.row.status)" size="small">{{ s.row.status_label }}</el-tag>
+                <el-tag :type="goodsTagOf(s.row.status)" size="small">{{
+                  s.row.status_label
+                }}</el-tag>
               </template>
             </el-table-column>
             <el-table-column label="操作" width="170">
@@ -95,7 +92,16 @@
 
 <script setup lang="ts">
 // 商品管理（SPU 列表 + SKU 矩阵展开 + 改价进审批 + 上下架，对齐页面设计 §3.10；后端未就绪回 mock）
-import { ElMessage, ElMessageBox, ElPagination, ElSelect, ElOption, ElTable, ElTableColumn, ElTag } from 'element-plus';
+import {
+  ElMessage,
+  ElMessageBox,
+  ElPagination,
+  ElSelect,
+  ElOption,
+  ElTable,
+  ElTableColumn,
+  ElTag,
+} from 'element-plus';
 import { onMounted, ref } from 'vue';
 import { listGoodsApi, setGoodsStatusApi, submitPriceChangeApi, updateSkuApi } from '@/api';
 import { mockGoods } from '@/mock';
@@ -135,7 +141,7 @@ const load = async () => {
   } catch {
     const kw = keyword.value.trim();
     rows.value = mockGoods.filter(
-      (g) =>
+      g =>
         (!status.value || g.status === status.value) &&
         (!kw || g.name.includes(kw) || g.spu_no.includes(kw)),
     );

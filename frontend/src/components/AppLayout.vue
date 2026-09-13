@@ -14,30 +14,55 @@
           <i class="dot notice-dot" />消息通知
         </el-button>
         <span class="tenant">{{ user?.tenant ?? '演示租户' }}</span>
-        <span class="username">{{ user?.name ?? '管理员' }}</span>
-        <el-button link size="small" class="top-link" @click="logout">退出</el-button>
+        <el-dropdown trigger="click" placement="bottom-end" @command="handleUserCommand">
+          <span class="username dropdown-trigger"
+            >{{ user?.name ?? '管理员' }}<i class="caret"
+          /></span>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item disabled>
+                <div class="who">
+                  <span class="who-name">{{ user?.name ?? '' }}</span>
+                  <span class="who-tenant">{{ user?.tenant ?? '' }}</span>
+                </div>
+                <div class="who-roles" :title="(user?.roles ?? []).join(',')">
+                  <el-tag v-for="r in displayRoles" :key="r" size="small">{{ r }}</el-tag>
+                  <span v-if="extraPermCount > 0" class="more">+{{ extraPermCount }}</span>
+                </div>
+              </el-dropdown-item>
+              <el-dropdown-item command="switch" divided>切换用户</el-dropdown-item>
+              <el-dropdown-item command="logout">退出登录</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
       </div>
     </el-header>
     <el-main class="main">
       <router-view />
     </el-main>
+    <UserSwitchDialog v-model="showSwitch" @switched="onSwitched" />
   </el-container>
 </template>
 
 <script setup lang="ts">
-// 系统壳：蓝紫渐变顶栏（品牌+顶部 Tab 导航+坐席状态/通知/用户/退出）+ 主区（对齐页面设计 §2）
+// 系统壳：蓝紫渐变顶栏（品牌+顶部 Tab 导航+坐席状态/通知/用户下拉+切换用户）+ 主区（对齐页面设计 §2）
 import {
   ElButton,
   ElContainer,
+  ElDropdown,
+  ElDropdownItem,
+  ElDropdownMenu,
   ElHeader,
   ElMain,
   ElMenu,
   ElMenuItem,
   ElMessage,
+  ElMessageBox,
   ElTag,
 } from 'element-plus';
-import { computed, onMounted } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import UserSwitchDialog from '@/components/UserSwitchDialog.vue';
 import { useUserStore } from '@/stores/user';
 
 type MenuItem = {
@@ -69,6 +94,14 @@ const menus = computed<MenuItem[]>(() =>
     .map(r => ({ path: r.path, title: r.meta.title as string })),
 );
 
+// 下拉身份行只展示域角色（cs/kb/shop…，最多 3 个），权限令牌（xx:yy）折进 +N，悬停看全量
+const displayRoles = computed(() =>
+  (user.value?.roles ?? []).filter(r => !r.includes(':')).slice(0, 3),
+);
+const extraPermCount = computed(() =>
+  Math.max(0, (user.value?.roles ?? []).length - displayRoles.value.length),
+);
+
 const showNotice = () => {
   ElMessage.info('暂无新消息（演示占位，通知中心后续补）');
 };
@@ -78,6 +111,38 @@ const logout = async () => {
   await userStore.logout();
   ElMessage.success('已退出登录');
   router.push('/login');
+};
+
+const showSwitch = ref(false);
+
+// 顶栏用户下拉：切换用户（admin 弹窗代入，普通用户退出后去登录页重登）/ 退出登录
+const handleUserCommand = async (command: string) => {
+  if (command === 'logout') {
+    await logout();
+    return;
+  }
+  if (command !== 'switch') {
+    return;
+  }
+  if (!userStore.isAdmin) {
+    try {
+      await ElMessageBox.confirm(
+        '当前账号无代入权限，将退出并前往登录页用新账号登录，是否继续？',
+        '切换用户',
+      );
+    } catch {
+      return; // 用户取消
+    }
+    await userStore.logout();
+    router.push({ path: '/login', query: { redirect: route.fullPath } });
+    return;
+  }
+  showSwitch.value = true;
+};
+
+// 代入成功：token 已换，整页重载让守卫重取身份、各页重拉（新身份无权看当前页时守卫踢回 /chat）
+const onSwitched = () => {
+  router.go(0);
 };
 
 onMounted(() => {
@@ -159,6 +224,51 @@ onMounted(() => {
 .tenant,
 .username {
   color: var(--reai-nav-text);
+}
+
+.who {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.who-name {
+  font-weight: 600;
+}
+
+.who-tenant {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.who-roles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  max-width: 240px;
+  margin-top: 4px;
+}
+
+.more {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.dropdown-trigger {
+  cursor: pointer;
+  outline: none;
+}
+
+.caret {
+  display: inline-block;
+  width: 0;
+  height: 0;
+  margin-left: 4px;
+  vertical-align: middle;
+  border-top: 5px solid var(--reai-nav-text);
+  border-right: 4px solid transparent;
+  border-left: 4px solid transparent;
 }
 
 .main {

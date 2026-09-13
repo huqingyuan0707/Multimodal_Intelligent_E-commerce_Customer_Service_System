@@ -39,7 +39,11 @@ async def db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[A
 
 async def test_create_and_quota_audit(db: AsyncSession) -> None:
     row = await admin_service.create_tenant(
-        db, code="t-acme", name="Acme", plan="basic", actor="admin",
+        db,
+        code="t-acme",
+        name="Acme",
+        plan="basic",
+        actor="admin",
     )
     assert row.code == "t-acme"
     try:
@@ -48,12 +52,20 @@ async def test_create_and_quota_audit(db: AsyncSession) -> None:
     except BusinessError as exc:
         assert exc.code == ErrorCode.PARAM_INVALID
     updated = await admin_service.update_quota(
-        db, code="t-acme", quota_tokens=5000, quota_concurrency=10, actor="admin",
+        db,
+        code="t-acme",
+        quota_tokens=5000,
+        quota_concurrency=10,
+        actor="admin",
     )
     assert updated.quota_tokens == 5000
     try:
         await admin_service.update_quota(
-            db, code="t-acme", quota_tokens=0, quota_concurrency=1, actor="admin",
+            db,
+            code="t-acme",
+            quota_tokens=0,
+            quota_concurrency=1,
+            actor="admin",
         )
         raise AssertionError("零配额应抛错")
     except BusinessError as exc:
@@ -66,7 +78,10 @@ async def test_create_and_quota_audit(db: AsyncSession) -> None:
 async def test_status_and_roles(db: AsyncSession) -> None:
     await admin_service.create_tenant(db, code="t-s", name="S", actor="admin")
     suspended = await admin_service.set_status(
-        db, code="t-s", status="suspended", actor="admin",
+        db,
+        code="t-s",
+        status="suspended",
+        actor="admin",
     )
     assert suspended.status == "suspended"
     try:
@@ -80,7 +95,10 @@ async def test_status_and_roles(db: AsyncSession) -> None:
     assert users["total"] == 1
     uid = users["items"][0]["id"]
     changed = await admin_service.update_user_roles(
-        db, user_id=uid, roles="cs,admin", actor="admin",
+        db,
+        user_id=uid,
+        roles="cs,admin",
+        actor="admin",
     )
     assert "admin" in changed.roles
     try:

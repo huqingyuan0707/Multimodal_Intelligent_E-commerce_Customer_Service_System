@@ -1,6 +1,7 @@
 """认证端点（真实验密发 JWT，对齐 API 规范 §4.1）
 
 链路：POST /auth/login → auth_service.authenticate → ok({token,user})；
+      POST /auth/switch → auth_service.impersonate + auth.switch 审计 → ok({token,user})；
       GET /auth/me、POST /auth/logout 走路由级 get_current_user。
 """
 
@@ -25,6 +26,12 @@ class LoginRequest(BaseModel):
 
     username: str
     password: str
+
+
+class SwitchRequest(BaseModel):
+    """代入切换入参（目标用户名，须与操作人同租户）。"""
+
+    username: str
 
 
 def _user_payload(user: CurrentUser) -> dict[str, object]:
@@ -66,3 +73,21 @@ async def me(user: CurrentUser = Depends(get_current_user)) -> dict[str, object]
 async def logout(_user: CurrentUser = Depends(get_current_user)) -> dict[str, object]:
     """登出：JWT 无状态，服务端仅确认身份并留痕，登录态清理由前端完成（规范 §4.1）。"""
     return ok(None, "已退出登录")
+
+
+@router.post("/switch")
+async def switch(
+    payload: SwitchRequest,
+    db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
+) -> object:
+    """管理员免密代入同租户用户：签发目标 JWT + 记 auth.switch 审计（谁切到谁留痕）。
+
+    注：代入资格与目标归属由 service 校验（失败转 1003/1004 中文信封）；新 token
+    与 login 同结构，后续 tenant 隔离自动按目标口径生效。
+    """
+    target = await auth_service.switch_user(db, actor=user, username=payload.username)
+    return ok(
+        {"token": auth_service.to_token(target), "user": _user_payload(target)},
+        f"已切换到用户{target.username}",
+    )

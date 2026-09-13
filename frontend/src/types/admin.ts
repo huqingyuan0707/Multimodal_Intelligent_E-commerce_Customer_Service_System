@@ -52,8 +52,7 @@ export const TENANT_STATUS_TAG = {
   disabled: 'info',
 } as const;
 
-export const tenantPlanTagOf = (plan: string) =>
-  PLAN_TAG[plan as keyof typeof PLAN_TAG] ?? 'info';
+export const tenantPlanTagOf = (plan: string) => PLAN_TAG[plan as keyof typeof PLAN_TAG] ?? 'info';
 
 export const tenantStatusTagOf = (status: string) =>
   TENANT_STATUS_TAG[status as keyof typeof TENANT_STATUS_TAG] ?? 'info';

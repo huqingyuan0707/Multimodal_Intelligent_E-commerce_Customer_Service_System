@@ -32,10 +32,22 @@
       <el-table-column prop="warn_line" label="安全线" width="80" />
       <el-table-column label="操作" width="270">
         <template #default="s">
-          <el-button v-permission="['stock', 'shop', 'admin']" link type="primary" size="small" @click="move(s.row as InventoryRow, 'in')">
+          <el-button
+            v-permission="['stock', 'shop', 'admin']"
+            link
+            type="primary"
+            size="small"
+            @click="move(s.row as InventoryRow, 'in')"
+          >
             入库
           </el-button>
-          <el-button v-permission="['stock', 'shop', 'admin']" link type="primary" size="small" @click="move(s.row as InventoryRow, 'out')">
+          <el-button
+            v-permission="['stock', 'shop', 'admin']"
+            link
+            type="primary"
+            size="small"
+            @click="move(s.row as InventoryRow, 'out')"
+          >
             出库
           </el-button>
           <el-button link type="primary" size="small" @click="openMoves(s.row as InventoryRow)">
@@ -73,7 +85,18 @@
 <script setup lang="ts">
 // 库存管理（SKU×仓库存量 + 预警 + 出入库/调拨 + 流水抽屉；对齐页面设计 §3.11）
 // 调拨走 prompt 三步确认（目标仓/数量/原因），仓库选择器 P2 再换成下拉组件
-import { ElDrawer, ElMessage, ElMessageBox, ElOption, ElPagination, ElSelect, ElSwitch, ElTable, ElTableColumn, ElTag } from 'element-plus';
+import {
+  ElDrawer,
+  ElMessage,
+  ElMessageBox,
+  ElOption,
+  ElPagination,
+  ElSelect,
+  ElSwitch,
+  ElTable,
+  ElTableColumn,
+  ElTag,
+} from 'element-plus';
 import { onMounted, ref } from 'vue';
 import { listInventoryApi, listMovesApi, listWarehousesApi, moveStockApi } from '@/api';
 import { mockInventory } from '@/mock';
@@ -109,13 +132,13 @@ const load = async () => {
       size: size.value,
     });
     const kw = keyword.value.trim();
-    rows.value = res.items.filter((r) => matchKw(r, kw));
+    rows.value = res.items.filter(r => matchKw(r, kw));
     total.value = res.total;
     demo.value = false;
   } catch {
     const kw = keyword.value.trim();
     rows.value = mockInventory.filter(
-      (r) =>
+      r =>
         (!onlyWarn.value || r.warning) &&
         (!warehouseId.value || r.warehouse_id === warehouseId.value) &&
         matchKw(r, kw),
@@ -133,7 +156,7 @@ const loadWarehouses = async () => {
     warehouses.value = await listWarehousesApi();
   } catch {
     const seen = new Map<string, string>();
-    mockInventory.forEach((r) => {
+    mockInventory.forEach(r => {
       if (!seen.has(r.warehouse_id)) {
         seen.set(r.warehouse_id, r.warehouse);
       }
@@ -212,7 +235,7 @@ const move = async (row: InventoryRow, kind: 'in' | 'out') => {
 };
 
 const transfer = async (row: InventoryRow) => {
-  const targets = warehouses.value.filter((w) => w.id !== row.warehouse_id);
+  const targets = warehouses.value.filter(w => w.id !== row.warehouse_id);
   if (!targets.length) {
     ElMessage.warning('没有可调拨的目标仓库');
     return;
@@ -220,14 +243,14 @@ const transfer = async (row: InventoryRow) => {
   let targetId: string;
   try {
     ({ value: targetId } = await ElMessageBox.prompt(
-      `从「${row.warehouse}」调往哪个仓库？（可选 ${targets.map((w) => `${w.name}=${w.id}`).join('、')}）`,
+      `从「${row.warehouse}」调往哪个仓库？（可选 ${targets.map(w => `${w.name}=${w.id}`).join('、')}）`,
       '目标仓库',
       { inputValue: targets[0].id },
     ));
   } catch {
     return;
   }
-  if (!targets.some((w) => w.id === targetId.trim())) {
+  if (!targets.some(w => w.id === targetId.trim())) {
     ElMessage.warning('目标仓库不存在，请从列表中选择');
     return;
   }

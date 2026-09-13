@@ -7,12 +7,7 @@
     <div class="filters">
       <AiInput v-model="keyword" placeholder="搜平台单号" class="kw" @keyup.enter="reload" />
       <el-select v-model="status" placeholder="状态" class="sel" @change="reload">
-        <el-option
-          v-for="o in STATUS_OPTIONS"
-          :key="o.value"
-          :label="o.label"
-          :value="o.value"
-        />
+        <el-option v-for="o in STATUS_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
       </el-select>
       <AiButton @click="reload">查询</AiButton>
     </div>
@@ -76,7 +71,16 @@
 
 <script setup lang="ts">
 // 订单履约（平台订单镜像 + 打单发货 + 建售后关联会话 trace；按钮按 allowed_actions 置灰，对齐页面设计 §3.13）
-import { ElMessage, ElMessageBox, ElPagination, ElSelect, ElOption, ElTable, ElTableColumn, ElTag } from 'element-plus';
+import {
+  ElMessage,
+  ElMessageBox,
+  ElPagination,
+  ElSelect,
+  ElOption,
+  ElTable,
+  ElTableColumn,
+  ElTag,
+} from 'element-plus';
 import { onMounted, ref } from 'vue';
 import { createAftersaleApi, listOrdersApi, shipOrderApi } from '@/api';
 import { mockOrders } from '@/mock';
@@ -122,8 +126,7 @@ const load = async () => {
   } catch {
     const kw = keyword.value.trim();
     rows.value = mockOrders.filter(
-      (o) =>
-        (!status.value || o.status === status.value) && (!kw || o.outer_id.includes(kw)),
+      o => (!status.value || o.status === status.value) && (!kw || o.outer_id.includes(kw)),
     );
     total.value = rows.value.length;
     demo.value = true;
@@ -213,7 +216,9 @@ const aftersale = async (row: OrderItem) => {
       trace_id: row.trace_id,
     });
     if (res.need_approval) {
-      ElMessage.warning(`退款超阈值，已转审批${res.approval_id ? `（${res.approval_id}）` : ''}，批准后生效`);
+      ElMessage.warning(
+        `退款超阈值，已转审批${res.approval_id ? `（${res.approval_id}）` : ''}，批准后生效`,
+      );
     } else {
       ElMessage.success('售后单已创建');
     }

@@ -31,7 +31,9 @@
     <el-dialog v-model="dialog" title="改用户角色" width="440px">
       <el-form :model="form" label-width="90px">
         <el-form-item label="用户">{{ form.username }}</el-form-item>
-        <el-form-item label="角色"><AiInput v-model="form.roles" placeholder="如 cs,admin" /></el-form-item>
+        <el-form-item label="角色"
+          ><AiInput v-model="form.roles" placeholder="如 cs,admin"
+        /></el-form-item>
       </el-form>
       <template #footer>
         <AiButton @click="dialog = false">取消</AiButton>

@@ -15,7 +15,9 @@
       </el-table-column>
       <el-table-column label="状态" width="110">
         <template #default="s">
-          <el-tag :type="tenantStatusTagOf(s.row.status)" size="small">{{ s.row.status_label }}</el-tag>
+          <el-tag :type="tenantStatusTagOf(s.row.status)" size="small">{{
+            s.row.status_label
+          }}</el-tag>
         </template>
       </el-table-column>
       <el-table-column label="配额(Token/并发)" min-width="160">
@@ -45,7 +47,9 @@
       <el-form :model="form" label-width="90px">
         <el-form-item label="编码"><AiInput v-model="form.code" /></el-form-item>
         <el-form-item label="名称"><AiInput v-model="form.name" /></el-form-item>
-        <el-form-item label="套餐"><AiInput v-model="form.plan" placeholder="trial/basic/pro/enterprise" /></el-form-item>
+        <el-form-item label="套餐"
+          ><AiInput v-model="form.plan" placeholder="trial/basic/pro/enterprise"
+        /></el-form-item>
       </el-form>
       <template #footer>
         <AiButton @click="dialog = false">取消</AiButton>
@@ -81,7 +85,11 @@ const form = ref({ code: '', name: '', plan: 'trial' });
 const load = async () => {
   loading.value = true;
   try {
-    const res = await listTenantsApi({ keyword: keyword.value.trim(), page: page.value, size: size.value });
+    const res = await listTenantsApi({
+      keyword: keyword.value.trim(),
+      page: page.value,
+      size: size.value,
+    });
     rows.value = res.items;
     total.value = res.total;
     emit('demo', false);
@@ -141,7 +149,10 @@ const pick = (row: TenantItem) => {
 
 const toggle = async (row: TenantItem) => {
   const next = row.status === 'active' ? 'suspended' : 'active';
-  await ElMessageBox.confirm(`确认将租户「${row.code}」置为${next === 'active' ? '正常' : '停服'}吗？`, '危险操作');
+  await ElMessageBox.confirm(
+    `确认将租户「${row.code}」置为${next === 'active' ? '正常' : '停服'}吗？`,
+    '危险操作',
+  );
   try {
     await setTenantStatusApi({ code: row.code, status: next });
     ElMessage.success('租户状态已更新');

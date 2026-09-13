@@ -3,12 +3,48 @@
 import type { AttributionRow, DashboardMetric } from '@/types/dashboard';
 
 export const mockMetrics: DashboardMetric[] = [
-  { key: 'qps', label: '问答 QPS', value: '12.4', desc: '每秒问答请求数（网关统计）', overBudget: false },
-  { key: 'p95', label: '首字 P95', value: '1.62s', desc: '流式首字延迟 P95（目标 <2s）', overBudget: false },
-  { key: 'resolve', label: '自动解决率', value: '81.3%', desc: '一次解决无需转人工占比', overBudget: false },
-  { key: 'hallucination', label: '幻觉率', value: '1.8%', desc: '无引用/引用越界回答占比（目标 ≤2%）', overBudget: false },
-  { key: 'tool', label: '工具成功率', value: '97.6%', desc: '业务连接器调用成功占比', overBudget: false },
-  { key: 'cost', label: 'Token 成本', value: '¥128.40', desc: '本期累计模型费用，超预算标红', overBudget: true },
+  {
+    key: 'qps',
+    label: '问答 QPS',
+    value: '12.4',
+    desc: '每秒问答请求数（网关统计）',
+    overBudget: false,
+  },
+  {
+    key: 'p95',
+    label: '首字 P95',
+    value: '1.62s',
+    desc: '流式首字延迟 P95（目标 <2s）',
+    overBudget: false,
+  },
+  {
+    key: 'resolve',
+    label: '自动解决率',
+    value: '81.3%',
+    desc: '一次解决无需转人工占比',
+    overBudget: false,
+  },
+  {
+    key: 'hallucination',
+    label: '幻觉率',
+    value: '1.8%',
+    desc: '无引用/引用越界回答占比（目标 ≤2%）',
+    overBudget: false,
+  },
+  {
+    key: 'tool',
+    label: '工具成功率',
+    value: '97.6%',
+    desc: '业务连接器调用成功占比',
+    overBudget: false,
+  },
+  {
+    key: 'cost',
+    label: 'Token 成本',
+    value: '¥128.40',
+    desc: '本期累计模型费用，超预算标红',
+    overBudget: true,
+  },
 ];
 
 export const mockAttributions: AttributionRow[] = [

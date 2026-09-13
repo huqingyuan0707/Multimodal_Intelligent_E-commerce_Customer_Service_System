@@ -166,7 +166,7 @@
 // 深色分屏登录：左品牌宣导 + 等距插画 + 右玻璃登录卡；账密走 request，租户 ID 仅本地记住（对齐页面设计 §3.9）
 import { ElButton, ElMessage } from 'element-plus';
 import { onMounted, ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { loginApi } from '@/api';
 import AiButton from '@/shared/components/AiButton.vue';
 import AiInput from '@/shared/components/AiInput.vue';
@@ -176,6 +176,7 @@ const password = ref('');
 const tenant = ref('');
 const loading = ref(false);
 const router = useRouter();
+const route = useRoute();
 
 onMounted(() => {
   tenant.value = sessionStorage.getItem('reai_tenant') ?? '';
@@ -196,7 +197,9 @@ const submit = async () => {
     sessionStorage.setItem('reai_token', data.token);
     sessionStorage.setItem('reai_tenant', tenant.value.trim());
     ElMessage.success(`欢迎回来，${data.user.name}`);
-    await router.push('/chat');
+    // 切换用户/守卫带来的 redirect 优先回跳（仅站内路径，防开放重定向）
+    const back = route.query.redirect;
+    await router.push(typeof back === 'string' && back.startsWith('/') ? back : '/chat');
   } catch (e) {
     ElMessage.error(e instanceof Error ? e.message : '登录失败');
   } finally {

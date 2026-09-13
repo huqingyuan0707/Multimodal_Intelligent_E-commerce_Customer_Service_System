@@ -12,10 +12,7 @@ export const listApprovalsApi = async (params?: { status?: string }) => {
   return res.data;
 };
 
-export const approveApprovalApi = async (params: {
-  id: string;
-  modifiedArgs: object;
-}) => {
+export const approveApprovalApi = async (params: { id: string; modifiedArgs: object }) => {
   const res = await dispatch({
     method: 'POST',
     path: `/api/v1/approvals/${encodeURIComponent(params.id)}/approve`,
@@ -28,10 +25,7 @@ export const approveApprovalApi = async (params: {
   return res.data;
 };
 
-export const rejectApprovalApi = async (params: {
-  id: string;
-  reason: string;
-}) => {
+export const rejectApprovalApi = async (params: { id: string; reason: string }) => {
   const res = await dispatch({
     method: 'POST',
     path: `/api/v1/approvals/${encodeURIComponent(params.id)}/reject`,
@@ -46,7 +40,7 @@ export const rejectApprovalApi = async (params: {
 
 // 分页兼容：给 SearchFields/pageConfig + res.data.list/total 调用方用（类型宽松不写注解）
 // 后端仍是 GET /approvals?status&limit，本函数做客户端分页裁剪，老 listApprovalsApi 不动
-export const getApprovalListApi = async (params) => {
+export const getApprovalListApi = async params => {
   const search = params?.SearchFields ?? {};
   const page = params?.pageConfig ?? {};
   const status = search.status ?? 'pending';

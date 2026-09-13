@@ -77,13 +77,20 @@ def user_to_dict(row: User) -> dict[str, Any]:
 
 
 async def record_audit(
-    db: AsyncSession, *, tenant: str, actor: str, action: str, target: str = "",
+    db: AsyncSession,
+    *,
+    tenant: str,
+    actor: str,
+    action: str,
+    target: str = "",
     detail: dict[str, Any] | None = None,
 ) -> AuditLog:
     """记一条审计（只 flush 不 commit，与业务写入同事务）。"""
     row = AuditLog(
-        tenant=tenant or "", actor=actor or "",
-        action=action, target=target or "",
+        tenant=tenant or "",
+        actor=actor or "",
+        action=action,
+        target=target or "",
         detail=json.dumps(detail or {}, ensure_ascii=False),
     )
     db.add(row)
@@ -99,17 +106,20 @@ def _check_code(code: str) -> str:
 
 
 async def get_tenant_or_raise(db: AsyncSession, code: str) -> Tenant:
-    row = (
-        await db.execute(select(Tenant).where(Tenant.code == code))
-    ).scalar_one_or_none()
+    row = (await db.execute(select(Tenant).where(Tenant.code == code))).scalar_one_or_none()
     if row is None:
         raise BusinessError(ErrorCode.NOT_FOUND, "租户不存在", 404)
     return row
 
 
 async def list_tenants(
-    db: AsyncSession, *, keyword: str = "", plan: str = "",
-    status: str = "", page: int = 1, size: int = 20,
+    db: AsyncSession,
+    *,
+    keyword: str = "",
+    plan: str = "",
+    status: str = "",
+    page: int = 1,
+    size: int = 20,
 ) -> dict[str, Any]:
     """租户分页（全局视角，仅 admin 可调；keyword 匹配 code/name）。"""
     if plan and plan not in settings.TENANT_PLANS:
@@ -126,19 +136,28 @@ async def list_tenants(
         stmt = stmt.where(or_(Tenant.code.like(like), Tenant.name.like(like)))
     total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
     rows = list(
-        (await db.execute(
-            stmt.order_by(Tenant.created_at.desc()).offset((page - 1) * size).limit(size)
-        )).scalars()
+        (
+            await db.execute(
+                stmt.order_by(Tenant.created_at.desc()).offset((page - 1) * size).limit(size)
+            )
+        ).scalars()
     )
     return {
-        "total": int(total), "page": page, "size": size,
+        "total": int(total),
+        "page": page,
+        "size": size,
         "items": [tenant_to_dict(r) for r in rows],
     }
 
 
 async def create_tenant(
-    db: AsyncSession, *, code: str, name: str, plan: str = "trial",
-    quota_tokens: int | None = None, quota_concurrency: int | None = None,
+    db: AsyncSession,
+    *,
+    code: str,
+    name: str,
+    plan: str = "trial",
+    quota_tokens: int | None = None,
+    quota_concurrency: int | None = None,
     actor: str = "",
 ) -> Tenant:
     """新建租户（编码全局唯一；配额缺省走 Settings 默认）。"""
@@ -147,16 +166,17 @@ async def create_tenant(
         raise BusinessError(ErrorCode.PARAM_INVALID, "租户名称不能为空")
     if plan not in settings.TENANT_PLANS:
         raise BusinessError(ErrorCode.PARAM_INVALID, f"套餐非法：{plan}")
-    existed = (
-        await db.execute(select(Tenant).where(Tenant.code == cleaned))
-    ).scalar_one_or_none()
+    existed = (await db.execute(select(Tenant).where(Tenant.code == cleaned))).scalar_one_or_none()
     if existed is not None:
         raise BusinessError(ErrorCode.PARAM_INVALID, f"租户编码已存在：{cleaned}")
     row = Tenant(
-        code=cleaned, name=name.strip(), plan=plan,
+        code=cleaned,
+        name=name.strip(),
+        plan=plan,
         quota_tokens=quota_tokens if quota_tokens is not None else settings.DEFAULT_QUOTA_TOKENS,
         quota_concurrency=(
-            quota_concurrency if quota_concurrency is not None
+            quota_concurrency
+            if quota_concurrency is not None
             else settings.DEFAULT_QUOTA_CONCURRENCY
         ),
     )
@@ -165,16 +185,24 @@ async def create_tenant(
     db.add(row)
     await db.flush()
     await record_audit(
-        db, tenant=cleaned, actor=actor, action="tenant.create",
-        target=cleaned, detail={"plan": plan},
+        db,
+        tenant=cleaned,
+        actor=actor,
+        action="tenant.create",
+        target=cleaned,
+        detail={"plan": plan},
     )
     await db.commit()
     return row
 
 
 async def update_quota(
-    db: AsyncSession, *, code: str, quota_tokens: int,
-    quota_concurrency: int, actor: str = "",
+    db: AsyncSession,
+    *,
+    code: str,
+    quota_tokens: int,
+    quota_concurrency: int,
+    actor: str = "",
 ) -> Tenant:
     """改配额（危险操作，前端双重 confirm；同步记审计供回溯）。"""
     if quota_tokens <= 0 or quota_concurrency <= 0:
@@ -185,16 +213,23 @@ async def update_quota(
     row.quota_concurrency = quota_concurrency
     await db.flush()
     await record_audit(
-        db, tenant=code, actor=actor, action="tenant.quota",
-        target=code, detail={**old, "quota_tokens": quota_tokens,
-                             "quota_concurrency": quota_concurrency},
+        db,
+        tenant=code,
+        actor=actor,
+        action="tenant.quota",
+        target=code,
+        detail={**old, "quota_tokens": quota_tokens, "quota_concurrency": quota_concurrency},
     )
     await db.commit()
     return row
 
 
 async def set_status(
-    db: AsyncSession, *, code: str, status: str, actor: str = "",
+    db: AsyncSession,
+    *,
+    code: str,
+    status: str,
+    actor: str = "",
 ) -> Tenant:
     """停服/恢复（欠费停服即 suspended；同步记审计）。"""
     if status not in TENANT_STATUSES:
@@ -204,16 +239,24 @@ async def set_status(
     row.status = status
     await db.flush()
     await record_audit(
-        db, tenant=code, actor=actor, action="tenant.status",
-        target=code, detail={"from": old_status, "to": status},
+        db,
+        tenant=code,
+        actor=actor,
+        action="tenant.status",
+        target=code,
+        detail={"from": old_status, "to": status},
     )
     await db.commit()
     return row
 
 
 async def list_users(
-    db: AsyncSession, *, tenant: str = "", keyword: str = "",
-    page: int = 1, size: int = 20,
+    db: AsyncSession,
+    *,
+    tenant: str = "",
+    keyword: str = "",
+    page: int = 1,
+    size: int = 20,
 ) -> dict[str, Any]:
     """用户分页（全局视角；tenant 传空=全部，keyword 匹配用户名）。"""
     stmt = select(User)
@@ -223,18 +266,26 @@ async def list_users(
         stmt = stmt.where(User.username.like(f"%{keyword.strip()}%"))
     total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
     rows = list(
-        (await db.execute(
-            stmt.order_by(User.created_at.desc()).offset((page - 1) * size).limit(size)
-        )).scalars()
+        (
+            await db.execute(
+                stmt.order_by(User.created_at.desc()).offset((page - 1) * size).limit(size)
+            )
+        ).scalars()
     )
     return {
-        "total": int(total), "page": page, "size": size,
+        "total": int(total),
+        "page": page,
+        "size": size,
         "items": [user_to_dict(r) for r in rows],
     }
 
 
 async def update_user_roles(
-    db: AsyncSession, *, user_id: str, roles: str, actor: str = "",
+    db: AsyncSession,
+    *,
+    user_id: str,
+    roles: str,
+    actor: str = "",
 ) -> User:
     """改用户角色（角色即权限口径；同步记审计）。"""
     from app.core.security import split_roles
@@ -249,16 +300,25 @@ async def update_user_roles(
     row.roles = settings.ROLES_SEPARATOR.join(wanted)
     await db.flush()
     await record_audit(
-        db, tenant=row.tenant, actor=actor, action="user.roles",
-        target=row.username, detail={"from": old_roles, "to": row.roles},
+        db,
+        tenant=row.tenant,
+        actor=actor,
+        action="user.roles",
+        target=row.username,
+        detail={"from": old_roles, "to": row.roles},
     )
     await db.commit()
     return row
 
 
 async def list_audits(
-    db: AsyncSession, *, tenant: str = "", action: str = "",
-    keyword: str = "", page: int = 1, size: int = 20,
+    db: AsyncSession,
+    *,
+    tenant: str = "",
+    action: str = "",
+    keyword: str = "",
+    page: int = 1,
+    size: int = 20,
 ) -> dict[str, Any]:
     """审计分页（只读；倒序；keyword 匹配 actor/target）。"""
     stmt = select(AuditLog)
@@ -271,12 +331,16 @@ async def list_audits(
         stmt = stmt.where(or_(AuditLog.actor.like(like), AuditLog.target.like(like)))
     total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
     rows = list(
-        (await db.execute(
-            stmt.order_by(AuditLog.created_at.desc()).offset((page - 1) * size).limit(size)
-        )).scalars()
+        (
+            await db.execute(
+                stmt.order_by(AuditLog.created_at.desc()).offset((page - 1) * size).limit(size)
+            )
+        ).scalars()
     )
     return {
-        "total": int(total), "page": page, "size": size,
+        "total": int(total),
+        "page": page,
+        "size": size,
         "items": [audit_to_dict(r) for r in rows],
     }
 
@@ -290,6 +354,8 @@ async def overview(db: AsyncSession) -> dict[str, Any]:
     ).scalar_one()
     audit_total = (await db.execute(select(func.count()).select_from(AuditLog))).scalar_one()
     return {
-        "tenant_total": int(tenant_total), "user_total": int(user_total),
-        "suspended": int(suspended), "audit_total": int(audit_total),
+        "tenant_total": int(tenant_total),
+        "user_total": int(user_total),
+        "suspended": int(suspended),
+        "audit_total": int(audit_total),
     }

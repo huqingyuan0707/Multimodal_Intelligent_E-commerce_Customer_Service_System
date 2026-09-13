@@ -63,6 +63,7 @@ api_router.include_router(chat.router, dependencies=[Depends(get_current_user)])
   - 登录请求**豁免中央 `handle401`**（`request(..., {authRedirect:false})`），否则密码错会被整页刷新、提示丢失。
 - `GET /auth/me` → `ok({name, tenant, roles[], perms[]})`。401 则 `handle401()`。
 - `POST /auth/logout` → `ok(null, "已退出登录")`。JWT 无状态，服务端仅确认身份，前端负责清 `reai_token`。
+- `POST /auth/switch {username}` → `ok({token, user})`（顶栏“切换用户”免密代入，msg「已切换到用户X」）。仅 `admin` Scope 可调（`has_scope` 与 `require_perm` 同源），目标须与操作人同租户；非 admin → `403` + `1003`（「仅管理员可切换用户」），目标不存在/跨租户 → `404` + `1004`。成功记 `auth.switch` 审计（actor=操作人，target=目标，detail 含 from/to）；新 token 与 login 同结构，后续租户隔离自动按目标口径生效。普通用户切号走退出后登录页重登（`?redirect=` 回跳）。
 - 本项目「角色即权限」：`perms` 与 `roles` 同值 —— `roles` 供菜单/路由 `meta.roles` 过滤，`perms` 供按钮级判断；服务端 `require_perm()` 才是真拦截。
 - 种子账号由后端启动时幂等灌入（`SEED_*` 走 `Settings`，生产置 `SEED_ON_START=false`），无账号可登录不再是「清库即失联」。
 - 开发默认账号：**租户 `demo-tenant` / 用户名 `admin` / 密码 `admin123` / 角色 `cs,kb`**（`.env` 的 `SEED_*` 可覆盖）。种子幂等且**不覆盖已存在账号**，改 `SEED_PASSWORD` 只对新建账号生效。
