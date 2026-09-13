@@ -75,11 +75,17 @@ async def test_api_happy_paths_cover_endpoints(client: httpx.AsyncClient) -> Non
     assert me["name"] == "tester"
     await _ok(await client.post("/api/v1/auth/logout"))
 
-    # 会话/文档/任务占位链
-    await _ok(await client.post("/api/v1/sessions"))
+    # 会话：真实落库（空 body 建默认标题；列表空/有数据均 200；未知 id 404 回 mock）
+    created = await _ok(await client.post("/api/v1/sessions"))
+    assert created["id"]
     await _ok(await client.get("/api/v1/sessions"))
-    await _ok(await client.get("/api/v1/sessions/abc"))
-    await _ok(await client.delete("/api/v1/sessions/abc"))
+    detail = await _ok(await client.get(f"/api/v1/sessions/{created['id']}"))
+    assert detail["id"] == created["id"] and detail["messages"] == []
+    missing = await client.get("/api/v1/sessions/abc")
+    assert missing.status_code == 404 and missing.json()["code"] == 1004
+    await _ok(await client.delete(f"/api/v1/sessions/{created['id']}"))
+    gone = await client.delete(f"/api/v1/sessions/{created['id']}")
+    assert gone.status_code == 404 and gone.json()["code"] == 1004
     await _ok(await client.get("/api/v1/documents"))
     nofile = (await client.post("/api/v1/documents/upload")).json()
     assert nofile["code"] == 1001

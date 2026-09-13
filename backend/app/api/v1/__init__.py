@@ -8,6 +8,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 
 from app.api.v1.endpoints import (
+    admin,
     approvals,
     auth,
     chat,
@@ -43,3 +44,4 @@ api_router.include_router(promos.members_router, dependencies=[Depends(get_curre
 api_router.include_router(reviews.router, dependencies=[Depends(get_current_user)])
 api_router.include_router(tickets.router, dependencies=[Depends(get_current_user)])
 api_router.include_router(logistics.router, dependencies=[Depends(get_current_user)])
+api_router.include_router(admin.router, dependencies=[Depends(get_current_user)])

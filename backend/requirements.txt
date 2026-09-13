@@ -7,4 +7,5 @@ aiosqlite>=0.20
 httpx>=0.27
 PyJWT>=2.8
 python-multipart>=0.0.9
+alembic>=1.13
 

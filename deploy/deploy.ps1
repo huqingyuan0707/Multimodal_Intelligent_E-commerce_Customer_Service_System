@@ -1,4 +1,4 @@
-# 一键部署（对齐部署工程化.md §五/§十三）：拉 GHCR 镜像 → compose 起前后端 → 健康检查
+﻿# 一键部署（对齐部署工程化.md §五/§十三）：拉 GHCR 镜像 → compose 起前后端 → 健康检查
 # 用法：powershell -File deploy/deploy.ps1 [-Tag v0.1.0] [-Down]
 # 输出 PASS/FAIL 明细 + RESULT，退出码反映成败（对齐 smoke 脚本风格）
 param(

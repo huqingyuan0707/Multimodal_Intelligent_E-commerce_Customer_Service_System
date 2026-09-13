@@ -23,6 +23,7 @@ from app.db.models import (
     Product,
     SalesOrder,
     Sku,
+    Tenant,
     User,
     Warehouse,
 )
@@ -273,10 +274,30 @@ async def ensure_b2b_demo(db: AsyncSession) -> bool:
     return True
 
 
+async def ensure_seed_tenant(db: AsyncSession) -> bool:
+    """幂等灌种子租户行（code 与 SEED_TENANT 同源，供 /admin 首屏有数据）。"""
+    tenant = settings.SEED_TENANT.strip()
+    existed = (
+        await db.execute(select(Tenant).where(Tenant.code == tenant))
+    ).scalar_one_or_none()
+    if existed is not None:
+        return False
+    db.add(
+        Tenant(
+            code=tenant, name="演示租户", plan="trial",
+            quota_tokens=settings.DEFAULT_QUOTA_TOKENS,
+            quota_concurrency=settings.DEFAULT_QUOTA_CONCURRENCY,
+        )
+    )
+    await db.commit()
+    return True
+
+
 async def seed_on_startup() -> bool:
-    """lifespan 调用入口：自建会话灌种子（账号 + B 端演示数据），任一有写入即返回 True。"""
+    """lifespan 调用入口：自建会话灌种子（账号 + 租户行 + B 端演示数据），任一有写入即返回 True。"""
     factory = async_sessionmaker(get_engine(), expire_on_commit=False)
     async with factory() as db:
         user_created = await ensure_seed_user(db)
+        tenant_created = await ensure_seed_tenant(db)
         demo_created = await ensure_b2b_demo(db)
-    return user_created or demo_created
+    return user_created or tenant_created or demo_created

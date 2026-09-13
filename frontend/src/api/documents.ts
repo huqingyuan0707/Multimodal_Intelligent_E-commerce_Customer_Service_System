@@ -1,50 +1,41 @@
-// 文档/图片上传与知识库接口（FormData 不手设头，对齐 API 规范 §4.4；删除/版本/检索测试后端暂无接口）
-import { dispatch } from './http';
+// 文档/图片上传与知识库接口（FormData 不手设头，对齐 API 规范 §4.4；分页默认 20）
+import { request } from './http';
 
 export const uploadImageApi = async (params: { file: File }) => {
   const fd = new FormData();
   fd.append('file', params.file);
-  const res = await dispatch({
+  return request({
     method: 'POST',
     path: '/api/v1/documents/upload',
     params: fd,
   });
-  if (res.code !== 0) {
-    throw new Error(res.msg);
-  }
-  return res.data;
 };
 
-export const listDocumentsApi = async () => {
-  const res = await dispatch({ path: '/api/v1/documents' });
-  if (res.code !== 0) {
-    throw new Error(res.msg);
-  }
-  return res.data;
-};
+export const listDocumentsApi = async (params?: { page?: number; size?: number }) =>
+  request({
+    path: '/api/v1/documents',
+    params: { page: params?.page ?? 1, size: params?.size ?? 20 },
+  });
 
 export const uploadDocumentApi = async (params: { file: File }) => {
   const fd = new FormData();
   fd.append('file', params.file);
-  const res = await dispatch({
+  return request({
     method: 'POST',
     path: '/api/v1/documents/upload',
     params: fd,
   });
-  if (res.code !== 0) {
-    throw new Error(res.msg);
-  }
-  return res.data;
 };
 
-export const reindexDocumentsApi = async () => {
-  const res = await dispatch({
+export const deleteDocumentApi = async (params: { id: string }) =>
+  request({
+    method: 'DELETE',
+    path: `/api/v1/documents/${encodeURIComponent(params.id)}`,
+  });
+
+export const reindexDocumentsApi = async () =>
+  request({
     method: 'POST',
     path: '/api/v1/documents/reindex',
     idempotent: true,
   });
-  if (res.code !== 0) {
-    throw new Error(res.msg);
-  }
-  return res.data;
-};

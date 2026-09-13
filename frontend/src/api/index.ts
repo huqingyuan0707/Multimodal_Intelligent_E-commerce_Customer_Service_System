@@ -12,3 +12,5 @@ export * from './approvals';
 export * from './documents';
 export * from './tasks';
 export * from './chat';
+export * from './dashboard';
+export * from './admin';

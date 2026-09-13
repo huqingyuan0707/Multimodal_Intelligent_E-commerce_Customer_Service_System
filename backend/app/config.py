@@ -60,6 +60,11 @@ class Settings(BaseSettings):
     # 模型不可用时降级为「片段摘要」而非 500（AGENTS.md §3 降级红线）
     LLM_FALLBACK_TO_TEMPLATE: bool = True
 
+    # 管理后台配额默认（FRD FR-8 / 数据模型 §2 tenants.quota_*）：新建租户落库口径，.env 可覆盖。
+    DEFAULT_QUOTA_TOKENS: int = 1000000
+    DEFAULT_QUOTA_CONCURRENCY: int = 50
+    TENANT_PLANS: list[str] = ["trial", "basic", "pro", "enterprise"]
+
     # B 端业务阈值（数据模型文档 §2.1 / API 规范 §4.7）：金额一律整数「分」，禁浮点。
     B2B_SEED_DEMO: bool = True  # 演示数据（商品/仓库/库存/订单），生产置 false
     STOCK_WARN_DEFAULT: int = 10  # 新建库存行的默认安全线

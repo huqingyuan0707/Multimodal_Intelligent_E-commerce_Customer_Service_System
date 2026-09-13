@@ -6,24 +6,35 @@ SQLite 无原生 UUID/数组类型，一律用 String/JSON 文本，PG 迁移时
 
 from __future__ import annotations
 
-import uuid
-from datetime import UTC, datetime
+from datetime import datetime
 
 from sqlalchemy import ForeignKey, Integer, String, Text, UniqueConstraint
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column
 
+from app.db.base import Base, _now, _uid
 
-class Base(DeclarativeBase):
-    """声明式基类。"""
+# 前置地基表（messages/tasks/tool_calls/kb_docs/kb_chunks/cost_records）见 models_foundation，
+# 此处重导出以保持 `from app.db.models import X` 口径唯一，Alembic env 同步 import 两处。
+from app.db.models_foundation import (
+    CostRecord,
+    KbChunk,
+    KbDoc,
+    Message,
+    Task,
+    ToolCall,
+)
 
-
-def _uid() -> str:
-    return uuid.uuid4().hex
-
-
-def _now() -> datetime:
-    """naive UTC（保持既有落库口径）：datetime.utcnow() 在 3.12+ 已弃用，故显式转换。"""
-    return datetime.now(UTC).replace(tzinfo=None)
+__all__ = [
+    "Base",
+    "CostRecord",
+    "KbChunk",
+    "KbDoc",
+    "Message",
+    "Session",
+    "Task",
+    "ToolCall",
+    "User",
+]
 
 
 class User(Base):
@@ -282,3 +293,41 @@ class Ticket(Base):
     status: Mapped[str] = mapped_column(String(16), default="open", index=True)
     conclusion: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(default=_now)
+
+
+# ==================== 管理后台（租户/配额/审计，对齐 FRD FR-8/数据模型 §2） ====================
+# 口径：
+# - Tenant.code 即全站 tenant 字符串（users.tenant / 业务表 tenant 同源），唯一。
+# - 配额只做框架：quota_tokens（Token 总量）/ quota_concurrency（并发上限），超限限流后续接网关。
+# - 审计只追加不改：任何租户/配额/角色变更必须同步记一条 audit_logs。
+
+
+class Tenant(Base):
+    """租户（订阅/配额/停服；code 与 users.tenant 同源字符串）。"""
+
+    __tablename__ = "tenants"
+    __table_args__ = (UniqueConstraint("code", name="uq_tenants_code"),)
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uid)
+    code: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(128), default="")
+    plan: Mapped[str] = mapped_column(String(16), default="trial")  # trial/basic/pro/enterprise
+    status: Mapped[str] = mapped_column(String(16), default="active")  # active/suspended/disabled
+    quota_tokens: Mapped[int] = mapped_column(Integer, default=1000000)
+    quota_concurrency: Mapped[int] = mapped_column(Integer, default=50)
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(default=_now)
+
+
+class AuditLog(Base):
+    """审计（谁/何时/干什么/结果；只追加不改，留痕≥6 个月）。"""
+
+    __tablename__ = "audit_logs"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uid)
+    tenant: Mapped[str] = mapped_column(String(64), default="", index=True)
+    actor: Mapped[str] = mapped_column(String(64), default="", index=True)
+    action: Mapped[str] = mapped_column(String(64), default="", index=True)
+    target: Mapped[str] = mapped_column(String(128), default="")
+    detail: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(default=_now, index=True)

@@ -283,3 +283,32 @@ export const mockApprovals: ApprovalItem[] = [
 // 对话兜底回复（SSE 多次重连仍失败时本地回显，明确标注演示身份）
 export const mockChatFallback =
   '网络开小差了，这是本地演示回复：退货政策是 7 天无理由、质量问题 15 天（演示数据，后端恢复后可重发）。';
+
+// 管理后台演示数据（后端 /admin 未就绪时占位，字段对齐 types/admin）
+export const mockAdminTenants = [
+  {
+    id: 't-demo',
+    code: 'demo-tenant',
+    name: '演示租户',
+    plan: 'trial',
+    plan_label: '试用',
+    status: 'active',
+    status_label: '正常',
+    quota_tokens: 1000000,
+    quota_concurrency: 50,
+    note: '',
+    created_at: '2026-09-01 10:00:00',
+  },
+];
+
+export const mockAdminAudits = [
+  {
+    id: 'a-demo-1',
+    tenant: 'demo-tenant',
+    actor: 'admin',
+    action: 'tenant.create',
+    target: 'demo-tenant',
+    detail: { plan: 'trial' },
+    created_at: '2026-09-01 10:00:00',
+  },
+];
