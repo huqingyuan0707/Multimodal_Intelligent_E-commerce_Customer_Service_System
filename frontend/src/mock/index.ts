@@ -247,12 +247,12 @@ export const mockOrders: OrderItem[] = [
   },
 ];
 
-// 审批演示数据（后端 /approvals 未就绪时占位，字段对齐 ApprovalItem）
+// 审批演示数据（后端不可用时占位，action 口径对齐后端 approval_service.ACTION_LABELS）
 export const mockApprovals: ApprovalItem[] = [
   {
     id: 'a-demo-1',
-    action: 'price_change',
-    action_label: '改价',
+    action: 'sku.price_change',
+    action_label: 'SKU 改价',
     target: 'HOODIE-25AW-灰-M',
     args: { old_price: 19900, new_price: 20900 },
     reason: '面料涨价',
@@ -266,10 +266,10 @@ export const mockApprovals: ApprovalItem[] = [
   },
   {
     id: 'a-demo-2',
-    action: 'refund',
+    action: 'order.refund',
     action_label: '退款',
     target: 'TB-20260910001',
-    args: { amount: 39800 },
+    args: { amount: 39800, evidence: [] },
     reason: '瑕疵退货',
     applicant: 'demo',
     approver: 'admin',

@@ -3,31 +3,31 @@
     <div v-if="recording" class="rec-row">
       <span class="rec-dot" />
       <span>录音中 {{ seconds }}s（≤60s，上滑取消暂不支持请点停止）</span>
-      <AiButton @click="stopRec">停止</AiButton>
+      <AiButton aria-label="停止录音" @click="stopRec">停止</AiButton>
     </div>
     <div v-if="!recording && audioUrl" class="play-row">
-      <canvas ref="waveRef" width="220" height="40" class="wave" />
-      <audio :src="audioUrl" controls class="player" @play="muteOthers" />
+      <canvas ref="waveRef" width="220" height="40" class="wave" role="img" aria-label="录音波形" />
+      <audio :src="audioUrl" controls class="player" aria-label="语音播放" @play="muteOthers" />
     </div>
     <div v-if="!recording && audioUrl" class="row">
-      <AiButton @click="toText">转文字</AiButton>
-      <AiButton @click="discardAll">丢弃</AiButton>
+      <AiButton aria-label="语音转文字" @click="toText">转文字</AiButton>
+      <AiButton aria-label="丢弃录音" @click="discardAll">丢弃</AiButton>
     </div>
     <p v-if="voiceError" class="err">{{ voiceError }}</p>
     <div v-if="transcript" class="row">
       <AiInput v-model="editable" placeholder="转写结果，可改后填入" />
-      <AiButton @click="confirmText">填入</AiButton>
+      <AiButton aria-label="确认转写文本" @click="confirmText">填入</AiButton>
     </div>
     <p v-if="transcript" class="muted">
       置信 {{ transcript.confidence.toFixed(2) }}{{ transcript.need_confirm ? '（偏低，请核对后发送）' : '' }}
     </p>
     <div class="row">
       <span class="muted">TTS</span>
-      <el-switch v-model="ttsOn" size="small" />
-      <el-select v-model="voice" size="small" class="voice-sel">
+      <el-switch v-model="ttsOn" size="small" aria-label="语音朗读开关" />
+      <el-select v-model="voice" size="small" class="voice-sel" aria-label="选择朗读音色">
         <el-option v-for="v in voices" :key="v" :label="v" :value="v" />
       </el-select>
-      <AiButton @click="speak">朗读</AiButton>
+      <AiButton aria-label="朗读文本" @click="speak">朗读</AiButton>
     </div>
   </div>
 </template>
@@ -76,6 +76,7 @@ const muteOthers = (e: Event) => {
 };
 
 // 伪波形：由 blob 大小哈希定高，保证同段录音同波形（装饰性，不代表真实频谱）
+// 波形色取设计 token --reai-accent（画板 voiceWave #22D3EE），canvas 不解析 var() 故运行时读取
 const drawWave = () => {
   const canvas = waveRef.value;
   if (!canvas) {
@@ -87,7 +88,9 @@ const drawWave = () => {
   }
   const seed = lastBlob?.size ?? 7;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = '#7c6cf0';
+  const accent =
+    getComputedStyle(canvas).getPropertyValue('--reai-accent').trim() || '#22d3ee';
+  ctx.fillStyle = accent;
   for (let x = 0; x < canvas.width; x += 6) {
     const h = 6 + ((seed * (x + 3)) % 28);
     ctx.fillRect(x, (canvas.height - h) / 2, 3, h);

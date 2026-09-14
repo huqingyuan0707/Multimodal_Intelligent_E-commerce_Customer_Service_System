@@ -19,9 +19,17 @@
 
 ## 复发坑（动手前先扫一眼）
 
+- **跑测试/探针的输出文件一律写 `$env:TEMP`，禁止落仓库**：`backend/_pytest_out.txt` 被并行窗口的 `git add -A` 扫进索引（状态 `AD`），得 `git rm --cached --ignore-unmatch` 撤出。gitignore 挡不住索引。
+- **pytest 汇总行在本机管道里会被吞**（`-q` 明明全过却看不到 `N passed`；另有 GBK `UnicodeDecodeError` 噪声来自 CodeBuddy 的 fs shim）。取得**确定**用例数的可靠姿势：`pytest --junit-xml=_x.xml -q` → 用 Python 解析 `tests/failures/errors/skipped`；或 `Select-Object -Last 3`。
+- **`| Select-Object` 会吞掉真实退出码**（管道后 `$LASTEXITCODE` 来自 Select-Object）→ 判断成败要看输出内容或用 `Out-File` 后再读，别只看 exit code。
+- **`backend/.pytest-tmp` 首跑偶发 `OSError: [Errno 53]`**（目录不存在时创建走 shim + `\\?\` 扩展路径）→ 该文件所有 setup 报错，重跑即绿，非代码问题。
+- **8000 端口被占时先判定归属再动手**：`Get-CimInstance Win32_Process -Filter "ProcessId=<pid>"` 看 `CommandLine`——**命令行带 `--reload` 且父进程也是 python.exe = 用户自己的开发服务，别杀**；我用 `Start-Process` 起的 uvicorn 一定带 `--log-level warning`。端口被占时我的进程会**静默退出**（`Stop-Process` 报 "already gone"），此时冒烟打的是用户的服务（带 reload 会自动加载我的改动，结论仍有效）。
+- **`isinstance` 守卫必须与取值同表达式**：`dict(result["k"]) if isinstance(result.get("k"), dict) else {}` 会让 mypy 收窄不传导（`dict(object)` 无匹配重载，报 1 error）。同口径提局部变量即可，勿用 `# type: ignore`。
+- **前端手写原生 `<button>` 必须自带 hover + `:focus-visible`**：Element Plus 的焦点环只作用于 EP 组件，`.quick`/`.suggest` 这类自写 button 默认是裸的（`.card`/`.chip` 的 token：`outline: 2px solid var(--reai-primary) + outline-offset: 2px`）。
 - **PowerShell / git 中文参数 GBK 乱码**：`git commit -m "中文"`、`git add 中文.md`、`Select-String -Pattern "中文"` 都会坏。对策：提交信息写 UTF-8 的 `.git/msg.txt` → `git commit -F`；文件清单写 `.git/paths.txt` → `git add --pathspec-from-file`；内容探测只用 ASCII 关键字。
 - **PowerShell 内联脚本 `$var` 会被吞**（`powershell -Command "foreach($c in ...)"` 报 Missing variable name）→ 批量文本统计改用 `python -c`。
-- **并行操作**：用户另一窗口会同时改文件与 `git add -A` / push。断言前重读磁盘，commit 前 `git status --short` 复核 index。实测踩到：按 pathspec 只暂存 7 个文件，`git diff --cached` 却出 83 个（含 `*.pen.bak`）→ `git reset -q` 清索引后重新精确暂存，**每组 commit 前必查 `git diff --cached --name-only`**。
+- **并行操作**：用户另一窗口会同时改文件与 `git add -A` / push。断言前重读磁盘，commit 前 `git status --short` 复核 index。实测踩到：按 pathspec 只暂存 7 个文件，`git diff --cached` 却出 83 个（含 `*.pen.bak`）→ `git reset -q` 清索引后重新精确暂存，**每组 commit 前必查 `git diff --cached --name-only`**。2026-09-14 再踩升级版：同窗口并行写**同名共享层**（api/composable/组件），我写的版本被更完整版本覆盖 → **动手写共享层前先 git status + 全文搜索目标名**；被覆盖后以磁盘为准适配视图与测试，不恢复自己的版本。
+- **PowerShell 新 shell 坑**：`cd c:\…中文…` 后再执行命令，行尾中文路径最后一字符被 GBK 截断（`;` 被吞）→ 不 cd，直接相对路径执行（初始 cwd 已是工作区根）。
 - **git 钩子本机未生效**：`core.hooksPath` 未设，`.git/hooks` 只有 `*.sample` → `frontend/.husky/{pre-commit,commit-msg}`（lint-staged / commitlint）本地不跑，门禁实际只靠 CI。要本地启用：仓库根 `git config core.hooksPath frontend/.husky`。
 - **8000 端口遗留进程**：冒烟命中旧行为（governance 全 stub、`/goods` 404）＝旧 uvicorn 仍占端口、新进程静默退出。`Get-NetTCPConnection -LocalPort 8000 -State Listen` 找 PID 杀掉再重启。
 - **Ollama 模型名字段**：OpenAI 兼容 `/v1/models` 用 `id`（原生 `/api/tags` 才是 `name`），`probe()` 须 `item.get("id") or item.get("name")`，否则误报「在线但无模型」。
@@ -31,6 +39,7 @@
 
 - 项目级技能 `.codebuddy/skills/<name>/SKILL.md`（**随仓库提交，勿 gitignore**；`skills/` 是源，改完要拷到镜像）；用户级 `C:\Users\qingy\.claude\skills\`；常驻规则 `.codebuddy/rules/*.mdc`（frontmatter：`description` / `alwaysApply` / `enabled`）。
 - 跨工具需各写一份（`.cursor/rules`、`.github/copilot-instructions.md`、`AGENTS.md`）。
+- **对话框斜杠命令**：项目级 `.codebuddy/commands/<命令名>.md`（用户级 `~/.codebuddy/` 无 commands 目录）。`description` / `argument-hint` 要出现在对话框弹窗里，**frontmatter 必须在第 1 行**——本项目惯例的 `<!-- 职责… -->` 头注释得放在 frontmatter **之后**，否则字段解析不到（命令仍能调起，但弹窗无说明）。子命令想进弹窗＝各写一份短横线命名文件（如 `impeccable-audit.md`，输 `/impeccable` 前缀匹配一起弹），不要指望 `/impeccable audit` 这种空格形式被 IDE 枚举。
 - pen.dev schema 离线权威副本：`C:\Users\qingy\.vscode\extensions\highagency.pencildev-0.6.71\out\skills\pen-dev\pen-schema.md`（同目录另有 `SKILL.md` / `execute.md` / `guide/*`；空白模板与示例在 `out/data/*.pen`）。
 
 ## design.pen 现状与关键口径（2026-09-14）

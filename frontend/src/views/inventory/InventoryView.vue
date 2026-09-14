@@ -1,7 +1,6 @@
 <template>
   <div class="page">
     <div class="head">
-      <h2>库存管理</h2>
       <el-tag v-if="demo" type="warning" size="small">演示数据</el-tag>
     </div>
     <div class="filters">
@@ -32,7 +31,7 @@
       <el-table-column prop="warn_line" label="安全线" width="80" />
       <el-table-column label="操作" width="270">
         <template #default="s">
-          <el-button
+          <AiButton
             v-permission="['stock', 'shop', 'admin']"
             link
             type="primary"
@@ -40,8 +39,8 @@
             @click="move(s.row as InventoryRow, 'in')"
           >
             入库
-          </el-button>
-          <el-button
+          </AiButton>
+          <AiButton
             v-permission="['stock', 'shop', 'admin']"
             link
             type="primary"
@@ -49,13 +48,13 @@
             @click="move(s.row as InventoryRow, 'out')"
           >
             出库
-          </el-button>
-          <el-button link type="primary" size="small" @click="openMoves(s.row as InventoryRow)">
+          </AiButton>
+          <AiButton link type="primary" size="small" @click="openMoves(s.row as InventoryRow)">
             流水
-          </el-button>
-          <el-button link type="primary" size="small" @click="transfer(s.row as InventoryRow)">
+          </AiButton>
+          <AiButton link type="primary" size="small" @click="transfer(s.row as InventoryRow)">
             调拨
-          </el-button>
+          </AiButton>
         </template>
       </el-table-column>
     </el-table>
@@ -309,12 +308,6 @@ onMounted(() => {
   display: flex;
   gap: 12px;
   align-items: center;
-}
-
-.head h2 {
-  margin: 0;
-  font-size: 18px;
-  color: var(--reai-text-main);
 }
 
 .filters {

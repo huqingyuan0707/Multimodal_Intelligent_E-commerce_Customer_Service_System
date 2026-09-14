@@ -7,6 +7,8 @@ export type TaskItem = {
   status: TaskStatus;
   progress: number;
   created_at: string;
+  result?: unknown;
+  error?: unknown;
 };
 
 export type CreateTaskInput = {
@@ -19,4 +21,10 @@ export const TASK_STATUS_TAG = {
   running: '执行中',
   done: '已完成',
   error: '失败',
+} as const;
+
+export const TASK_TYPE_TAG = {
+  reindex: '知识重建索引',
+  import: '批量导入',
+  eval: '离线评估',
 } as const;

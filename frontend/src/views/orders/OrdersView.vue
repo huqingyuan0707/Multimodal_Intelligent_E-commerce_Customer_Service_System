@@ -1,7 +1,6 @@
 <template>
   <div class="page">
     <div class="head">
-      <h2>订单履约</h2>
       <el-tag v-if="demo" type="warning" size="small">演示数据</el-tag>
     </div>
     <div class="filters">
@@ -32,7 +31,7 @@
       </el-table-column>
       <el-table-column label="操作" width="170">
         <template #default="s">
-          <el-button
+          <AiButton
             v-permission="['cs', 'stock', 'admin']"
             link
             type="primary"
@@ -41,8 +40,8 @@
             @click="ship(s.row as OrderItem)"
           >
             发货
-          </el-button>
-          <el-button
+          </AiButton>
+          <AiButton
             v-permission="['cs', 'stock', 'admin']"
             link
             type="primary"
@@ -51,7 +50,7 @@
             @click="aftersale(s.row as OrderItem)"
           >
             建售后
-          </el-button>
+          </AiButton>
         </template>
       </el-table-column>
     </el-table>
@@ -242,12 +241,6 @@ onMounted(() => {
   display: flex;
   gap: 12px;
   align-items: center;
-}
-
-.head h2 {
-  margin: 0;
-  font-size: 18px;
-  color: var(--reai-text-main);
 }
 
 .filters {

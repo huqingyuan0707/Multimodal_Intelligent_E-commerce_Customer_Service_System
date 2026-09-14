@@ -1,13 +1,12 @@
 <template>
   <div class="page">
-    <h2>售后单</h2>
     <div class="toolbar">
       <AiButton v-permission="['cs', 'stock', 'admin']" type="primary" @click="openCreate">
         新建售后
       </AiButton>
     </div>
     <el-empty v-if="!rows.length && !loading" description="暂无售后单" />
-    <el-table v-loading="loading" :data="rows" style="width: 100%">
+    <el-table v-loading="loading" :data="paged" style="width: 100%">
       <el-table-column prop="id" label="售后单ID" min-width="180" />
       <el-table-column prop="order_id" label="订单ID" min-width="180" />
       <el-table-column prop="reason" label="原因" min-width="160" />
@@ -33,6 +32,17 @@
         </template>
       </el-table-column>
     </el-table>
+    <div class="pager">
+      <el-pagination
+        :current-page="page"
+        :page-size="size"
+        :page-sizes="[10, 20, 50, 100]"
+        :total="total"
+        layout="sizes, prev, pager, next, total"
+        @current-change="onPage"
+        @size-change="onSize"
+      />
+    </div>
     <el-dialog v-model="dialog" title="新建售后单" width="480px">
       <el-form :model="form" label-width="90px">
         <el-form-item label="订单ID">
@@ -62,8 +72,8 @@
 <script setup lang="ts">
 // 售后单：列表 + 新建（关联会话 trace_id）+ 定位会话（对齐 FRD FR-10.4/页面设计 §3.13）
 // TODO(P2)：ChatView 支持 ?trace= 直达指定会话，当前定位跳 /chat 并提示 trace
-import { ElMessage, ElMessageBox, ElTag } from 'element-plus';
-import { onMounted, ref } from 'vue';
+import { ElMessage, ElMessageBox, ElPagination, ElTag } from 'element-plus';
+import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { createAftersaleApi, listAftersalesApi } from '@/api';
 import AiButton from '@/shared/components/AiButton.vue';
@@ -73,6 +83,11 @@ import { aftersaleTagOf, formatCents } from '@/types/shop';
 
 const rows = ref<AftersaleItem[]>([]);
 const loading = ref(false);
+// 售后列表分页：后端暂无服务端分页，先客户端裁剪，默认 20 可切 10/20/50/100
+const page = ref(1);
+const size = ref(20);
+const total = computed(() => rows.value.length);
+const paged = computed(() => rows.value.slice((page.value - 1) * size.value, page.value * size.value));
 const dialog = ref(false);
 const submitting = ref(false);
 const form = ref({ order_id: '', reason: '', amount: '', trace_id: '', evidence: '' });
@@ -88,6 +103,15 @@ const loadRows = async () => {
   } finally {
     loading.value = false;
   }
+};
+
+const onPage = (p: number) => {
+  page.value = p;
+};
+
+const onSize = (s: number) => {
+  size.value = s;
+  page.value = 1;
 };
 
 const openCreate = () => {
@@ -165,5 +189,11 @@ onMounted(() => {
 .toolbar {
   display: flex;
   gap: 8px;
+}
+
+.pager {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
 }
 </style>

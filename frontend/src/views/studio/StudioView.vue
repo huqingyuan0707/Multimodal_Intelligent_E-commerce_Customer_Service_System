@@ -1,7 +1,6 @@
 <template>
   <div class="page">
     <div class="head">
-      <h2>Agent Studio</h2>
       <el-tag type="info" size="small">演示数据（后端接口待接）</el-tag>
     </div>
     <el-tabs v-model="tab">

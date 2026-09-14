@@ -26,6 +26,8 @@ export type AgentMessage = {
   need_human?: boolean;
   images?: string[];
   context?: SessionContext;
+  // 追问延伸 chips（随最后一条 Agent 回复展示，点击直接发送，对齐页面设计 §3.1）
+  followups?: string[];
 };
 
 export type AgentEvent =

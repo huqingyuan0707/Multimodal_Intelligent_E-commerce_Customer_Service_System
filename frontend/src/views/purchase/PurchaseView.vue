@@ -1,7 +1,6 @@
 <template>
   <div class="page">
     <div class="head">
-      <h2>采购协同</h2>
       <el-tag type="info" size="small">待实现页 · 画板先行（演示数据）</el-tag>
     </div>
     <h3>供应商</h3>

@@ -95,7 +95,8 @@ api_router.include_router(chat.router, dependencies=[Depends(get_current_user)])
 - 上传失败 `fail(PARAM_INVALID,"请至少选择一个文件",400)`。
 
 ### 4.5 审批与任务
-- `GET /approvals?status=pending` → 列表；`POST /approvals/{id}/approve {modified_args?}` / `POST /approvals/{id}/reject {reason}`。
+- `GET /approvals?status=pending&page=1&size=20&action=&keyword=` → 服务端分页对象 `{items[], total, page, size}`（默认待办；`status` 非法 `1001`；`action` 精确匹配四类；`keyword` 模糊搜对象/申请人/原因；空结果 `items=[]` 不报错；只传 `status` 不传 `page/size` 时兼容回数组，供存量调用过渡）。列表可见 `cs/shop/stock/ops/admin` 及各域读写真令牌（客服可看待办），批/驳仅 `shop/ops/admin`；批/驳同步记 `approval.approve|reject` 审计（actor/target/前后状态）。
+- `POST /approvals/{id}/approve {modified_args?, reason?}` / `POST /approvals/{id}/reject {reason}`（驳回理由必填留痕；重复处理 `4004`；跨租户 `404`；批准先执行生效动作再改状态，同事务失败整体回滚）。
 - `GET /tasks?page=1&size=20&status=` → 本人维度真实列表（空数据 `[]` 不报错）；`POST /tasks {type, payload}` → `{task_id}`；`GET /tasks/{id}` → `{status, progress, result}`（跨租户 404）。SSE 任务类事件另含 `progress/complete/error`。
 - `POST /documents/reindex` → 建 `kb.reindex` 任务行即 via `BackgroundTasks` 真实执行（租户全部分块重建），`GET /tasks/{id}` 轮询 `running → done{docs, chunks}`（异常落 `error`，不断流）。
 
@@ -142,9 +143,24 @@ api_router.include_router(chat.router, dependencies=[Depends(get_current_user)])
 - 可调全进 `Settings`：`MEDIA_DIR/IMAGE_MAX_COUNT/IMAGE_MAX_BYTES/IMAGE_ALLOWED_TYPES/VLM_*/ASR_*/VOICE_MAX_*/TTS_*`（`VLM_CONFIDENCE_THRESHOLD/ASR_CONFIDENCE_THRESHOLD` 进 `_HOT_FIELDS` 热更）；`GET /governance/status` 加法回 `vlm/asr`（含阈值）与 `thresholds.vlm_confidence/asr_confidence`。
 - openapi 自查说明：`backend/openapi.json` 尚未落库（pre-commit 显示 SKIP），本轮以 `app.openapi()` 导出核对：新增 5 条 `/multimodal/*` path，总 63 paths，`chat` 加法字段向后兼容。
 
+### 4.11 坐席工作台（对齐 FR-7 转人工闭环 + 页面设计 §3.2，同基座 JWT/租户隔离/幂等/审计）
+> 状态机：`none`（AI 接待）→ `pending`（待接）→ `handling`（已认领）→ `resolved`（已解决，可被买家再次 `handoff` 重开）。
+> 权限：`handoff` 是买家自助口（`get_current_user`，owner 校验）；队列/认领/转接/解决/代回/备注/Trace 一律 `require_any_perm("cs","admin")`。可见范围由 Token 推导（`governance.access_context()`），**不读请求体 tenant/user**。
+- `GET /workbench/queue?status=&q=&page=1&size=20` → 分页对象 `{items[{id,title,username,created_at,updated_at,message_count,handoff_status,handoff_label,assignee,handoff_reason,resolution,last_message}], total, page, size}`。`status` 空/`open` = 待接+处理中；`pending/handling/resolved/none` 精确过滤（其他值 `1001`「队列状态非法」）；`q` 模糊匹配标题/买家名（≤64 字）；`last_message` 为最新一条预览（截 40 字）；按 `updated_at desc` 排序，空结果 `items=[]` 不报错。
+- `POST /workbench/sessions/{id}/handoff {reason?}` → `ok(队列行)`，`none|resolved → pending`（买家侧「转人工」入口，二次点击幂等）；聊天链路 `need_human`/拒答也会自动挂起为 `pending`（`mark_pending_if_idle`，不抢 `handling/resolved`）。
+- `POST /workbench/sessions/{id}/claim` → `ok(队列行)`，`pending|none → handling` + `assignee=Token 用户名`；已被他人认领 → `1001`「已被 XX 接管，转为只读围观」（前端据此切只读态，不弹系统错误）。
+- `POST /workbench/sessions/{id}/transfer {assignee}` → `ok(队列行)`，`assignee` 必填且限本租户坐席名；`pending` 顺手升为 `handling`；已解决 `1001`。
+- `POST /workbench/sessions/{id}/resolve {conclusion?}` → `ok(队列行)`，`handling|pending → resolved` + `conclusion`（≤500 字，落 `sessions.resolution`）；重复解决 `1001`。
+- `POST /workbench/sessions/{id}/reply {content}` → `ok(message)`，**仅 `handling` 会话可发**（未认领 `1001`「请先认领会话再代回」）；落 agent 行：`citations=[]`、`guard={pass:true, by:"agent", agent:<坐席名>}`、`faithfulness=1.0`、新 `trace_id`，买家侧历史回放即见（不重进队列）；内容 1..2000 字，超长 `1001`。
+- `GET /workbench/sessions/{id}/notes` → `ok([{id,session_id,author,content,created_at}])`（创建时间正序；买家无查询口，天生不可见）。
+- `POST /workbench/sessions/{id}/notes {content}` → `ok(备注行)`，`author` 取 Token 用户名，内容 1..500 字（空/超长 `1001`）；写操作带 `Idempotency-Key`。
+- `GET /workbench/sessions/{id}/trace?size=50` → `ok({session, messages[], context{summary,rounds,tokens,dropped,budget,window_rounds}})`。与买家侧 `get_session_detail` **完全同源**（同 `message_to_dict`、同 `context_service.load_window/build_history_block`），坐席所见即买家所得；`size` 1..200。
+- 跨租户 / 不存在的会话一律 `404`「会话不存在或已过期」（不泄露存在性）。
+- openapi 自查说明：本轮以 `app.openapi()` 导出核对，新增 8 条 `/workbench/*` path，总 **72** paths，其余端点未变。
+
 ## 5. SSE 流式协议（项目实际形态）
 
-后端事件名固定：`source / phase(retrieving[/inspecting]/generating/validating) / message / done`（任务类另有 `progress/complete/error`；图文轮多一帧 `inspecting`，纯文本轮无此帧）。`done` 载荷必含 `references + guard + faithfulness + trace_id + session_id`，图文轮加带 `vision[] + need_human`（前端渲染检测卡 + 低置信转人工按钮），多轮加带 `context{rounds,tokens,dropped,summarized}`（前端气泡小字透出用量）。每帧必带 `id:` 行（`{stream_id}:{seq}`，`stream_id` 由 `client_msg_id` 确定性派生，重放帧 id 相同），前端同流内按 id 去重，断线重连不重复拼接。
+后端事件名固定：`source / phase(retrieving[/inspecting]/generating/validating) / message / done`（任务类另有 `progress/complete/error`；图文轮多一帧 `inspecting`，纯文本轮无此帧）。`done` 载荷必含 `references + guard + faithfulness + trace_id + session_id`，图文轮加带 `vision[] + need_human`（前端渲染检测卡 + 低置信转人工按钮），多轮加带 `context{rounds,tokens,dropped,summarized}`（前端气泡小字透出用量）。每帧必带 `id:` 行（`{stream_id}:{seq}`，`stream_id` 由 `client_msg_id` 确定性派生，重放帧 id 相同），前端同流内按 id 去重，断线重连不重复拼接。`message` 负载为模型 token 级增量（在线时首字不等全文拼完）；降级模板/重放命中时为整段按 `SSE_CHUNK_CHARS` 切片，帧形与幂等语义一致。`validating` 帧在全文到齐后发出（流式下位于末尾 `message` 之后、`done` 之前）。
 
 ```python
 """聊天流 endpoint（对齐 API 规范 §5）"""

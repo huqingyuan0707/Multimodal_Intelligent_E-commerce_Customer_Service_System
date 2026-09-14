@@ -17,10 +17,12 @@
     </div>
     <el-pagination
       v-model:current-page="page"
-      :page-size="20"
-      layout="prev, pager, next, total"
+      v-model:page-size="size"
+      :page-sizes="[10, 20, 50, 100]"
+      layout="sizes, prev, pager, next, total"
       :total="total"
       @current-change="onPage"
+      @size-change="onSize"
     />
   </div>
 </template>
@@ -37,14 +39,21 @@ import AiButton from '@/shared/components/AiButton.vue';
 import type { Session } from '@/types/agent';
 
 defineProps<{ sessions: Session[]; currentId: string | null; total: number }>();
-const emits = defineEmits(['new', 'select', 'removed', 'page']);
+const emits = defineEmits(['new', 'select', 'removed', 'page', 'size']);
 
 const page = ref(1);
+const size = ref(20);
 const sessionStore = useSessionStore();
 
 const onPage = (p: number) => {
   page.value = p;
   emits('page', p);
+};
+
+const onSize = (s: number) => {
+  size.value = s;
+  page.value = 1;
+  emits('size', s);
 };
 
 const renameSession = async (id: string) => {
@@ -99,7 +108,8 @@ const removeSession = async (id: string) => {
   align-items: center;
   padding: 10px;
   margin-bottom: 4px;
-  font-size: 14px;
+  font-size: var(--reai-fs-body);
+  line-height: var(--reai-lh-tight);
   cursor: pointer;
   color: var(--reai-text-main);
   border-radius: 8px;
@@ -116,13 +126,16 @@ const removeSession = async (id: string) => {
 .title {
   flex: 1;
   overflow: hidden;
+  font-weight: var(--reai-fw-medium);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .count {
-  font-size: 12px;
-  color: var(--reai-text-muted);
+  font-size: var(--reai-fs-caption);
+  line-height: var(--reai-lh-tight);
+  color: var(--reai-text-soft);
+  white-space: nowrap;
 }
 
 .ops {
@@ -131,8 +144,11 @@ const removeSession = async (id: string) => {
 }
 
 .op {
-  font-size: 12px;
+  font-size: var(--reai-fs-caption);
+  font-weight: var(--reai-fw-medium);
+  line-height: var(--reai-lh-tight);
   color: var(--reai-accent);
+  white-space: nowrap;
 }
 
 .op.danger {

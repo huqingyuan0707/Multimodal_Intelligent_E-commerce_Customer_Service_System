@@ -33,6 +33,7 @@ __all__ = [
     "KbDoc",
     "Message",
     "Session",
+    "SessionNote",
     "Task",
     "ToolCall",
     "User",
@@ -58,6 +59,8 @@ class Session(Base):
 
     summary：超 SESSION_HISTORY_ROUNDS 轮时由 context_service 规则摘要写入，
     下轮拼进 LLM 上下文，老消息不再逐条注入（双重修剪之轮数侧）。
+    handoff_status：坐席流转 none→pending（待接）→handling（处理中）→resolved（已解决），
+    由 workbench_service 读写（买家转人工/拒答/低置信自动挂起，坐席认领/解决）。
     """
 
     __tablename__ = "sessions"
@@ -67,8 +70,30 @@ class Session(Base):
     username: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(128), default="新会话")
     summary: Mapped[str] = mapped_column(Text, default="")
+    handoff_status: Mapped[str] = mapped_column(String(16), default="none", index=True)
+    assignee: Mapped[str] = mapped_column(String(64), default="")
+    handoff_reason: Mapped[str] = mapped_column(String(200), default="")
+    resolution: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(default=_now)
     updated_at: Mapped[datetime] = mapped_column(default=_now, onupdate=_now)
+
+
+class SessionNote(Base):
+    """坐席内部备注（买家不可见：只经 workbench 端点读写，无买家侧查询口）。
+
+    链路：WorkbenchView 备注抽屉 → workbench_service.add_note → 本表（租户隔离）。
+    """
+
+    __tablename__ = "session_notes"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uid)
+    tenant: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    session_id: Mapped[str] = mapped_column(
+        ForeignKey("sessions.id", ondelete="CASCADE"), index=True
+    )
+    author: Mapped[str] = mapped_column(String(64), default="")
+    content: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(default=_now)
 
 
 # ==================== B 端业务域（商品/库存/订单/审批，数据模型文档 §2.1） ====================

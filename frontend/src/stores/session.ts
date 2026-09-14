@@ -12,12 +12,14 @@ export const useSessionStore = defineStore('session', () => {
   const sessions = ref<Session[]>([]);
   const total = ref(0);
   const page = ref(1);
+  const size = ref(PAGE_SIZE);
   const currentId = ref<string | null>(null);
 
-  const loadSessions = async (p = 1) => {
+  const loadSessions = async (p = 1, s = size.value) => {
     page.value = p;
+    size.value = s;
     try {
-      const data = await listSessionsApi({ page: p, size: PAGE_SIZE });
+      const data = await listSessionsApi({ page: p, size: s });
       // 后端分页对象；旧数组信封兼容（联调过渡期）
       sessions.value = Array.isArray(data) ? data : (data.items ?? []);
       total.value = Array.isArray(data) ? data.length : (data.total ?? 0);
@@ -60,6 +62,7 @@ export const useSessionStore = defineStore('session', () => {
     sessions,
     total,
     page,
+    size,
     currentId,
     loadSessions,
     createLocalSession,

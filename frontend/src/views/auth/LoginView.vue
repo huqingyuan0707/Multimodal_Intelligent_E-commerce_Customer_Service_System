@@ -154,7 +154,7 @@
       <AiInput v-model="tenant" placeholder="租户 ID（仅本地记住）" />
       <div class="row">
         <span />
-        <el-button link size="small" class="link" @click="forgot">忘记密码</el-button>
+        <AiButton link size="small" class="link" @click="forgot">忘记密码</AiButton>
       </div>
       <AiButton :loading="loading" class="submit" @click="submit">登录</AiButton>
       <p class="foot">安全认证 · 权限管控 · 会话追踪</p>
@@ -164,7 +164,7 @@
 
 <script setup lang="ts">
 // 深色分屏登录：左品牌宣导 + 等距插画 + 右玻璃登录卡；账密走 request，租户 ID 仅本地记住（对齐页面设计 §3.9）
-import { ElButton, ElMessage } from 'element-plus';
+import { ElMessage } from 'element-plus';
 import { onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { loginApi } from '@/api';

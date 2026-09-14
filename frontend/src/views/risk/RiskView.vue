@@ -1,7 +1,6 @@
 <template>
   <div class="page">
     <div class="head">
-      <h2>风控工单</h2>
       <el-tag type="info" size="small">待实现页 · 画板先行（演示数据）</el-tag>
     </div>
     <p class="hint">禁全自动封号：拦截必进人工复核，复核结论反写源单</p>

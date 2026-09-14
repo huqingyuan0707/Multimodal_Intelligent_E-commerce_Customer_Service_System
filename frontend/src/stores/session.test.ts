@@ -69,6 +69,14 @@ describe('useSessionStore', () => {
     expect(store.total).toBe(1);
   });
 
+  it('loadSessions 切页大小后透传 size 并回第 1 页语义', async () => {
+    vi.mocked(listSessionsApi).mockResolvedValue({ items: [], total: 0, page: 1, size: 10 });
+    const store = useSessionStore();
+    await store.loadSessions(1, 10);
+    expect(store.size).toBe(10);
+    expect(vi.mocked(listSessionsApi)).toHaveBeenCalledWith({ page: 1, size: 10 });
+  });
+
   it('renameLocal 改标题不动其他行', async () => {
     const store = useSessionStore();
     store.sessions = [

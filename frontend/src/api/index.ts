@@ -12,6 +12,7 @@ export * from './approvals';
 export * from './documents';
 export * from './tasks';
 export * from './chat';
+export * from './workbench';
 export * from './multimodal';
 export * from './dashboard';
 export * from './screen';

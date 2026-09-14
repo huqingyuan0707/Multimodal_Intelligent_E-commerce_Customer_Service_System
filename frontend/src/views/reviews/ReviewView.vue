@@ -1,6 +1,5 @@
 <template>
   <div class="page">
-    <h2>评价工单</h2>
     <el-tabs v-model="tab">
       <el-tab-pane label="差评盘" name="bad">
         <div class="toolbar">
@@ -8,7 +7,7 @@
           <span class="hint">2 小时 SLA：超时的行会标红，请优先处理</span>
         </div>
         <el-empty v-if="!bads.length && !loading" description="暂无差评" />
-        <el-table v-loading="loading" :data="bads" style="width: 100%">
+        <el-table v-loading="loading" :data="pagedBads" style="width: 100%">
           <el-table-column prop="platform" label="平台" width="100" />
           <el-table-column prop="content" label="内容" min-width="220" />
           <el-table-column label="状态" width="100">
@@ -28,6 +27,17 @@
             </template>
           </el-table-column>
         </el-table>
+        <div class="pager">
+          <el-pagination
+            :current-page="badPage"
+            :page-size="badSize"
+            :page-sizes="[10, 20, 50, 100]"
+            :total="badTotal"
+            layout="sizes, prev, pager, next, total"
+            @current-change="onBadPage"
+            @size-change="onBadSize"
+          />
+        </div>
       </el-tab-pane>
       <el-tab-pane label="工单中心" name="tickets">
         <div class="toolbar">
@@ -35,7 +45,7 @@
           <span class="hint">逾期（超 sla_due 未关闭）标红；关闭必须回填结论</span>
         </div>
         <el-empty v-if="!tickets.length && !tLoading" description="暂无工单" />
-        <el-table v-loading="tLoading" :data="tickets" style="width: 100%">
+        <el-table v-loading="tLoading" :data="pagedTickets" style="width: 100%">
           <el-table-column prop="kind" label="类型" width="120" />
           <el-table-column prop="source_ref" label="来源" min-width="160" />
           <el-table-column prop="assignee" label="负责人" width="120" />
@@ -51,6 +61,17 @@
             </template>
           </el-table-column>
         </el-table>
+        <div class="pager">
+          <el-pagination
+            :current-page="ticketPage"
+            :page-size="ticketSize"
+            :page-sizes="[10, 20, 50, 100]"
+            :total="ticketTotal"
+            layout="sizes, prev, pager, next, total"
+            @current-change="onTicketPage"
+            @size-change="onTicketSize"
+          />
+        </div>
       </el-tab-pane>
     </el-tabs>
     <el-dialog v-model="replyDialog" title="回复评价" width="440px">
@@ -85,8 +106,8 @@
 <script setup lang="ts">
 // 评价工单：差评盘（回复/一键建工单 SLA 2h）+ 工单中心（转交/关闭回填结论）
 // 对齐 FRD FR-10.8/FR-12.3、页面设计 §3.17/§3.18；独立 /tickets 页为 P2，本页先行承载
-import { ElMessage, ElMessageBox } from 'element-plus';
-import { onMounted, ref } from 'vue';
+import { ElMessage, ElMessageBox, ElPagination } from 'element-plus';
+import { computed, onMounted, ref } from 'vue';
 import {
   closeTicketApi,
   createReviewTicketApi,
@@ -103,12 +124,25 @@ import { ticketTagOf } from '@/types/shop';
 const tab = ref('bad');
 const bads = ref<ReviewItem[]>([]);
 const loading = ref(false);
+// 差评/工单双表分页：后端暂无服务端分页，先客户端裁剪，默认 20 可切 10/20/50/100
+const badPage = ref(1);
+const badSize = ref(20);
+const badTotal = computed(() => bads.value.length);
+const pagedBads = computed(() =>
+  bads.value.slice((badPage.value - 1) * badSize.value, badPage.value * badSize.value),
+);
 const replyDialog = ref(false);
 const replying = ref(false);
 const replyText = ref('');
 const replyRow = ref<ReviewItem | null>(null);
 const tickets = ref<TicketItem[]>([]);
 const tLoading = ref(false);
+const ticketPage = ref(1);
+const ticketSize = ref(20);
+const ticketTotal = computed(() => tickets.value.length);
+const pagedTickets = computed(() =>
+  tickets.value.slice((ticketPage.value - 1) * ticketSize.value, ticketPage.value * ticketSize.value),
+);
 const tSubmitting = ref(false);
 const transferDialog = ref(false);
 const closeDialog = ref(false);
@@ -126,6 +160,24 @@ const loadBad = async () => {
   } finally {
     loading.value = false;
   }
+};
+
+const onBadPage = (p: number) => {
+  badPage.value = p;
+};
+
+const onBadSize = (s: number) => {
+  badSize.value = s;
+  badPage.value = 1;
+};
+
+const onTicketPage = (p: number) => {
+  ticketPage.value = p;
+};
+
+const onTicketSize = (s: number) => {
+  ticketSize.value = s;
+  ticketPage.value = 1;
 };
 
 const openReply = (row: ReviewItem) => {
@@ -249,5 +301,11 @@ onMounted(() => {
 .hint {
   font-size: 12px;
   color: var(--reai-text-muted);
+}
+
+.pager {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
 }
 </style>

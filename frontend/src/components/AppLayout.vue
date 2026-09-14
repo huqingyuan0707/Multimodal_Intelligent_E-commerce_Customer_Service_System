@@ -168,7 +168,9 @@ onMounted(() => {
 
 .brand {
   font-size: 17px;
-  font-weight: 700;
+  font-weight: var(--reai-fw-bold);
+  line-height: var(--reai-lh-tight);
+  letter-spacing: 0.02em;
   color: var(--reai-nav-active);
   white-space: nowrap;
 }
@@ -177,6 +179,8 @@ onMounted(() => {
   flex: 1;
   min-width: 0;
   overflow-x: auto;
+  font-size: var(--reai-fs-body);
+  font-weight: var(--reai-fw-medium);
   background: transparent;
   border-bottom: none;
 
@@ -190,7 +194,9 @@ onMounted(() => {
   display: flex;
   gap: 12px;
   align-items: center;
-  font-size: 13px;
+  font-size: var(--reai-fs-body-sm);
+  font-weight: var(--reai-fw-medium);
+  line-height: var(--reai-lh-tight);
   color: var(--reai-nav-active);
   white-space: nowrap;
 }
@@ -238,6 +244,7 @@ onMounted(() => {
 .username {
   display: inline-flex;
   align-items: center;
+  font-weight: var(--reai-fw-medium);
   color: var(--reai-nav-text);
 }
 

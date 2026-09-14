@@ -1,28 +1,60 @@
-/* 设计 tokens（深色科技风；色值只许出现在此文件，.vue 里一律 var()，对齐页面设计 §2） */
+/* 设计 tokens（深色科技风；色值只许出现在此文件，.vue 里一律 var()，对齐页面设计 §2）
+ * 字体系统（本轮重设计：截图里浅气泡套深卡深字糊、11px 以下微文案发虚、顶栏 75% 白发灰）：
+ * 正文 14px/1.6 起跳，微文案最小 11px 且深底用提亮色，浅气泡内一律深字 + 浅底语义卡。 */
 :root {
   --reai-primary: #4f6bff;
   --reai-accent: #22d3ee;
   --reai-gold: #e8a33d;
   --reai-online: #34d399;
   --reai-notice: #fb9236;
+  /* 浅底警告正文（AI 白泡内 .human 用，深底仍用 --reai-notice；#b45309 在 #f2f5fc 上约 4.6:1） */
+  --reai-notice-deep: #b45309;
+  /* 浅气泡内嵌白卡（商品卡等，替代深色 --reai-card 套浅泡的糊块） */
+  --reai-surface-light: #ffffff;
   --reai-bg: #0b1124;
   --reai-card: #161d33;
   --reai-card-2: #1e2742;
   --reai-text-main: #eef1f8;
   --reai-text-muted: #8b94ad;
+  /* 微文案深底提亮色（11-12px 时间/条数/占位用，比 muted 高一档，#a9b1c7 在 #0b1124 上约 7:1） */
+  --reai-text-soft: #a9b1c7;
   --reai-border: rgb(255 255 255 / 8%);
   --reai-shadow-card: 0 2px 12px rgb(0 0 0 / 40%);
   --reai-gradient: linear-gradient(90deg, #4f6bff 0%, #8b5cf6 100%);
-  --reai-nav-text: rgb(255 255 255 / 75%);
+  /* 顶栏导航白（75%→88%，截图里坐席在线/租户发灰看不清） */
+  --reai-nav-text: rgb(255 255 255 / 88%);
   --reai-nav-active: #fff;
   --reai-nav-hover: rgb(255 255 255 / 12%);
   --reai-bubble-user: #4f6bff;
   --reai-bubble-agent: #f2f5fc;
   --reai-text-on-light: #1f2430;
+  /* 浅泡次要/微文案（引用 12px / trace 11px mono 用；在 #f2f5fc 上分别约 7:1 / 4.8:1） */
+  --reai-text-on-light-muted: #4c5670;
+  --reai-text-on-light-faint: #5f6b87;
   --reai-purple: #8b5cf6;
   --reai-glass-bg: rgb(22 29 51 / 60%);
   --reai-glass-border: rgb(255 255 255 / 12%);
   --reai-glow: 0 0 24px rgb(79 107 255 / 25%);
+  /* 字体栈（中文优先苹方/微软雅黑，mono 给 trace/语音时长） */
+  --reai-font-sans:
+    'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans SC', system-ui,
+    -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
+  --reai-font-mono:
+    ui-monospace, 'SF Mono', 'JetBrains Mono', Consolas, 'Noto Sans Mono', monospace;
+  /* 字阶（正文 14 起跳，微文案最小 11；行高正文 1.6、标题 1.4） */
+  --reai-fs-display: 20px;
+  --reai-fs-title: 16px;
+  --reai-fs-h3: 15px;
+  --reai-fs-body: 14px;
+  --reai-fs-body-sm: 13px;
+  --reai-fs-caption: 12px;
+  --reai-fs-micro: 11px;
+  --reai-lh-tight: 1.4;
+  --reai-lh-body: 1.6;
+  --reai-fw-regular: 400;
+  --reai-fw-medium: 500;
+  --reai-fw-semibold: 600;
+  --reai-fw-bold: 700;
   /* 语义卡底：12% 语义色叠在卡片上（VLM 检测卡 / 引用溯源卡 / 预警卡） */
   --reai-primary-soft: rgb(79 107 255 / 12%);
   --reai-gold-soft: rgb(232 163 61 / 12%);
@@ -34,6 +66,32 @@
 
 body {
   margin: 0;
+  font-family: var(--reai-font-sans);
+  font-size: var(--reai-fs-body);
+  line-height: var(--reai-lh-body);
   color: var(--reai-text-main);
   background: var(--reai-bg);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizelegibility;
+}
+
+/* 表单与按钮继承全局字体（Element Plus 默认苹方缺失时回退西文，中文发虚） */
+button,
+input,
+textarea,
+select {
+  font-family: inherit;
+}
+
+/* 等宽：trace_id / 语音时长 / 订单号 */
+code,
+pre,
+.mono {
+  font-family: var(--reai-font-mono);
+}
+
+/* 占位符提亮（原 muted 在深底输入框里发灰） */
+::placeholder {
+  color: var(--reai-text-soft);
+  opacity: 1;
 }

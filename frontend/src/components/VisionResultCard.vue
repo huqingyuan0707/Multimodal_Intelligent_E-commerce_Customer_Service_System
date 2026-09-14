@@ -20,23 +20,29 @@ const pct = (v: number) => `${Math.round(v * 100)}%`;
 </script>
 
 <style scoped>
+/* 浅泡内嵌蓝卡：浅底 + 深字（原 --reai-card 深底套浅泡，深字深底糊成截图红框；对齐画布 vlmCard #4F6BFF1F） */
 .vlm {
-  padding: 8px;
-  margin-top: 6px;
-  background: var(--reai-card);
+  padding: 8px 10px;
+  margin-top: 8px;
+  font-size: var(--reai-fs-body-sm);
+  line-height: var(--reai-lh-body);
+  color: var(--reai-text-on-light);
+  background: var(--reai-primary-soft);
   border: 1px solid var(--reai-primary);
   border-radius: 8px;
 }
 .vlm-title {
   margin: 0 0 6px;
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--reai-fs-body-sm);
+  font-weight: var(--reai-fw-semibold);
+  line-height: var(--reai-lh-tight);
 }
 .vlm-row {
   display: flex;
   gap: 8px;
   align-items: center;
   margin: 6px 0;
-  font-size: 13px;
+  font-size: var(--reai-fs-body-sm);
+  line-height: var(--reai-lh-body);
 }
 </style>

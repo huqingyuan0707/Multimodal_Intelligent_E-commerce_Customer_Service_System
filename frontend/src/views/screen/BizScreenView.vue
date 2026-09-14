@@ -1,7 +1,6 @@
 <template>
   <div class="screen">
     <div class="head">
-      <h2>经营大屏 · 今日（PII已脱敏）</h2>
       <span class="hint">30秒轮询 · 缓存1分钟</span>
       <AiButton @click="load">刷新</AiButton>
     </div>
@@ -95,11 +94,6 @@ onUnmounted(() => {
   gap: 12px;
   align-items: center;
 }
-.head h2 {
-  margin: 0;
-  font-size: 16px;
-  color: var(--reai-text-main);
-}
 .hint {
   flex: 1;
   font-size: 12px;
@@ -128,10 +122,10 @@ onUnmounted(() => {
   color: var(--reai-online);
 }
 .metric.bad .value {
-  color: #ff5a36;
+  color: var(--reai-notice);
 }
 .metric.warn .value {
-  color: #ff8400;
+  color: var(--reai-notice);
 }
 .card {
   padding: 14px 16px;
@@ -198,7 +192,7 @@ onUnmounted(() => {
   border-radius: 8px;
 }
 .warn.bad {
-  background: #fff4f0;
+  background: var(--reai-notice-soft);
 }
 @media (width <= 1024px) {
   .metrics {

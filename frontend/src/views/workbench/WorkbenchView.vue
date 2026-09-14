@@ -1,97 +1,108 @@
 <template>
   <div class="workbench">
-    <!-- 左：会话队列（搜索＋未读徽标＋VIP置顶，画布 sessionList） -->
-    <section class="queue card">
-      <div class="queue-head">
-        <h3 class="card-title">会话队列</h3>
-        <span class="badge">{{ unread }}</span>
-      </div>
-      <AiInput v-model="keyword" placeholder="搜索会话 / 订单号" clearable class="search" />
-      <div
-        v-for="s in filteredSessions"
-        :key="s.id"
-        class="session"
-        :class="{ active: s.id === currentId }"
-        @click="select(s.id)"
-      >
-        <span class="avatar">{{ s.name.charAt(0) }}</span>
-        <span class="info">
-          <span class="name">{{ s.name }}</span>
-          <span class="summary">{{ s.tag }}</span>
-        </span>
-        <el-tag v-if="s.vip" size="small" type="warning">VIP</el-tag>
-      </div>
-    </section>
+    <!-- 左：会话队列（状态页签＋服务端搜索/分页；数据与流转动作由 useWorkbenchQueue 提供） -->
+    <WorkbenchQueue
+      :rows="queueRows"
+      :current-id="currentId"
+      :total="total"
+      :page="page"
+      :size="size"
+      :status="status"
+      :loading="queueLoading"
+      :demo="queueDemo"
+      @select="pickRow"
+      @search="setKeyword"
+      @filter="setStatus"
+      @page="setPage"
+      @size="setSize"
+    />
 
-    <!-- 中：当前会话（顶栏＋消息流＋快捷回复＋输入行，画布 chatPanel） -->
+    <!-- 中：当前会话（顶栏流转动作＋消息流＋快捷话术＋输入行，画布 chatPanel） -->
     <section class="chat card">
       <div class="chat-head">
         <span class="avatar">{{ currentName.charAt(0) || '客' }}</span>
         <span class="meta">
           <span class="name">{{ currentName }}</span>
-          <span class="online">在线 · 咨询中</span>
+          <span class="online">{{ statusText }}</span>
         </span>
-        <AiButton class="transfer" @click="transfer">转人工</AiButton>
+        <el-tag v-if="traceDemo" size="small" type="warning" effect="plain">演示消息</el-tag>
+        <AiButton
+          v-if="currentRow?.statusKey === 'pending'"
+          type="primary"
+          @click="claim()"
+        >
+          认领
+        </AiButton>
+        <template v-else-if="isMine">
+          <AiButton @click="transfer()">转接</AiButton>
+          <AiButton type="primary" @click="resolve()">解决</AiButton>
+        </template>
+        <AiButton v-else-if="currentRow" @click="handoff()">
+          {{ currentRow.statusKey === 'resolved' ? '重新转人工' : '转人工' }}
+        </AiButton>
       </div>
-      <div class="msgs">
-        <p v-if="phaseText" class="phase">{{ phaseText }}</p>
-        <div v-for="m in messages" :key="m.id" class="msg" :class="m.role">
-          <template v-if="m.role === 'agent'">
-            <span class="avatar agent">AI</span>
-            <div class="bubble">
-              <p class="text">{{ m.content || '思考中…' }}</p>
-              <VisionResultCard :inspections="m.vision ?? []" />
-              <CitationList :refs="m.references ?? []" :trace-id="m.trace_id" @open="openDoc" />
-            </div>
-          </template>
-          <template v-else>
-            <div v-if="m.modality === 'voice'" class="bubble voice">
-              <button class="play" @click="playVoice(m.id)">▶</button>
-              <span class="wave"><i /></span>
-              <span class="vmeta">{{ voiceText(m.id) }}</span>
-            </div>
-            <p v-else class="bubble user">{{ m.content }}</p>
-            <span class="avatar">{{ currentName.charAt(0) || '客' }}</span>
-          </template>
-        </div>
-      </div>
-      <div class="quicks">
-        <button v-for="q in QUICK_REPLIES" :key="q" class="quick" @click="applyQuick(q)">
-          {{ q }}
-        </button>
-      </div>
-      <div class="input-row">
-        <AiButton @click="pickImage">图片</AiButton>
-        <AiButton @click="recordVoice">语音</AiButton>
-        <AiInput
-          v-model="draft"
-          placeholder="输入消息，支持发送图片描述问题…"
-          class="grow"
-          @keyup.enter="send"
-        />
-        <AiButton type="primary" :loading="streaming" @click="send">发送</AiButton>
-      </div>
+
+      <WorkbenchChat
+        :name="currentName"
+        :messages="messages"
+        :streaming="streaming"
+        :phase-text="phaseText"
+        :draft="draft"
+        :locked="locked"
+        :locked-hint="lockedHint"
+        :send-hint="sendHint"
+        :send-label="sendLabel"
+        @update:draft="draft = $event"
+        @send="send"
+        @quick="applyQuick"
+        @image="pickImage"
+        @voice="recordVoice"
+        @play-voice="playVoice"
+        @open-doc="openDoc"
+      />
     </section>
 
-    <!-- 右：订单卡＋AI 辅助（画布 sidePanel） -->
-    <WorkbenchSide @fill="draft = $event" />
+    <!-- 右：订单卡＋本轮 Trace＋上下文用量＋AI 辅助＋内部备注（插槽注入，买家不可见） -->
+    <WorkbenchSide
+      :order="sideOrder"
+      :demo="sideDemo"
+      :traces="sessionTraces"
+      :usage="sideUsage"
+      @fill="draft = $event"
+    >
+      <!-- key 绑 currentId：切会话即重挂，清掉上一会话未提交的备注草稿 -->
+      <WorkbenchNotes
+        ref="notesRef"
+        :key="currentId"
+        :notes="notes"
+        :loading="notesLoading"
+        :saving="notesSaving"
+        :demo="notesDemo"
+        :disabled="notesDisabled"
+        @add="saveNote"
+      />
+    </WorkbenchSide>
   </div>
 </template>
 
 <script setup lang="ts">
-// 坐席工作台三栏（队列｜会话流＋VLM蓝卡＋引用金卡＋语音行｜订单＋AI辅助），对齐画布屏一与页面设计 §3.2
-// 数据：队列走 mock（后端队列接口就绪前占位）；历史优先调 getSessionApi，404 回退演示；发送走 useAgentStream 真流式
-import { ElMessage, ElMessageBox, ElTag } from 'element-plus';
-import { computed, onMounted, ref } from 'vue';
-import { getSessionApi, toAgentMessages } from '@/api';
-import CitationList from '@/components/CitationList.vue';
-import VisionResultCard from '@/components/VisionResultCard.vue';
+// 坐席工作台三栏编排（FR-7 转人工闭环）：队列流转 ▸ 会话流（坐席代回 / AI 代答 / 只读围观）▸ 订单+Trace+备注
+// 链路：WorkbenchView → useWorkbenchQueue / useWorkbenchTrace / useWorkbenchNotes / useWorkbenchSide → 组件
+// 对齐：页面设计 §3.2 + API 规范 §4.11；队列/Trace/备注失败各自回退演示并挂 demo 标，不阻塞使用
+import { ElMessage } from 'element-plus';
+import { computed, onMounted, ref, watch } from 'vue';
+import { replyWorkbenchApi } from '@/api';
+import WorkbenchChat from '@/components/WorkbenchChat.vue';
+import WorkbenchNotes from '@/components/WorkbenchNotes.vue';
+import WorkbenchQueue from '@/components/WorkbenchQueue.vue';
 import WorkbenchSide from '@/components/WorkbenchSide.vue';
-import { mockWorkbenchSeed, mockWorkSessions } from '@/mock';
-import AiButton from '@/shared/components/AiButton.vue';
-import AiInput from '@/shared/components/AiInput.vue';
 import { useAgentStream } from '@/composables/useAgentStream';
-import type { AgentMessage } from '@/types/agent';
+import { useWorkbenchNotes } from '@/composables/useWorkbenchNotes';
+import { useWorkbenchQueue } from '@/composables/useWorkbenchQueue';
+import { useWorkbenchSide } from '@/composables/useWorkbenchSide';
+import { useWorkbenchTrace } from '@/composables/useWorkbenchTrace';
+import AiButton from '@/shared/components/AiButton.vue';
+import { useUserStore } from '@/stores/user';
 
 // 流式阶段中文映射（后端 phase 原语：retrieving/generating/validating）
 const PHASE_TAG = {
@@ -99,88 +110,160 @@ const PHASE_TAG = {
   generating: '生成中…',
   validating: '校验引用中…',
 } as const;
-// 快捷回复（转人工走确认框，其余填入输入框）
-const QUICK_REPLIES = ['查物流', '退换货', '转人工'] as const;
-// 语音演示元数据（时长·转写置信度；真语音链路接通后随消息下发）
-const VOICE_META = { 'v-1': '0:12 · 转写0.91' } as const;
 
-const sessions = ref([...mockWorkSessions]);
-const currentId = ref(mockWorkSessions[0]?.id ?? '');
-const keyword = ref('');
+// 快捷话术：键 → 填入文案（handoff 是动作不是话术，见 applyQuick）
+const QUICK_TEXT = {
+  logistics: '帮我查一下这笔订单的物流进度',
+  refund: '商品有点问题，想申请退换货',
+} as const;
+
+// —— 队列与流转动作（失败自动回退演示并挂标；确认框/提示内置在 composable）——
+const {
+  rows: queueRows,
+  total,
+  page,
+  size,
+  status,
+  loading: queueLoading,
+  demo: queueDemo,
+  currentId,
+  currentRow,
+  load: loadQueue,
+  select: pickRow,
+  setStatus,
+  setKeyword,
+  setPage,
+  setSize,
+  claim,
+  transfer,
+  resolve,
+  handoff,
+} = useWorkbenchQueue();
+
+// —— 会话流 / Trace / 内部备注（三者同口径绑定 currentId）——
+const { messages, context, demo: traceDemo, load: loadTrace, append } = useWorkbenchTrace();
+const {
+  notes,
+  loading: notesLoading,
+  saving: notesSaving,
+  demo: notesDemo,
+  load: loadNotes,
+  add: addNote,
+  reset: resetNotes,
+} = useWorkbenchNotes();
+const { sideOrder, sideDemo, sessionTraces, sideUsage } = useWorkbenchSide(messages, context);
+
 const draft = ref('');
-const messages = ref<AgentMessage[]>([]);
+const notesRef = ref<InstanceType<typeof WorkbenchNotes> | null>(null);
 const stream = useAgentStream();
 const streaming = stream.streaming;
+const me = useUserStore().user?.name ?? '';
 
-const unread = computed(() => sessions.value.length);
-const filteredSessions = computed(() => {
-  const k = keyword.value.trim();
-  if (!k) return sessions.value;
-  return sessions.value.filter(s => s.name.includes(k) || s.tag.includes(k));
+// 本人认领的 handling 会话才可代回；他人处理/已解决只读围观
+const isMine = computed(
+  () => currentRow.value?.statusKey === 'handling' && currentRow.value?.assignee === me,
+);
+
+// AI 接待会话不锁：坐席可触发 AI 代答；pending 需先认领；handling 仅本人；resolved 归档只读
+const locked = computed(() => {
+  const r = currentRow.value;
+  if (!currentId.value || !r) return true;
+  if (r.statusKey === 'none') return false;
+  if (r.statusKey === 'pending') return true;
+  return !isMine.value;
 });
-const currentName = computed(() => sessions.value.find(s => s.id === currentId.value)?.name ?? '');
+
+const lockedHint = computed(() => {
+  const r = currentRow.value;
+  if (!r) return '请在左侧选择一个会话';
+  if (r.statusKey === 'pending') return '买家请求人工，请先「认领」再回复';
+  if (r.statusKey === 'resolved') return '会话已解决归档，只读查看';
+  return `已由 ${r.assignee} 认领，当前只读围观`;
+});
+
+const sendLabel = computed(() => (isMine.value ? '代回买家' : 'AI 代答'));
+const sendHint = computed(() =>
+  isMine.value ? '代回内容买家侧即时可见' : '发送后走 AI 流式代答（引用/检测卡随回执展示）',
+);
+
+const statusText = computed(() => {
+  const r = currentRow.value;
+  if (!r) return '在线 · 咨询中';
+  if (r.statusKey === 'handling') {
+    return r.assignee === me ? '处理中 · 我正在服务' : `处理中 · ${r.assignee} 认领（只读围观）`;
+  }
+  if (r.statusKey === 'pending') return '待接 · 买家请求人工';
+  if (r.statusKey === 'resolved') return '已解决归档';
+  return 'AI 接待中';
+});
+
+const currentName = computed(() => currentRow.value?.name ?? '');
+const notesDisabled = computed(() => !currentId.value || queueDemo.value);
+
 const phaseText = computed(() => {
   const p = stream.phase.value;
   if (stream.streaming.value && p in PHASE_TAG) return PHASE_TAG[p as keyof typeof PHASE_TAG];
   if (stream.streaming.value) return p || '请求中…';
   return '';
 });
-const voiceText = (id: string) =>
-  id in VOICE_META ? VOICE_META[id as keyof typeof VOICE_META] : '';
 
-// 切会话：mock 队列直接用种子；后端 id 拉历史（含引用/trace/检测卡），失败回退演示
-const loadHistory = async (id: string) => {
-  if (id.startsWith('w-')) {
-    messages.value = mockWorkbenchSeed();
-    return;
-  }
-  try {
-    const data = (await getSessionApi({ id })) as { messages?: unknown[] };
-    const list = Array.isArray(data?.messages) ? toAgentMessages(data.messages) : [];
-    messages.value = list.length ? list : mockWorkbenchSeed();
-  } catch {
-    messages.value = mockWorkbenchSeed();
-  }
-};
-
-const select = (id: string) => {
+// 切会话联动：停流 + 重拉 Trace/备注（队列 load 自动选首行也会触发本 watch）
+watch(currentId, id => {
   if (stream.streaming.value) stream.stop();
-  currentId.value = id;
-  loadHistory(id);
-};
+  draft.value = '';
+  loadTrace(id);
+  if (queueDemo.value) resetNotes();
+  else loadNotes(id);
+});
 
 const send = async () => {
   const content = draft.value.trim();
-  if (!content || stream.streaming.value) return;
-  const key = `c-${Date.now()}`;
-  messages.value = [...messages.value, { id: key, role: 'user', modality: 'text', content }];
+  if (!content || streaming.value || locked.value) return;
+  const id = currentId.value;
   draft.value = '';
+  // 演示数据：后端队列不可用，本地回显避免必然 404 报错刷屏
+  if (queueDemo.value) {
+    append({ id: `d-${Date.now()}`, role: 'agent', modality: 'text', content });
+    return;
+  }
+  // 本人认领会话：坐席代回落 agent 行（买家历史即见），不烧 AI
+  if (isMine.value) {
+    try {
+      const saved = (await replyWorkbenchApi({ id, content })) as { content?: string };
+      append({
+        id: `cs-${Date.now()}`,
+        role: 'agent',
+        modality: 'text',
+        content: saved?.content || content,
+      });
+    } catch (e) {
+      draft.value = content;
+      ElMessage.error(e instanceof Error ? e.message : '代回失败，请稍后重试');
+    }
+    return;
+  }
+  // AI 接待会话：真流式代答（引用/检测卡/上下文用量随 done 落到该条消息）
+  const key = `c-${Date.now()}`;
+  append({ id: key, role: 'user', modality: 'text', content });
   const target = `a-${key}`;
-  messages.value = [
-    ...messages.value,
-    { id: target, role: 'agent', modality: 'text', content: '' },
-  ];
-  await stream.start(content, { clientMsgId: key });
+  append({ id: target, role: 'agent', modality: 'text', content: '' });
+  await stream.start(content, { threadId: id, clientMsgId: key });
   const final = stream.toMessage(target);
   messages.value = messages.value.map(m => (m.id === target ? { ...final, id: target } : m));
   if (stream.error.value) ElMessage.error(stream.error.value);
 };
 
-const applyQuick = (q: string) => {
-  if (q === '转人工') {
-    transfer();
+const applyQuick = (key: string) => {
+  if (key === 'handoff') {
+    handoff();
     return;
   }
-  draft.value = q;
+  draft.value = key in QUICK_TEXT ? QUICK_TEXT[key as keyof typeof QUICK_TEXT] : '';
 };
 
-const transfer = () => {
-  ElMessageBox.confirm('确认为当前会话转人工？', '转人工', {
-    confirmButtonText: '确认',
-    cancelButtonText: '取消',
-  })
-    .then(() => ElMessage.success('已转人工，坐席即将接管（演示占位）'))
-    .catch(() => undefined);
+// 备注保存成功才清草稿；失败保留，避免坐席白写一段
+const saveNote = async (text: string) => {
+  if (await addNote(currentId.value, text)) notesRef.value?.reset();
 };
 
 const pickImage = () => ElMessage.info('图片上传后续接多模态接口（演示占位，≤9张/单张≤10M）');
@@ -189,7 +272,8 @@ const playVoice = (id: string) => ElMessage.info(`播放语音 ${id}（演示占
 const openDoc = (source: string) => ElMessage.info(`打开原文 ${source}（知识库预览就绪后跳转）`);
 
 onMounted(() => {
-  loadHistory(currentId.value);
+  // load 内部自动选首行 → watch 触发 Trace/备注加载；队列为空时中栏留白
+  loadQueue();
 });
 </script>
 
@@ -208,42 +292,9 @@ onMounted(() => {
   box-shadow: var(--reai-glow);
   backdrop-filter: blur(12px);
 }
-.card-title {
-  margin: 0;
-  font-size: 15px;
-  color: var(--reai-text-main);
-}
-.queue {
-  display: flex;
-  flex: 0 1 300px;
-  flex-direction: column;
-  gap: 12px;
-  min-width: 0;
-}
-.queue-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.badge {
-  padding: 2px 8px;
-  font-size: 11px;
-  font-weight: 600;
-  color: #fff;
-  background: #ff5a36;
-  border-radius: 999px;
-}
-.session {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  padding: 12px;
-  cursor: pointer;
-  border-radius: 10px;
-}
-.session:hover,
-.session.active {
-  background: var(--reai-card-2);
+.name,
+.online {
+  line-height: var(--reai-lh-tight);
 }
 .avatar {
   display: inline-flex;
@@ -257,26 +308,10 @@ onMounted(() => {
   background: var(--reai-primary);
   border-radius: 50%;
 }
-.avatar.agent {
-  font-size: 12px;
-  color: var(--reai-text-on-light);
-  background: var(--reai-accent);
-}
-.info {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
 .name {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--reai-fs-body-sm);
+  font-weight: var(--reai-fw-semibold);
   color: var(--reai-text-main);
-}
-.summary {
-  font-size: 12px;
-  color: var(--reai-text-muted);
 }
 .chat {
   display: flex;
@@ -298,111 +333,14 @@ onMounted(() => {
   gap: 2px;
 }
 .online {
-  font-size: 11px;
+  font-size: var(--reai-fs-micro);
+  font-weight: var(--reai-fw-semibold);
   color: var(--reai-online);
-}
-.msgs {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: 16px;
-  padding: 16px 4px;
-  overflow-y: auto;
-}
-.phase {
-  margin: 0;
-  font-size: 12px;
-  color: var(--reai-text-muted);
-  text-align: center;
-}
-.msg {
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-}
-.msg.user {
-  flex-direction: row-reverse;
-}
-.bubble {
-  max-width: 70%;
-  padding: 10px 14px;
-  margin: 0;
-  font-size: 14px;
-  background: var(--reai-bubble-agent);
-  border-radius: 12px;
-}
-.msg.user .bubble {
-  color: var(--reai-nav-active);
-  background: var(--reai-bubble-user);
-}
-.text {
-  margin: 0;
-  line-height: 1.5;
-}
-.bubble.voice {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  color: var(--reai-nav-active);
-}
-.play {
-  width: 24px;
-  height: 24px;
-  color: var(--reai-nav-active);
-  cursor: pointer;
-  background: none;
-  border: 1px solid currentcolor;
-  border-radius: 50%;
-}
-.wave {
-  display: inline-block;
-  width: 120px;
-  height: 24px;
-  background: var(--reai-accent);
-  border-radius: 6px;
-  opacity: 0.75;
-}
-.wave i {
-  display: block;
-  width: 40%;
-  height: 100%;
-  background: var(--reai-nav-active);
-  border-radius: 6px;
-  opacity: 0.6;
-}
-.vmeta {
-  font-size: 11px;
-}
-.quicks {
-  display: flex;
-  gap: 8px;
-  padding: 10px 0;
-}
-.quick {
-  padding: 4px 10px;
-  font-size: 12px;
-  color: var(--reai-accent);
-  cursor: pointer;
-  background: var(--reai-card-2);
-  border: none;
-  border-radius: 999px;
-}
-.input-row {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-}
-.grow {
-  flex: 1;
 }
 @media (width <= 1024px) {
   .workbench {
     flex-direction: column;
     overflow-y: auto;
-  }
-  .queue {
-    flex: none;
-    width: 100%;
   }
   .chat {
     min-height: 60vh;

@@ -35,15 +35,48 @@ class RejectRequest(BaseModel):
     reason: str = ""
 
 
+# 审批列表可见：客服可看待办（审批中心路由含 cs），店长/仓管/运营按域令牌放行
+LIST_PERMS = (
+    "cs",
+    "shop",
+    "stock",
+    "ops",
+    "admin",
+    "order:read",
+    "order:fulfill",
+    "goods:read",
+    "goods:write",
+    "stock:read",
+    "stock:write",
+)
+
+
 @router.get("")
 async def list_approvals(
     db: AsyncSession = Depends(get_db),
-    user: CurrentUser = Depends(require_any_perm("order:read", "goods:write", "stock:write")),
+    user: CurrentUser = Depends(require_any_perm(*LIST_PERMS)),
     status: str = Query(default="pending", max_length=16),
-    limit: int = Query(default=50, ge=1, le=200),
+    action: str = Query(default="", max_length=48),
+    keyword: str = Query(default="", max_length=60),
+    page: int | None = Query(default=None, ge=1),
+    size: int | None = Query(default=None, ge=1, le=100),
+    limit: int | None = Query(default=None, ge=1, le=200),
 ) -> dict[str, Any]:
-    """审批列表（默认只看待办）。"""
-    rows = await approval_service.list_recent(db, tenant=user.tenant, status=status, limit=limit)
+    """审批列表（默认只看待办；带 page/size 走服务端分页，否则按 limit 返回数组兼容存量）。"""
+    if page is not None or size is not None:
+        data = await approval_service.list_page(
+            db,
+            tenant=user.tenant,
+            status=status,
+            action=action,
+            keyword=keyword,
+            page=page or 1,
+            size=size or 20,
+        )
+        return ok(data, "获取成功")
+    rows = await approval_service.list_recent(
+        db, tenant=user.tenant, status=status, limit=limit or 50
+    )
     return ok([approval_service.to_dict(r) for r in rows], "获取成功")
 
 
@@ -61,6 +94,7 @@ async def approve(
         approval_id=approval_id,
         approve=True,
         approver=user.username,
+        reason=payload.reason,
         modified_args=payload.modified_args or None,
     )
     return ok(approval_service.to_dict(row), "审批已通过并生效")

@@ -142,6 +142,7 @@ async def test_vlm_call_posts_image_url(monkeypatch: pytest.MonkeyPatch) -> None
         )
 
     monkeypatch.setattr(vision_service, "_post_json", _fake)
+    monkeypatch.setattr(settings, "VLM_PROTOCOL", "openai")
     result = await vision_service._vlm_call(filename="a.jpg", image=_png_bytes())
     assert result.category == "污渍" and result.degraded is False
     parts = seen["messages"][0]["content"]

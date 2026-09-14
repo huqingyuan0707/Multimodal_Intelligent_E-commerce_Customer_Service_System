@@ -1,8 +1,9 @@
 """对话端点（13 步问答侧，对齐 API 规范 §4.2/§5 + RAG 规范 §4）
 
 链路：POST /chat → run_text_turn（检索→拼接→生成→校验→落库）→ ok()/2001；
-POST /chat/stream → source/phase(retrieving/inspecting/generating/validating)
-→ message 分片 → done（含引用/guard/faithfulness/trace_id/session_id/vision）。
+POST /chat/stream → source/phase(retrieving/inspecting/generating) → message token 增量
+→ phase(validating) → done（含引用/guard/faithfulness/trace_id/session_id/vision）。
+生成为模型 token 流（首字不等全文）；降级/重放为整段切片，帧形一致。
 图文轮 inspections 随请求透传（清洗+阈值重算在 service），低置信 done.need_human。
 """
 
@@ -102,7 +103,10 @@ async def chat_stream(
             seq += 1
         yield _frame("phase", {"name": "generating"}, f"{sid}:{seq}")
         seq += 1
-        result = await chat_service.run_text_turn(
+        # token 增量直出：模型在线时首字不等全文；降级/重放为整段切片（帧形一致）。
+        # 校验在全文到齐后（stream_text_turn 内），validating 帧随之后补。
+        result: dict[str, object] = {}
+        async for item in chat_service.stream_text_turn(
             db,
             user=user,
             query=payload.query,
@@ -110,27 +114,30 @@ async def chat_stream(
             client_msg_id=payload.client_msg_id,
             inspections=payload.inspections,
             image_ids=payload.image_ids,
-        )
+        ):
+            if isinstance(item, dict):
+                result = item
+                continue
+            if item:
+                yield _frame("message", {"content": item}, f"{sid}:{seq}")
+                seq += 1
         yield _frame("phase", {"name": "validating"}, f"{sid}:{seq}")
         seq += 1
-        chunks = chat_service.chunk_text(str(result["answer"]))
-        for i, part in enumerate(chunks):
-            yield _frame("message", {"content": part}, f"{sid}:{seq + i}")
         yield _frame(
             "done",
             {
-                "references": result["references"],
-                "guard": result["guard"],
-                "faithfulness": result["faithfulness"],
-                "trace_id": result["trace_id"],
-                "session_id": result["session_id"],
+                "references": result.get("references", []),
+                "guard": result.get("guard", {"pass": True}),
+                "faithfulness": result.get("faithfulness", 0.0),
+                "trace_id": result.get("trace_id", ""),
+                "session_id": result.get("session_id", ""),
                 "vision": result.get("vision", []),
                 "need_human": result.get("need_human", False),
                 "context": result.get(
                     "context", {"rounds": 0, "tokens": 0, "dropped": 0, "summarized": False}
                 ),
             },
-            f"{sid}:{seq + len(chunks)}",
+            f"{sid}:{seq}",
         )
 
     return StreamingResponse(_gen(), media_type="text/event-stream")

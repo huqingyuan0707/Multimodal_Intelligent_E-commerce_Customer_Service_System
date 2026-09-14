@@ -55,9 +55,7 @@ const goHome = () => {
   font-size: 64px;
   font-weight: 800;
   line-height: 1;
-  background: var(--reai-gradient);
-  background-clip: text;
-  color: transparent;
+  color: var(--reai-text-main);
 }
 
 .title {

@@ -10,44 +10,33 @@
         @select="restore"
         @removed="onSessionRemoved"
         @page="onSessionPage"
+        @size="onSessionSize"
       />
     </aside>
     <div class="page">
       <div class="top">
-        <h2>对话助手</h2>
         <AiButton class="sess-btn" @click="openSessions">会话</AiButton>
       </div>
-    <div class="list">
+    <div ref="listRef" class="list" @scroll="onListScroll">
+      <ChatSuggestions
+        v-if="isEmpty"
+        :empty="true"
+        :welcome="welcomeSuggestions"
+        :followups="[]"
+        @ask="sendPreset"
+      />
       <div v-if="hasMore" class="more-row">
         <AiButton @click="loadEarlier">加载更早消息</AiButton>
       </div>
-      <div v-for="m in messages" :key="m.id" class="bubble" :class="m.role">
-        <div v-if="m.images?.length" class="thumbs">
-          <img
-            v-for="(u, i) in m.images"
-            :key="`${m.id}-${i}`"
-            :src="u"
-            alt="售后图片"
-            @click="preview(u)"
-          />
-        </div>
-        <p class="content">{{ m.content }}</p>
-        <VisionResultCard v-if="m.vision?.length" :inspections="m.vision" />
-        <p v-if="m.need_human" class="human">
-          置信不足已转人工复核，坐席将在 30 秒内接管
-          <AiButton @click="transfer">立即转人工</AiButton>
-        </p>
-        <p v-if="m.references?.length" class="refs">
-          引用：
-          <span v-for="r in m.references" :key="r.source">[{{ r.title }}]</span>
-        </p>
-        <p v-if="m.trace_id" class="trace">trace: {{ m.trace_id }}</p>
-        <p v-if="m.context" class="trace">
-          上下文 {{ m.context.rounds }} 轮/约 {{ m.context.tokens }} token{{
-            m.context.summarized ? '（已摘要）' : ''
-          }}
-        </p>
-      </div>
+      <ChatMessage
+        v-for="m in messages"
+        :key="m.id"
+        :message="m"
+        :show-followups="m.role === 'agent' && m.id === lastAgentId && !streaming"
+        @ask="sendPreset"
+        @preview="preview"
+        @transfer="transfer"
+      />
       <div v-if="streaming" class="bubble agent">
         <p class="content">{{ draft || phase || '思考中…' }}</p>
         <p v-if="sources.length" class="refs">来源：{{ sources.join(' / ') }}</p>
@@ -56,7 +45,7 @@
     <div v-if="pendingImages.length" class="thumbs">
       <div v-for="img in pendingImages" :key="img.id" class="thumb">
         <img :src="img.preview" alt="待发送图片" />
-        <span class="x" @click="removeImage(img.id)">×</span>
+        <button class="x" :aria-label="`移除图片 ${img.id}`" @click="removeImage(img.id)">×</button>
       </div>
     </div>
     <p v-if="imgError" class="err">{{ imgError }}</p>
@@ -64,11 +53,11 @@
     <ImagePreviewDialog ref="previewRef" />
     <div class="input-row">
       <AiInput v-model="input" placeholder="请输入问题，如：退货政策是什么" @keyup.enter="send" />
-      <AiButton @click="pick">图片</AiButton>
-      <AiButton @click="voiceOpen = !voiceOpen">语音</AiButton>
+      <AiButton aria-label="上传图片" @click="pick">图片</AiButton>
+      <AiButton aria-label="语音输入" @click="voiceOpen = !voiceOpen">语音</AiButton>
       <AiButton v-if="!streaming" @click="send">发送</AiButton>
       <AiButton v-else @click="stop">停止</AiButton>
-      <AiButton @click="transfer">转人工</AiButton>
+      <AiButton :loading="transferring" @click="doTransfer">转人工</AiButton>
     </div>
     <input
       ref="fileRef"
@@ -76,6 +65,7 @@
       accept="image/jpeg,image/png,image/webp"
       multiple
       hidden
+      aria-label="选择图片文件"
       @change="onPick"
     />
       <SessionDrawer
@@ -87,6 +77,7 @@
         @select="restore"
         @removed="onSessionRemoved"
         @page="onSessionPage"
+        @size="onSessionSize"
       />
     </div>
   </div>
@@ -96,14 +87,18 @@
 // 真实对话：会话抽屉 + 图片上传 + 语音录播 + 流式落条（引用/trace/sources）；失败重连后仍不用回 mock 演示（对齐页面设计 §3.1/§4）
 // 发送带 threadId（t- 占位不传）+ clientMsgId 幂等键，首轮 done 回 session_id 后认领替换占位。
 import { ElMessage } from 'element-plus';
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useAgentStream } from '@/composables/useAgentStream';
+import { useHumanHandoff } from '@/composables/useHumanHandoff';
 import { useChatHistory } from '@/composables/useChatHistory';
 import { useImageUpload } from '@/composables/useImageUpload';
+import { useStickToBottom } from '@/composables/useStickToBottom';
+import { useSuggestedQuestions } from '@/composables/useSuggestedQuestions';
+import ChatMessage from '@/components/ChatMessage.vue';
+import ChatSuggestions from '@/components/ChatSuggestions.vue';
 import ImagePreviewDialog from '@/components/ImagePreviewDialog.vue';
 import SessionDrawer from '@/components/SessionDrawer.vue';
 import SessionList from '@/components/SessionList.vue';
-import VisionResultCard from '@/components/VisionResultCard.vue';
 import VoicePanel from '@/components/VoicePanel.vue';
 import { mockChatFallback } from '@/mock';
 import { useSessionStore } from '@/stores/session';
@@ -116,7 +111,18 @@ const input = ref('');
 const drawerRef = ref<{ open: () => unknown; close: () => unknown } | null>(null);
 const fileRef = ref<HTMLInputElement | null>(null);
 const sessionStore = useSessionStore();
-const { hasMore, restore, loadEarlier, resetHistory, forgetSession } = useChatHistory(messages);
+const { hasMore, restore: restoreBase, loadEarlier, resetHistory, forgetSession } =
+  useChatHistory(messages);
+
+// 切会话恢复后给最后一条 Agent 回复挂追问（历史消息无 followups，前端按内容规则补）
+const restore = async (id: string) => {
+  await restoreBase(id);
+  const list = [...messages.value].reverse();
+  const last = list.find(m => m.role === 'agent');
+  if (last && !last.followups?.length) {
+    last.followups = getFollowups(last.content, last.references);
+  }
+};
 const { streaming, sources, phase, draft, error, done, start, stop, toMessage } = useAgentStream();
 const {
   images: pendingImages,
@@ -128,6 +134,16 @@ const {
 } = useImageUpload();
 const voiceOpen = ref(false);
 const previewRef = ref<{ open: (url: string) => unknown } | null>(null);
+// 流式增量粘底跟随（翻历史不抢滚动，对齐页面设计 §5）
+const { listRef, onListScroll, stickNow } = useStickToBottom(() => messages.value.length, draft);
+// 空态预设 + 追问延伸（欢迎卡 chips / 最后一条回复下猜你想问，点击直接发送）
+const { getWelcomeSuggestions, getFollowups } = useSuggestedQuestions();
+const welcomeSuggestions = getWelcomeSuggestions();
+const isEmpty = computed(() => messages.value.length === 0 && !streaming.value);
+const lastAgentId = computed(() => {
+  const list = [...messages.value].reverse();
+  return list.find(m => m.role === 'agent')?.id ?? '';
+});
 
 const preview = (url: string) => {
   previewRef.value?.open(url);
@@ -144,7 +160,11 @@ const openSessions = () => {
 };
 
 const onSessionPage = (p: number) => {
-  sessionStore.loadSessions(p);
+  sessionStore.loadSessions(p, sessionStore.size);
+};
+
+const onSessionSize = (s: number) => {
+  sessionStore.loadSessions(1, s);
 };
 
 const newSession = () => {
@@ -190,6 +210,8 @@ const send = async () => {
     },
   ];
   input.value = '';
+  // 发送即回粘底，保证增量打字可见
+  stickNow();
   // 上传即检测：检测卡随用户泡即时渲染，file_id/inspections 透传拼 LLM 上下文
   let imageIds: string[] = [];
   let inspections: VisionInspection[] = [];
@@ -223,7 +245,13 @@ const send = async () => {
     ElMessage.error(`${error.value}，已用本地演示回复`);
     messages.value = [
       ...messages.value,
-      { id: `a-${Date.now()}`, role: 'agent', modality: 'text', content: mockChatFallback },
+      {
+        id: `a-${Date.now()}`,
+        role: 'agent',
+        modality: 'text',
+        content: mockChatFallback,
+        followups: getFollowups(mockChatFallback),
+      },
     ];
     return;
   }
@@ -232,20 +260,29 @@ const send = async () => {
     sessionStore.adoptSession(threadId, done.value.session_id, query.slice(0, 20) || '新会话');
     sessionStore.loadSessions();
   }
-  messages.value = [...messages.value, toMessage(`a-${Date.now()}`)];
+  const reply: AgentMessage = toMessage(`a-${Date.now()}`);
+  reply.followups = getFollowups(reply.content, reply.references);
+  messages.value = [...messages.value, reply];
 };
 
-const transfer = () => {
-  messages.value = [
-    ...messages.value,
-    {
-      id: `s-${Date.now()}`,
-      role: 'agent',
-      modality: 'text',
-      content: '已为你转人工，坐席将在 30 秒内接管（演示占位）。',
-    },
-  ];
+// 预设问题 / 追问一键发送（复用 send 的图片与幂等链路，流式中禁用防并发）
+const sendPreset = async (text: string) => {
+  if (streaming.value || !text.trim()) {
+    return;
+  }
+  input.value = text;
+  await send();
 };
+
+// 转人工：买家自助挂起（useHumanHandoff 内置占位落库 + handoff + 系统提示行）
+const { transferring, transfer } = useHumanHandoff();
+const doTransfer = () =>
+  transfer(content => {
+    messages.value = [
+      ...messages.value,
+      { id: `s-${Date.now()}`, role: 'agent', modality: 'text', content },
+    ];
+  });
 
 onMounted(() => {
   sessionStore.loadSessions();
@@ -269,7 +306,9 @@ onMounted(() => {
 
 .sider-title {
   margin: 0 0 8px 4px;
-  font-size: 15px;
+  font-size: var(--reai-fs-title);
+  font-weight: var(--reai-fw-semibold);
+  line-height: var(--reai-lh-tight);
   color: var(--reai-text-main);
 }
 
@@ -305,11 +344,6 @@ onMounted(() => {
   justify-content: space-between;
 }
 
-.top h2 {
-  margin: 0;
-  color: var(--reai-text-main);
-}
-
 .list {
   display: flex;
   flex: 1;
@@ -321,45 +355,29 @@ onMounted(() => {
 
 .bubble {
   max-width: 85%;
-  padding: 8px 12px;
+  padding: 10px 14px;
+  font-size: var(--reai-fs-body);
+  line-height: var(--reai-lh-body);
   color: var(--reai-text-on-light);
   background: var(--reai-bubble-agent);
   border: 1px solid var(--reai-border);
   border-radius: 8px;
+  /* 流式增量原文换行保留（white-space 可继承到气泡内 p.content） */
+  white-space: pre-wrap;
 }
 
-.bubble.user {
-  align-self: flex-end;
-  color: var(--reai-nav-active);
-  background: var(--reai-bubble-user);
-}
-
-.refs,
-.trace {
-  font-size: 12px;
-  color: var(--reai-text-muted);
+/* 空态欢迎：之前无样式走浏览器默认宋体发虚，补字阶 */
+.refs {
+  margin: 8px 0 0;
+  font-size: var(--reai-fs-caption);
+  line-height: var(--reai-lh-body);
+  color: var(--reai-text-on-light-muted);
 }
 
 .thumbs {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
-}
-
-.list .thumbs img {
-  width: 72px;
-  height: 72px;
-  cursor: zoom-in;
-  object-fit: cover;
-  border-radius: 8px;
-}
-
-.human {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  font-size: 12px;
-  color: var(--reai-notice);
 }
 
 .thumb {
@@ -381,40 +399,22 @@ onMounted(() => {
   right: -6px;
   width: 18px;
   height: 18px;
+  padding: 0;
   font-size: 12px;
   line-height: 18px;
   text-align: center;
   cursor: pointer;
   color: var(--reai-nav-active);
   background: var(--reai-primary);
+  border: none;
   border-radius: 50%;
 }
 
 .err {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--reai-fs-caption);
+  line-height: var(--reai-lh-body);
   color: var(--reai-notice);
-}
-
-.voice-bar {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  font-size: 13px;
-  color: var(--reai-text-main);
-}
-
-.rec-dot {
-  width: 10px;
-  height: 10px;
-  background: var(--reai-notice);
-  border-radius: 50%;
-  animation: blink 1s infinite;
-}
-
-.player {
-  max-width: 240px;
-  height: 32px;
 }
 
 .input-row {
@@ -431,11 +431,5 @@ onMounted(() => {
 .more-row {
   display: flex;
   justify-content: center;
-}
-
-@keyframes blink {
-  50% {
-    opacity: 0.3;
-  }
 }
 </style>

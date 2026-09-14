@@ -25,6 +25,7 @@ from app.api.v1.endpoints import (
     sessions,
     tasks,
     tickets,
+    workbench,
 )
 from app.core.rbac import get_current_user
 
@@ -49,5 +50,6 @@ api_router.include_router(promos.router, dependencies=[Depends(get_current_user)
 api_router.include_router(promos.members_router, dependencies=[Depends(get_current_user)])
 api_router.include_router(reviews.router, dependencies=[Depends(get_current_user)])
 api_router.include_router(tickets.router, dependencies=[Depends(get_current_user)])
+api_router.include_router(workbench.router, dependencies=[Depends(get_current_user)])
 api_router.include_router(logistics.router, dependencies=[Depends(get_current_user)])
 api_router.include_router(admin.router, dependencies=[Depends(get_current_user)])

@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
 from typing import Any
 
@@ -96,6 +98,54 @@ async def get_task(db: AsyncSession, *, tenant: str, task_id: str) -> Task:
     if row is None:
         raise BusinessError(ErrorCode.TASK_NOT_FOUND, "任务不存在或已过期", 404)
     return row
+
+
+async def run_direct_task(
+    *, tenant: str, task_id: str, type: str, payload: dict[str, Any] | None = None
+) -> None:
+    """直建任务后台执行（POST /tasks 分发；自建会话，请求会话此时已关闭）。
+
+    reindex 全走真实分块重建（复用 document_service.run_reindex）；
+    import/eval/未知类型走演示推进（running 分段进度 → done 落中文说明），
+    只为验证建→跑→查→下载闭环，不编造业务结果。异常只记 task error，绝不抛。
+    """
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from app.db.session import get_engine
+
+    kind = (type or "").strip()
+    if kind in ("reindex", "kb.reindex"):
+        from app.services import document_service  # 懒引入避循环（document 侧已同模式依赖本模块）
+
+        await document_service.run_reindex(tenant=tenant, task_id=task_id)
+        return
+    maker = async_sessionmaker(get_engine(), expire_on_commit=False)
+    try:
+        async with maker() as db:
+            await mark_task(db, tenant=tenant, task_id=task_id, status="running", progress=0.2)
+        await asyncio.sleep(1)
+        async with maker() as db:
+            await mark_task(db, tenant=tenant, task_id=task_id, status="running", progress=0.7)
+        await asyncio.sleep(1)
+        async with maker() as db:
+            await mark_task(
+                db,
+                tenant=tenant,
+                task_id=task_id,
+                status="done",
+                progress=1.0,
+                output={
+                    "type": kind,
+                    "note": "演示执行：建→跑→查→下载闭环已通；真实重建请用 reindex 类型",
+                    "payload": payload or {},
+                },
+            )
+    except Exception as exc:
+        with contextlib.suppress(Exception):
+            async with maker() as db:
+                await mark_task(
+                    db, tenant=tenant, task_id=task_id, status="error", error=str(exc)[:500]
+                )
 
 
 async def list_tasks(

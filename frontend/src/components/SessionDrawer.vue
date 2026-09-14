@@ -8,6 +8,7 @@
       @select="onSelect"
       @removed="emits('removed', $event)"
       @page="emits('page', $event)"
+      @size="emits('size', $event)"
     />
   </el-drawer>
 </template>
@@ -21,7 +22,7 @@ import SessionList from '@/components/SessionList.vue';
 import type { Session } from '@/types/agent';
 
 defineProps<{ sessions: Session[]; currentId: string | null; total: number }>();
-const emits = defineEmits(['new', 'select', 'removed', 'page']);
+const emits = defineEmits(['new', 'select', 'removed', 'page', 'size']);
 
 const visible = ref(false);
 

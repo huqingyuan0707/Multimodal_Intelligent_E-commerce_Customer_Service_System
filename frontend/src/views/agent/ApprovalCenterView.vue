@@ -1,68 +1,112 @@
 <template>
   <div class="page">
     <div class="head">
-      <h2>审批中心</h2>
       <el-tag v-if="demo" type="warning" size="small">演示数据</el-tag>
+      <span class="sla">超时自动升级 · 记录不可篡改</span>
     </div>
     <div class="filters">
-      <el-select v-model="status" placeholder="状态" class="sel" @change="reload">
-        <el-option v-for="o in STATUS_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
+      <el-select v-model="status" placeholder="状态" class="sel" @change="onSearch">
+        <el-option v-for="o in APPROVAL_STATUS_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
       </el-select>
-      <AiButton @click="reload">查询</AiButton>
+      <el-select v-model="action" placeholder="类型" class="sel" @change="onSearch">
+        <el-option v-for="o in APPROVAL_ACTION_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
+      </el-select>
+      <AiInput v-model="keyword" placeholder="搜对象/申请人/原因" class="kw" clearable @keyup.enter="onSearch" />
+      <AiButton @click="onSearch">查询</AiButton>
+      <AiButton v-permission="['shop', 'ops', 'admin']" @click="batch">批量批准</AiButton>
     </div>
-    <el-table v-loading="loading" :data="rows" class="table" @row-click="open">
-      <el-table-column prop="action_label" label="动作" width="100" />
-      <el-table-column prop="target" label="对象" />
+    <el-table
+      v-loading="loading"
+      :data="rows"
+      class="table"
+      empty-text="暂无审批单"
+      @row-click="open"
+      @selection-change="onSelection"
+    >
+      <el-table-column type="selection" width="44" />
+      <el-table-column prop="action_label" label="动作" width="110" />
+      <el-table-column prop="target" label="对象" min-width="160" />
+      <el-table-column label="金额" width="150">
+        <template #default="s">{{ approvalAmountOf(s.row as ApprovalItem) || '-' }}</template>
+      </el-table-column>
       <el-table-column prop="applicant" label="申请人" width="100" />
       <el-table-column label="状态" width="100">
         <template #default="s">
-          <el-tag :type="approvalTagOf(s.row.status)" size="small">{{ s.row.status_label }}</el-tag>
+          <el-tag :type="approvalTagOf((s.row as ApprovalItem).status)" size="small">
+            {{ (s.row as ApprovalItem).status_label }}
+          </el-tag>
         </template>
       </el-table-column>
+      <el-table-column label="等待" width="130">
+        <template #default="s">{{ approvalWaitingOf(s.row as ApprovalItem) }}</template>
+      </el-table-column>
       <el-table-column prop="created_at" label="创建时间" width="170" />
-      <el-table-column label="操作" width="170">
+      <el-table-column label="操作" width="130" fixed="right">
         <template #default="s">
-          <el-button
+          <AiButton
             v-permission="['shop', 'ops', 'admin']"
             link
             type="primary"
             size="small"
             :disabled="s.row.status !== 'pending'"
-            @click.stop="approve(s.row as ApprovalItem)"
+            @click.stop="approveOne(s.row as ApprovalItem)"
           >
             批准
-          </el-button>
-          <el-button
+          </AiButton>
+          <AiButton
             v-permission="['shop', 'ops', 'admin']"
             link
             type="danger"
             size="small"
             :disabled="s.row.status !== 'pending'"
-            @click.stop="reject(s.row as ApprovalItem)"
+            @click.stop="rejectOne(s.row as ApprovalItem)"
           >
             驳回
-          </el-button>
+          </AiButton>
         </template>
       </el-table-column>
     </el-table>
-    <el-drawer v-model="drawer" title="审批详情" size="420px">
+    <div class="pager">
+      <el-pagination
+        :current-page="page"
+        :page-size="size"
+        :page-sizes="[10, 20, 50, 100]"
+        :total="total"
+        layout="sizes, prev, pager, next, total"
+        @current-change="onPage"
+        @size-change="onSize"
+      />
+    </div>
+    <el-drawer v-model="drawer" title="审批详情" size="440px">
       <div v-if="current" class="detail">
         <p class="kv">动作：{{ current.action_label }}（{{ current.action }}）</p>
         <p class="kv">对象：{{ current.target }}</p>
+        <p class="kv">金额：{{ approvalAmountOf(current) || '-' }}</p>
         <p class="kv">申请人：{{ current.applicant }}</p>
-        <p class="kv">状态：{{ current.status_label }}</p>
+        <p class="kv">状态：{{ current.status_label }} · {{ approvalWaitingOf(current) }}</p>
         <p class="kv">申请原因：{{ current.reason || '-' }}</p>
         <p class="kv">参数：</p>
         <pre class="args">{{ prettyArgs }}</pre>
+        <div v-if="approvalEvidenceOf(current).length" class="ev">
+          <p class="kv">证据图：</p>
+          <el-image
+            v-for="u in approvalEvidenceOf(current)"
+            :key="u"
+            :src="u"
+            class="thumb"
+            preview-teleported
+          />
+        </div>
+        <p v-if="current.session_id" class="kv">关联会话：{{ current.session_id }}</p>
         <p v-if="current.approver" class="kv">审批人：{{ current.approver }}</p>
         <div v-if="current.status === 'pending'" class="ops">
-          <AiButton v-permission="['shop', 'ops', 'admin']" @click="approve(current)">
+          <AiButton v-permission="['shop', 'ops', 'admin']" @click="approveOne(current)">
             批准
           </AiButton>
           <AiButton v-permission="['shop', 'ops', 'admin']" @click="approveWithArgs(current)">
             改参批准
           </AiButton>
-          <AiButton v-permission="['shop', 'ops', 'admin']" @click="reject(current)">
+          <AiButton v-permission="['shop', 'ops', 'admin']" @click="rejectOne(current)">
             驳回
           </AiButton>
         </div>
@@ -72,54 +116,104 @@
 </template>
 
 <script setup lang="ts">
-// 审批中心（列表 + 详情抽屉 + 批准/驳回/改参批准；批驳按钮仅店长/运营/管理员可见，对齐页面设计 §3.4）
+// 审批中心（服务端分页 + 状态/类型/关键字筛选 + 批量批 + 证据图/超时透出；确认与幂等下沉 useApproval，对齐页面设计 §3.4）
 import {
   ElDrawer,
+  ElImage,
   ElMessage,
-  ElMessageBox,
+  ElPagination,
   ElTable,
   ElTableColumn,
   ElTag,
   ElSelect,
   ElOption,
-  ElButton,
 } from 'element-plus';
 import { computed, onMounted, ref } from 'vue';
-import { approveApprovalApi, listApprovalsApi, rejectApprovalApi } from '@/api';
+import { listApprovalsApi } from '@/api';
+import { useApproval } from '@/composables/useApproval';
 import { mockApprovals } from '@/mock';
 import AiButton from '@/shared/components/AiButton.vue';
-import { approvalTagOf } from '@/types/approval';
+import AiInput from '@/shared/components/AiInput.vue';
+import {
+  APPROVAL_ACTION_OPTIONS,
+  APPROVAL_STATUS_OPTIONS,
+  approvalAmountOf,
+  approvalEvidenceOf,
+  approvalTagOf,
+  approvalWaitingOf,
+} from '@/types/approval';
 import type { ApprovalItem } from '@/types/approval';
 
-const STATUS_OPTIONS = [
-  { value: 'pending', label: '待审批' },
-  { value: '', label: '全部' },
-];
-
 const rows = ref<ApprovalItem[]>([]);
+const total = ref(0);
+const page = ref(1);
+const size = ref(20);
 const status = ref('pending');
+const action = ref('');
+const keyword = ref('');
 const loading = ref(false);
 const demo = ref(false);
 const drawer = ref(false);
 const current = ref<ApprovalItem | null>(null);
+const selected = ref<ApprovalItem[]>([]);
 
 const prettyArgs = computed(() => JSON.stringify(current.value?.args ?? {}, null, 2));
 
 const load = async () => {
   loading.value = true;
   try {
-    rows.value = await listApprovalsApi({ status: status.value });
+    const data = await listApprovalsApi({
+      status: status.value,
+      action: action.value,
+      keyword: keyword.value.trim(),
+      page: page.value,
+      size: size.value,
+    });
+    rows.value = data.items;
+    total.value = data.total;
     demo.value = false;
   } catch {
-    rows.value = mockApprovals.filter(a => !status.value || a.status === status.value);
+    const kw = keyword.value.trim();
+    const filtered = mockApprovals.filter(
+      a =>
+        (!status.value || a.status === status.value) &&
+        (!action.value || a.action === action.value) &&
+        (!kw || `${a.target}${a.applicant}${a.reason}`.includes(kw))
+    );
+    total.value = filtered.length;
+    rows.value = filtered.slice((page.value - 1) * size.value, page.value * size.value);
     demo.value = true;
+    ElMessage.warning('后端不可用，已显示演示数据');
   } finally {
     loading.value = false;
   }
 };
 
 const reload = () => {
+  drawer.value = false;
   load();
+};
+
+const { approveOne, approveWithArgs, rejectOne, approveBatch } = useApproval(reload);
+
+const onSearch = () => {
+  page.value = 1;
+  load();
+};
+
+const onPage = (p: number) => {
+  page.value = p;
+  load();
+};
+
+const onSize = (s: number) => {
+  size.value = s;
+  page.value = 1;
+  load();
+};
+
+const onSelection = (vals: ApprovalItem[]) => {
+  selected.value = vals;
 };
 
 const open = (row: ApprovalItem) => {
@@ -127,74 +221,8 @@ const open = (row: ApprovalItem) => {
   drawer.value = true;
 };
 
-const approve = async (row: ApprovalItem) => {
-  try {
-    await ElMessageBox.confirm(
-      `批准「${row.action_label}｜${row.target}」并立即生效吗？`,
-      '批准确认',
-    );
-  } catch {
-    return;
-  }
-  await decide(row, {}, '审批已通过并生效');
-};
-
-// 改参批准：审批人改金额/参数后再批（如 199 改成 209）
-const approveWithArgs = async (row: ApprovalItem) => {
-  let raw: string;
-  try {
-    ({ value: raw } = await ElMessageBox.prompt('改后参数（JSON，可空则直接批准）', '改参批准', {
-      inputValue: JSON.stringify(row.args),
-    }));
-  } catch {
-    return;
-  }
-  let modified: object = {};
-  if (raw.trim()) {
-    try {
-      const parsed: unknown = JSON.parse(raw);
-      if (typeof parsed !== 'object' || parsed === null) {
-        throw new Error('not object');
-      }
-      modified = parsed;
-    } catch {
-      ElMessage.warning('参数不是合法 JSON 对象');
-      return;
-    }
-  }
-  await decide(row, modified, '已按改后参数批准并生效');
-};
-
-const reject = async (row: ApprovalItem) => {
-  let reason: string;
-  try {
-    ({ value: reason } = await ElMessageBox.prompt('驳回理由（必填，留痕）', '驳回'));
-  } catch {
-    return;
-  }
-  if (!reason.trim()) {
-    ElMessage.warning('驳回理由必填');
-    return;
-  }
-  try {
-    await rejectApprovalApi({ id: row.id, reason: reason.trim() });
-    ElMessage.success('已驳回，原数据保持不变');
-    drawer.value = false;
-    await load();
-  } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : '驳回失败');
-  }
-};
-
-const decide = async (row: ApprovalItem, modified: object, okMsg: string) => {
-  try {
-    await approveApprovalApi({ id: row.id, modifiedArgs: modified });
-    ElMessage.success(okMsg);
-    drawer.value = false;
-    await load();
-  } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : '批准失败');
-  }
+const batch = () => {
+  approveBatch(selected.value);
 };
 
 onMounted(() => {
@@ -213,10 +241,9 @@ onMounted(() => {
   align-items: center;
 }
 
-.head h2 {
-  margin: 0;
-  font-size: 18px;
-  color: var(--reai-text-main);
+.sla {
+  font-size: 12px;
+  color: var(--reai-text-muted);
 }
 
 .filters {
@@ -226,12 +253,22 @@ onMounted(() => {
 }
 
 .sel {
-  width: 140px;
+  width: 130px;
+}
+
+.kw {
+  width: 220px;
 }
 
 .table {
   width: 100%;
   cursor: pointer;
+}
+
+.pager {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
 }
 
 .detail {
@@ -253,6 +290,19 @@ onMounted(() => {
   background: var(--reai-card-2);
   border-radius: 8px;
   white-space: pre-wrap;
+}
+
+.ev {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.thumb {
+  width: 72px;
+  height: 72px;
+  border-radius: 8px;
 }
 
 .ops {

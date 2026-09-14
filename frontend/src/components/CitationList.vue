@@ -30,25 +30,32 @@ const copy = async () => {
 </script>
 
 <style scoped>
+/* 浅泡内嵌金卡：浅底 + 深字（原 --reai-card 深底套浅泡，accent 青字在浅底上发虚；对齐画布 botCitation #E8A33D1F + 深字） */
 .cites {
-  padding: 8px;
-  margin-top: 6px;
-  background: var(--reai-card);
+  padding: 8px 10px;
+  margin-top: 8px;
+  color: var(--reai-text-on-light);
+  background: var(--reai-gold-soft);
   border: 1px solid var(--reai-gold);
   border-radius: 8px;
 }
 .cite {
   margin: 4px 0;
-  font-size: 12px;
-  color: var(--reai-accent);
+  font-size: var(--reai-fs-caption);
+  font-weight: var(--reai-fw-medium);
+  line-height: var(--reai-lh-body);
+  color: var(--reai-text-on-light-muted);
   cursor: pointer;
 }
 .trace {
   padding: 0;
-  font-size: 11px;
-  color: var(--reai-text-muted);
+  font-family: var(--reai-font-mono);
+  font-size: var(--reai-fs-micro);
+  line-height: var(--reai-lh-body);
+  color: var(--reai-text-on-light-faint);
   cursor: pointer;
   background: none;
   border: none;
+  word-break: break-all;
 }
 </style>

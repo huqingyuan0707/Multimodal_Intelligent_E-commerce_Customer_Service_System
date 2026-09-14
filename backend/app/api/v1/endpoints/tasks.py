@@ -1,14 +1,14 @@
-"""任务端点（真实落库，对齐 API 规范 §4.5）
+"""任务端点（真实落库 + 后台执行，对齐 API 规范 §4.5）
 
-链路：POST /tasks → task_service 建行 → GET /tasks/{id} 轮询；SSE 另有 progress/complete/error。
-列表按本人隔离倒序，page/size 默认 20。
+链路：POST /tasks → task_service 建行 → BackgroundTasks 分发执行 → GET /tasks/{id} 轮询；
+SSE 另有 progress/complete/error。列表按本人隔离倒序，page/size 默认 20。
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -46,12 +46,20 @@ async def list_tasks(
 @router.post("")
 async def create_task(
     payload: CreateTaskRequest,
+    background: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """建任务（落库 pending 行，返回 task_id 供轮询）。"""
+    """建任务（落库 pending 行即返 task_id；后台按类型分发执行，轮询看 running→done）。"""
     row = await task_service.create_task(
         db, tenant=user.tenant, username=user.username, type=payload.type, payload=payload.payload
+    )
+    background.add_task(
+        task_service.run_direct_task,
+        tenant=user.tenant,
+        task_id=row.id,
+        type=row.type,
+        payload=payload.payload,
     )
     return ok({"task_id": row.id}, "任务已提交")
 

@@ -82,5 +82,11 @@ CI（`.github/workflows/ci.yml`）与本地 `lint-staged + husky` 任一红灯�
 ## 7. UI 设计规则
 
 - 开始任何 UI / 前端设计任务前，先确认项目已执行过 `/impeccable init`；如果未执行，则先运行 `npx impeccable install` 并执行 `/impeccable init`。
-- 每次完成 UI 设计任务后，执行 `/impeccable critique` 对界面进行设计评审，并根据评审结果用 `/impeccable polish` 进行优化。
+- **对话框命令**：`.codebuddy/commands/impeccable.md` 是统一入口，6 个高频子命令另各注册一份独立文件（`impeccable-{audit,distill,clarify,bolder,quieter,animate}.md`），输入 `/impeccable` 即弹命令列表；`/impeccable-<子命令>` 与 `/impeccable <子命令>` 等价，其余 18 个命令仍走统一入口（表见 `.github/skills/impeccable/SKILL.md` §Commands）。每份文件都带本项目附加约束（token 取色、画板同改、状态完整性、SSE 不动）。
 - 避免生成常见的 AI 设计套路（如 Inter 字体、紫色渐变、卡片套卡片等）。
+
+## 8. UI 设计收尾规则
+
+- 每次完成 UI / 前端设计任务后，必须执行 `/impeccable critique <目标文件>` 进行设计评审。
+- 评审完成后，执行 `/impeccable polish <目标文件>` 根据评审结果进行最终打磨。
+- 如果项目尚未安装 impeccable，先运行 `npx impeccable install` 并执行 `/impeccable init`。

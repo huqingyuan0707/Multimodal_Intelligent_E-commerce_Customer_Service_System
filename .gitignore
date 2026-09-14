@@ -22,6 +22,7 @@ frontend/components.d.ts
 .mypy_cache/
 .vitest/
 coverage.xml
+.coverage
 .vite/
 
 # ---- 本地配置与密钥（绝不入库） ----
@@ -48,3 +49,6 @@ Thumbs.db
 # ---- 设计工具产物（画板唯一事实源是 design.pen，其余不入库）----
 *.pen.bak
 pencil-shadcn.pen
+
+# ---- 根目录一次性探针脚本（用完即删，禁止入库）----
+/_*.py

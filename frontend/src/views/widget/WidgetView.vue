@@ -105,6 +105,9 @@ const send = async () => {
 .content {
   margin: 0;
   font-size: 14px;
+  /* 嵌入版与 ChatMessage 同口径：保留回答原文换行 */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .refs {

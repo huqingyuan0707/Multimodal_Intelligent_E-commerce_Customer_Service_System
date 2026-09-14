@@ -1,6 +1,5 @@
 <template>
   <div class="page">
-    <h2>营销会员</h2>
     <el-tabs v-model="tab">
       <el-tab-pane label="优惠活动" name="promo">
         <div class="toolbar">
@@ -9,7 +8,7 @@
           </AiButton>
         </div>
         <el-empty v-if="!promos.length && !loading" description="暂无活动" />
-        <el-table v-loading="loading" :data="promos" style="width: 100%">
+        <el-table v-loading="loading" :data="pagedPromos" style="width: 100%">
           <el-table-column prop="name" label="活动" min-width="160" />
           <el-table-column label="预算/已发/剩余" min-width="180">
             <template #default="s"
@@ -28,6 +27,17 @@
             </template>
           </el-table-column>
         </el-table>
+        <div class="pager">
+          <el-pagination
+            :current-page="page"
+            :page-size="size"
+            :page-sizes="[10, 20, 50, 100]"
+            :total="total"
+            layout="sizes, prev, pager, next, total"
+            @current-change="onPage"
+            @size-change="onSize"
+          />
+        </div>
       </el-tab-pane>
       <el-tab-pane label="会员" name="member">
         <div class="toolbar">
@@ -85,8 +95,8 @@
 <script setup lang="ts">
 // 营销会员：活动列表/创建 + 发券（幂等键本地生成，超预算 3006 中文提示）+ 会员查调分
 // 对齐 FRD FR-10.6/附录 D、页面设计 §3.16
-import { ElMessage, ElMessageBox } from 'element-plus';
-import { onMounted, ref } from 'vue';
+import { ElMessage, ElMessageBox, ElPagination } from 'element-plus';
+import { computed, onMounted, ref } from 'vue';
 import {
   adjustPointsApi,
   createPromoApi,
@@ -101,6 +111,13 @@ import type { MemberItem, PromoItem } from '@/types/shop';
 const tab = ref('promo');
 const promos = ref<PromoItem[]>([]);
 const loading = ref(false);
+// 活动列表分页：后端暂无服务端分页，先客户端裁剪，默认 20 可切 10/20/50/100
+const page = ref(1);
+const size = ref(20);
+const total = computed(() => promos.value.length);
+const pagedPromos = computed(() =>
+  promos.value.slice((page.value - 1) * size.value, page.value * size.value),
+);
 const dialog = ref(false);
 const submitting = ref(false);
 const form = ref({ name: '', budget: '', valid_from: '', valid_to: '' });
@@ -122,6 +139,15 @@ const loadPromos = async () => {
   } finally {
     loading.value = false;
   }
+};
+
+const onPage = (p: number) => {
+  page.value = p;
+};
+
+const onSize = (s: number) => {
+  size.value = s;
+  page.value = 1;
 };
 
 const openCreate = () => {
@@ -241,5 +267,11 @@ onMounted(() => {
   gap: 8px;
   align-items: center;
   margin-bottom: 8px;
+}
+
+.pager {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
 }
 </style>

@@ -1,15 +1,18 @@
 """本地大模型网关（Ollama qwen2.5，OpenAI 兼容协议，对齐 ADR-0001 + RAG 规范 §4 生成）
 
-链路：chat_service → complete() → POST {LLM_BASE_URL}/chat/completions → 回复文本。
-适配层口径：业务只认 complete()/probe() 两个函数，换云端模型或换机器只改 Settings（
-            禁止任何业务文件出现 URL、模型名、密钥字面量）。
+链路：chat_service → complete() / acomplete_stream() → POST {LLM_BASE_URL}/chat/completions
+       → 回复文本（非流式取全文，流式逐 token 增量）。
+适配层口径：业务只认 complete()/acomplete_stream()/probe() 三个函数，换云端模型或换机器
+             只改 Settings（禁止任何业务文件出现 URL、模型名、密钥字面量）。
 降级红线：连不上 / 超时 / 非 2xx / 空回复 → 统一抛 LlmUnavailableError，
           由调用方决定降级策略（片段摘要），本模块绝不把上游异常冒泡成 500。
 """
 
 from __future__ import annotations
 
+import json
 import time
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -76,6 +79,30 @@ def _extract_text(body: dict[str, Any]) -> tuple[str, str, dict[str, int]]:
     return text, model, usage
 
 
+def _delta_from_sse_line(line: str) -> str:
+    """OpenAI 兼容流式单行 → 文本增量（非 data 行 / [DONE] / 坏 JSON 一律回空串跳过）。
+
+    纯函数，可单测；网络形态变化只改这里，不碰调用方。
+    """
+    text = line.strip()
+    if not text.startswith("data:"):
+        return ""
+    data = text[5:].strip()
+    if not data or data == "[DONE]":
+        return ""
+    try:
+        obj = json.loads(data)
+    except ValueError:
+        return ""
+    choices = obj.get("choices") if isinstance(obj, dict) else None
+    if not choices:
+        return ""
+    first = choices[0] if isinstance(choices, list) else {}
+    delta = first.get("delta") if isinstance(first, dict) else None
+    content = delta.get("content") if isinstance(delta, dict) else None
+    return str(content) if content else ""
+
+
 async def complete(
     messages: list[dict[str, str]],
     *,
@@ -122,6 +149,61 @@ async def complete(
         },
     )
     return LlmReply(text=text, model=model, latency_ms=latency_ms, usage=usage)
+
+
+async def acomplete_stream(
+    messages: list[dict[str, str]],
+    *,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
+) -> AsyncIterator[str]:
+    """token 增量流：逐个 yield 模型文本增量（空增量已过滤，调用方直接拼）。
+
+    与 complete 同降级红线：未启用 / 空参 / 建连失败 / 非 2xx / 全程无增量
+    → 抛 LlmUnavailableError，调用方回退整段模板。超时按“首连 10s + 读取空闲
+    LLM_TIMEOUT_SECONDS”计，避免长回答被总时长掐断。结束记一条 llm 可观测。
+    """
+    if not settings.LLM_ENABLED:
+        raise LlmUnavailableError("LLM_ENABLED=false，大模型未启用")
+    if not messages:
+        raise LlmUnavailableError("messages 为空，不请求模型")
+    payload: dict[str, Any] = {
+        "model": settings.LLM_MODEL,
+        "messages": messages,
+        "temperature": settings.LLM_TEMPERATURE if temperature is None else temperature,
+        "max_tokens": settings.LLM_MAX_TOKENS if max_tokens is None else max_tokens,
+        "stream": True,
+    }
+    timeout = httpx.Timeout(settings.LLM_TIMEOUT_SECONDS, connect=10.0)
+    started = time.perf_counter()
+    try:
+        async with (
+            httpx.AsyncClient(timeout=timeout, trust_env=False) as client,
+            client.stream("POST", _chat_url(), json=payload, headers=_headers()) as resp,
+        ):
+            if resp.status_code >= 400:
+                body = (await resp.aread()).decode("utf-8", "ignore")[:120]
+                latency_ms = int((time.perf_counter() - started) * 1000)
+                record(
+                    "llm",
+                    {"model": settings.LLM_MODEL, "ok": False, "latency_ms": latency_ms},
+                )
+                raise LlmUnavailableError(f"模型返回 HTTP {resp.status_code}：{body}")
+            got_any = False
+            async for line in resp.aiter_lines():
+                piece = _delta_from_sse_line(line)
+                if piece:
+                    got_any = True
+                    yield piece
+    except (httpx.HTTPError, OSError) as exc:
+        latency_ms = int((time.perf_counter() - started) * 1000)
+        record("llm", {"model": settings.LLM_MODEL, "ok": False, "latency_ms": latency_ms})
+        raise LlmUnavailableError(f"模型流不可达：{exc.__class__.__name__}") from exc
+    latency_ms = int((time.perf_counter() - started) * 1000)
+    if not got_any:
+        record("llm", {"model": settings.LLM_MODEL, "ok": False, "latency_ms": latency_ms})
+        raise LlmUnavailableError("模型流全程无增量，按不可用处理")
+    record("llm", {"model": settings.LLM_MODEL, "ok": True, "latency_ms": latency_ms})
 
 
 async def probe() -> dict[str, Any]:

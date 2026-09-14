@@ -17,56 +17,92 @@
       "children": [
         {
           "type": "frame",
-          "id": "sessionList",
-          "name": "左侧-会话列表",
-          "width": 300,
-          "height": "fill_container",
+          "id": "wbf041",
+          "name": "WorkbenchQueue",
           "layout": "vertical",
           "gap": 12,
           "padding": 16,
           "fill": "#161D33",
           "cornerRadius": 12,
+          "width": 300,
+          "height": "fill_container",
+          "clip": true,
           "children": [
             {
               "type": "frame",
-              "id": "sessionHeader",
-              "name": "列表头",
-              "width": "fill_container",
+              "id": "wbf007",
+              "name": "队列状态页签",
               "layout": "horizontal",
-              "justifyContent": "space_between",
+              "gap": 8,
               "alignItems": "center",
               "children": [
                 {
-                  "type": "text",
-                  "id": "sessionTitle",
-                  "name": "标题",
-                  "content": "会话列表",
-                  "fontSize": 16,
-                  "fontWeight": "600",
-                  "fill": "#EEF1F8"
-                },
-                {
                   "type": "frame",
-                  "id": "sessionCountBadge",
-                  "name": "未读徽标",
+                  "id": "wbf002",
+                  "name": "页签-待接",
                   "layout": "horizontal",
-                  "alignItems": "center",
-                  "justifyContent": "center",
                   "padding": [
-                    2,
-                    8
+                    5,
+                    10
                   ],
-                  "fill": "#FB9236",
-                  "cornerRadius": 999,
+                  "fill": "#4F6BFF1F",
+                  "cornerRadius": 6,
+                  "alignItems": "center",
                   "children": [
                     {
                       "type": "text",
-                      "id": "sessionCount",
-                      "name": "未读数",
-                      "content": "12",
-                      "fontSize": 11,
-                      "fontWeight": "600",
-                      "fill": "#ffffff"
+                      "id": "wbt001",
+                      "name": "页签-待接文案",
+                      "content": "待接 3",
+                      "fontSize": 12,
+                      "fill": "#4F6BFF",
+                      "fontWeight": "600"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "wbf004",
+                  "name": "页签-处理中",
+                  "layout": "horizontal",
+                  "padding": [
+                    5,
+                    10
+                  ],
+                  "fill": "#FFFFFF1F",
+                  "cornerRadius": 6,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "wbt003",
+                      "name": "页签-处理中文案",
+                      "content": "处理中 1",
+                      "fontSize": 12,
+                      "fill": "#A9B1C7"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "wbf006",
+                  "name": "页签-已解决",
+                  "layout": "horizontal",
+                  "padding": [
+                    5,
+                    10
+                  ],
+                  "fill": "#FFFFFF1F",
+                  "cornerRadius": 6,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "wbt005",
+                      "name": "页签-已解决文案",
+                      "content": "已解决 12",
+                      "fontSize": 12,
+                      "fill": "#A9B1C7"
                     }
                   ]
                 }
@@ -74,35 +110,24 @@
             },
             {
               "type": "frame",
-              "id": "searchBar",
-              "name": "搜索框",
-              "width": "fill_container",
-              "height": 36,
+              "id": "wbf009",
+              "name": "队列搜索框",
               "layout": "horizontal",
-              "alignItems": "center",
-              "gap": 8,
               "padding": [
                 0,
-                12
+                10
               ],
-              "fill": "#0B1124",
-              "cornerRadius": 8,
+              "fill": "#1E2742",
+              "cornerRadius": 6,
+              "alignItems": "center",
+              "height": 32,
+              "width": "fill_container",
               "children": [
                 {
-                  "type": "icon",
-                  "id": "searchIcon",
-                  "name": "搜索图标",
-                  "library": "lucide",
-                  "icon": "search",
-                  "width": 16,
-                  "height": 16,
-                  "fill": "#8B94AD"
-                },
-                {
                   "type": "text",
-                  "id": "searchText",
-                  "name": "占位",
-                  "content": "搜索会话 / 订单号",
+                  "id": "wbt008",
+                  "name": "队列搜索占位",
+                  "content": "搜索昵称 / 消息关键词（300ms 防抖）",
                   "fontSize": 12,
                   "fill": "#8B94AD"
                 }
@@ -110,247 +135,380 @@
             },
             {
               "type": "frame",
-              "id": "sessionItem1",
-              "name": "会话项-选中",
-              "width": "fill_container",
-              "height": 64,
-              "layout": "horizontal",
-              "alignItems": "center",
-              "gap": 12,
-              "padding": 12,
+              "id": "wbf016",
+              "name": "队列行-王女士",
+              "layout": "vertical",
+              "gap": 4,
+              "padding": 10,
               "fill": "#4F6BFF1F",
-              "cornerRadius": 10,
+              "cornerRadius": 8,
               "children": [
                 {
-                  "type": "ellipse",
-                  "id": "avatar1",
-                  "name": "头像",
-                  "width": 36,
-                  "height": 36,
-                  "fill": "#4F6BFF"
-                },
-                {
                   "type": "frame",
-                  "id": "item1Body",
-                  "name": "会话信息",
-                  "width": "fill_container",
-                  "layout": "vertical",
-                  "gap": 4,
+                  "id": "wbf013",
+                  "name": "队列行-王女士首行",
+                  "layout": "horizontal",
+                  "gap": 8,
+                  "alignItems": "center",
                   "children": [
                     {
                       "type": "text",
-                      "id": "item1Name",
-                      "name": "昵称",
-                      "content": "用户_8821",
+                      "id": "wbt010",
+                      "name": "队列行-王女士昵称",
+                      "content": "王女士",
                       "fontSize": 13,
-                      "fontWeight": "600",
-                      "fill": "#EEF1F8"
+                      "fill": "#EEF1F8",
+                      "fontWeight": "600"
                     },
                     {
                       "type": "text",
-                      "id": "item1Msg",
-                      "name": "摘要",
-                      "content": "这件衣服有 L 码吗？",
-                      "fontSize": 12,
-                      "fill": "#8B94AD"
+                      "id": "wbt011",
+                      "name": "队列行-王女士标记",
+                      "content": "待接",
+                      "fontSize": 11,
+                      "fill": "#FB9236",
+                      "fontWeight": "600"
+                    },
+                    {
+                      "type": "text",
+                      "id": "wbt012",
+                      "name": "队列行-王女士流转态",
+                      "content": "待接",
+                      "fontSize": 11,
+                      "fill": "#FB9236",
+                      "fontWeight": "600"
                     }
-                  ]
+                  ],
+                  "width": "fill_container",
+                  "justifyContent": "space_between"
                 },
                 {
                   "type": "text",
-                  "id": "item1Time",
-                  "name": "时间",
-                  "content": "10:24",
-                  "fontSize": 11,
+                  "id": "wbt014",
+                  "name": "队列行-王女士摘要",
+                  "content": "袖口脱线约2cm，可换货处理",
+                  "fontSize": 12,
                   "fill": "#8B94AD"
+                },
+                {
+                  "type": "text",
+                  "id": "wbt015",
+                  "name": "队列行-王女士时间",
+                  "content": "10:12 · VIP 优先",
+                  "fontSize": 11,
+                  "fill": "#A9B1C7"
+                }
+              ],
+              "stroke": "#4F6BFF",
+              "strokeWidth": 1
+            },
+            {
+              "type": "frame",
+              "id": "wbf023",
+              "name": "队列行-李先生",
+              "layout": "vertical",
+              "gap": 4,
+              "padding": 10,
+              "fill": "#1E2742",
+              "cornerRadius": 8,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "wbf020",
+                  "name": "队列行-李先生首行",
+                  "layout": "horizontal",
+                  "gap": 8,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "wbt017",
+                      "name": "队列行-李先生昵称",
+                      "content": "李先生",
+                      "fontSize": 13,
+                      "fill": "#EEF1F8",
+                      "fontWeight": "600"
+                    },
+                    {
+                      "type": "text",
+                      "id": "wbt018",
+                      "name": "队列行-李先生标记",
+                      "content": "处理中",
+                      "fontSize": 11,
+                      "fill": "#4F6BFF",
+                      "fontWeight": "600"
+                    },
+                    {
+                      "type": "text",
+                      "id": "wbt019",
+                      "name": "队列行-李先生流转态",
+                      "content": "处理中",
+                      "fontSize": 11,
+                      "fill": "#4F6BFF",
+                      "fontWeight": "600"
+                    }
+                  ],
+                  "width": "fill_container",
+                  "justifyContent": "space_between"
+                },
+                {
+                  "type": "text",
+                  "id": "wbt021",
+                  "name": "队列行-李先生摘要",
+                  "content": "申请退款，已核对订单金额",
+                  "fontSize": 12,
+                  "fill": "#8B94AD"
+                },
+                {
+                  "type": "text",
+                  "id": "wbt022",
+                  "name": "队列行-李先生时间",
+                  "content": "10:04",
+                  "fontSize": 11,
+                  "fill": "#A9B1C7"
                 }
               ]
             },
             {
               "type": "frame",
-              "id": "sessionItem2",
-              "name": "会话项-普通",
-              "width": "fill_container",
-              "height": 64,
-              "layout": "horizontal",
-              "alignItems": "center",
-              "gap": 12,
-              "padding": 12,
-              "cornerRadius": 10,
+              "id": "wbf030",
+              "name": "队列行-张女士",
+              "layout": "vertical",
+              "gap": 4,
+              "padding": 10,
+              "fill": "#1E2742",
+              "cornerRadius": 8,
               "children": [
                 {
-                  "type": "ellipse",
-                  "id": "avatar2",
-                  "name": "头像",
-                  "width": 36,
-                  "height": 36,
-                  "fill": "#1E2742"
-                },
-                {
                   "type": "frame",
-                  "id": "item2Body",
-                  "name": "会话信息",
-                  "width": "fill_container",
-                  "layout": "vertical",
-                  "gap": 4,
+                  "id": "wbf027",
+                  "name": "队列行-张女士首行",
+                  "layout": "horizontal",
+                  "gap": 8,
+                  "alignItems": "center",
                   "children": [
                     {
                       "type": "text",
-                      "id": "item2Name",
-                      "name": "昵称",
-                      "content": "用户_3390",
+                      "id": "wbt024",
+                      "name": "队列行-张女士昵称",
+                      "content": "张女士",
                       "fontSize": 13,
-                      "fontWeight": "600",
-                      "fill": "#EEF1F8"
+                      "fill": "#EEF1F8",
+                      "fontWeight": "600"
                     },
                     {
                       "type": "text",
-                      "id": "item2Msg",
-                      "name": "摘要",
-                      "content": "[图片] 帮我看看哪有问题",
-                      "fontSize": 12,
-                      "fill": "#8B94AD"
+                      "id": "wbt025",
+                      "name": "队列行-张女士标记",
+                      "content": "处理中",
+                      "fontSize": 11,
+                      "fill": "#4F6BFF",
+                      "fontWeight": "600"
+                    },
+                    {
+                      "type": "text",
+                      "id": "wbt026",
+                      "name": "队列行-张女士流转态",
+                      "content": "处理中",
+                      "fontSize": 11,
+                      "fill": "#4F6BFF",
+                      "fontWeight": "600"
                     }
-                  ]
+                  ],
+                  "width": "fill_container",
+                  "justifyContent": "space_between"
                 },
                 {
                   "type": "text",
-                  "id": "item2Time",
-                  "name": "时间",
-                  "content": "昨天",
-                  "fontSize": 11,
+                  "id": "wbt028",
+                  "name": "队列行-张女士摘要",
+                  "content": "已按 15 天质量问题换货",
+                  "fontSize": 12,
                   "fill": "#8B94AD"
+                },
+                {
+                  "type": "text",
+                  "id": "wbt029",
+                  "name": "队列行-张女士时间",
+                  "content": "09:58",
+                  "fontSize": 11,
+                  "fill": "#A9B1C7"
                 }
               ]
             },
             {
               "type": "frame",
-              "id": "sessionItem3",
-              "name": "会话项-普通",
-              "width": "fill_container",
-              "height": 64,
+              "id": "wbf031",
+              "name": "队列留白",
+              "layout": "vertical",
+              "fill": "#0B1124",
+              "cornerRadius": 0,
+              "height": "fill_container",
+              "width": "fill_container"
+            },
+            {
+              "type": "frame",
+              "id": "wbf040",
+              "name": "队列分页",
               "layout": "horizontal",
+              "gap": 6,
               "alignItems": "center",
-              "gap": 12,
-              "padding": 12,
-              "cornerRadius": 10,
               "children": [
                 {
-                  "type": "ellipse",
-                  "id": "avatar3",
-                  "name": "头像",
-                  "width": 36,
-                  "height": 36,
-                  "fill": "#1E2742"
+                  "type": "text",
+                  "id": "wbt032",
+                  "name": "分页计数",
+                  "content": "共 16 条",
+                  "fontSize": 11,
+                  "fill": "#A9B1C7"
                 },
                 {
                   "type": "frame",
-                  "id": "item3Body",
-                  "name": "会话信息",
-                  "width": "fill_container",
-                  "layout": "vertical",
-                  "gap": 4,
+                  "id": "wbf034",
+                  "name": "页码-1",
+                  "layout": "horizontal",
+                  "padding": [
+                    5,
+                    10
+                  ],
+                  "fill": "#4F6BFF",
+                  "cornerRadius": 4,
+                  "alignItems": "center",
                   "children": [
                     {
                       "type": "text",
-                      "id": "item3Name",
-                      "name": "昵称",
-                      "content": "用户_1102",
-                      "fontSize": 13,
-                      "fontWeight": "600",
-                      "fill": "#EEF1F8"
-                    },
+                      "id": "wbt033",
+                      "name": "页码-1文案",
+                      "content": "1",
+                      "fontSize": 11,
+                      "fill": "#FFFFFF",
+                      "fontWeight": "600"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "wbf036",
+                  "name": "页码-2",
+                  "layout": "horizontal",
+                  "padding": [
+                    5,
+                    10
+                  ],
+                  "fill": "#FFFFFF1F",
+                  "cornerRadius": 4,
+                  "alignItems": "center",
+                  "children": [
                     {
                       "type": "text",
-                      "id": "item3Msg",
-                      "name": "摘要",
-                      "content": "申请退款，订单 2024...",
-                      "fontSize": 12,
-                      "fill": "#8B94AD"
+                      "id": "wbt035",
+                      "name": "页码-2文案",
+                      "content": "2",
+                      "fontSize": 11,
+                      "fill": "#A9B1C7"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "wbf038",
+                  "name": "页码-3",
+                  "layout": "horizontal",
+                  "padding": [
+                    5,
+                    10
+                  ],
+                  "fill": "#FFFFFF1F",
+                  "cornerRadius": 4,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "wbt037",
+                      "name": "页码-3文案",
+                      "content": "3",
+                      "fontSize": 11,
+                      "fill": "#A9B1C7"
                     }
                   ]
                 },
                 {
                   "type": "text",
-                  "id": "item3Time",
-                  "name": "时间",
-                  "content": "周一",
+                  "id": "wbt039",
+                  "name": "分页页大小",
+                  "content": "20 条/页",
                   "fontSize": 11,
-                  "fill": "#8B94AD"
+                  "fill": "#A9B1C7"
                 }
-              ]
+              ],
+              "justifyContent": "center"
             }
           ]
         },
         {
           "type": "frame",
-          "id": "chatPanel",
-          "name": "中间-聊天区",
-          "width": "fill_container",
-          "height": "fill_container",
+          "id": "wbf088",
+          "name": "WorkbenchChat",
           "layout": "vertical",
           "gap": 12,
           "fill": "#161D33",
           "cornerRadius": 12,
+          "width": "fill_container",
+          "height": "fill_container",
           "clip": true,
           "children": [
             {
               "type": "frame",
-              "id": "chatHeader",
-              "name": "聊天头部",
-              "width": "fill_container",
-              "height": 56,
+              "id": "wbf056",
+              "name": "会话头部",
               "layout": "horizontal",
-              "alignItems": "center",
-              "justifyContent": "space_between",
+              "gap": 10,
               "padding": [
                 0,
                 16
               ],
-              "stroke": "#FFFFFF14",
-              "strokeWidth": {
-                "bottom": 1
-              },
+              "alignItems": "center",
               "children": [
                 {
                   "type": "frame",
-                  "id": "chatHeaderLeft",
-                  "name": "用户信息",
+                  "id": "wbf050",
+                  "name": "会话头部-左",
                   "layout": "horizontal",
-                  "alignItems": "center",
                   "gap": 10,
+                  "alignItems": "center",
                   "children": [
                     {
                       "type": "ellipse",
-                      "id": "headerAvatar",
-                      "name": "头像",
+                      "id": "wbe046",
+                      "name": "会话头像",
                       "width": 32,
                       "height": 32,
                       "fill": "#4F6BFF"
                     },
                     {
                       "type": "frame",
-                      "id": "headerMeta",
-                      "name": "文本",
+                      "id": "wbf049",
+                      "name": "会话头部-文本",
                       "layout": "vertical",
                       "gap": 2,
                       "children": [
                         {
                           "type": "text",
-                          "id": "headerName",
-                          "name": "昵称",
-                          "content": "用户_8821",
+                          "id": "wbt047",
+                          "name": "会话昵称",
+                          "content": "王女士",
                           "fontSize": 14,
-                          "fontWeight": "600",
-                          "fill": "#EEF1F8"
+                          "fill": "#EEF1F8",
+                          "fontWeight": "600"
                         },
                         {
                           "type": "text",
-                          "id": "headerStatus",
-                          "name": "状态",
-                          "content": "在线 · 咨询中",
+                          "id": "wbt048",
+                          "name": "会话流转态",
+                          "content": "处理中 · 我正在服务",
                           "fontSize": 11,
-                          "fill": "#34D399"
+                          "fill": "#34D399",
+                          "fontWeight": "600"
                         }
                       ]
                     }
@@ -358,365 +516,333 @@
                 },
                 {
                   "type": "frame",
-                  "id": "headerActions",
-                  "name": "操作区",
+                  "id": "wbf055",
+                  "name": "会话流转动作",
                   "layout": "horizontal",
+                  "gap": 8,
                   "alignItems": "center",
-                  "gap": 12,
                   "children": [
                     {
-                      "type": "text",
-                      "id": "btnTransfer",
-                      "name": "转人工",
-                      "content": "转人工",
-                      "fontSize": 12,
-                      "fontWeight": "600",
-                      "fill": "#4F6BFF"
+                      "type": "frame",
+                      "id": "wbf052",
+                      "name": "动作-转接",
+                      "layout": "horizontal",
+                      "padding": [
+                        5,
+                        10
+                      ],
+                      "fill": "#FFFFFF1F",
+                      "cornerRadius": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "wbt051",
+                          "name": "动作-转接文案",
+                          "content": "转接",
+                          "fontSize": 12,
+                          "fill": "#EEF1F8"
+                        }
+                      ]
                     },
                     {
-                      "type": "text",
-                      "id": "btnMore",
-                      "name": "更多",
-                      "content": "···",
-                      "fontSize": 14,
-                      "fill": "#8B94AD"
+                      "type": "frame",
+                      "id": "wbf054",
+                      "name": "动作-解决",
+                      "layout": "horizontal",
+                      "padding": [
+                        5,
+                        10
+                      ],
+                      "fill": "#4F6BFF",
+                      "cornerRadius": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "wbt053",
+                          "name": "动作-解决文案",
+                          "content": "解决",
+                          "fontSize": 12,
+                          "fill": "#FFFFFF",
+                          "fontWeight": "600"
+                        }
+                      ]
                     }
                   ]
                 }
-              ]
+              ],
+              "height": 56,
+              "width": "fill_container",
+              "justifyContent": "space_between",
+              "stroke": "#FFFFFF14",
+              "strokeWidth": {
+                "bottom": 1
+              }
             },
             {
               "type": "frame",
-              "id": "messageStream",
+              "id": "wbf069",
               "name": "消息流",
-              "width": "fill_container",
-              "height": "fill_container",
               "layout": "vertical",
-              "gap": 16,
+              "gap": 14,
               "padding": 20,
               "fill": "#1E2742",
+              "width": "fill_container",
+              "height": "fill_container",
               "clip": true,
               "children": [
                 {
                   "type": "frame",
-                  "id": "rowBot1",
-                  "name": "机器人消息行",
-                  "width": "fill_container",
-                  "layout": "horizontal",
-                  "alignItems": "start",
-                  "gap": 8,
-                  "children": [
-                    {
-                      "type": "ellipse",
-                      "id": "botAvatar1",
-                      "name": "机器人头像",
-                      "width": 28,
-                      "height": 28,
-                      "fill": "#4F6BFF"
-                    },
-                    {
-                      "type": "frame",
-                      "id": "botBubble1",
-                      "name": "气泡",
-                      "layout": "vertical",
-                      "gap": 6,
-                      "padding": 12,
-                      "fill": "#F2F5FC",
-                      "cornerRadius": [
-                        2,
-                        12,
-                        12,
-                        12
-                      ],
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "botText1",
-                          "name": "文本",
-                          "content": "您好，我是智能客服小助手。已为您查到该款商品 L 码库存充足，预计 48 小时内发货。",
-                          "fontSize": 13,
-                          "lineHeight": 1.5,
-                          "fill": "#1F2430",
-                          "textGrowth": "fixed-width",
-                          "width": 320
-                        },
-                        {
-                          "type": "frame",
-                          "id": "botCard1",
-                          "name": "商品卡",
-                          "layout": "horizontal",
-                          "alignItems": "center",
-                          "gap": 10,
-                          "padding": 8,
-                          "fill": "#0B1124",
-                          "cornerRadius": 8,
-                          "children": [
-                            {
-                              "type": "rectangle",
-                              "id": "botCardImg",
-                              "name": "商品图",
-                              "width": 48,
-                              "height": 48,
-                              "fill": "#1E2742",
-                              "cornerRadius": 6
-                            },
-                            {
-                              "type": "frame",
-                              "id": "botCardMeta",
-                              "name": "商品信息",
-                              "layout": "vertical",
-                              "gap": 4,
-                              "children": [
-                                {
-                                  "type": "text",
-                                  "id": "botCardName",
-                                  "name": "名称",
-                                  "content": "纯棉圆领T恤 · 白色",
-                                  "fontSize": 12,
-                                  "fill": "#1F2430"
-                                },
-                                {
-                                  "type": "text",
-                                  "id": "botCardPrice",
-                                  "name": "价格",
-                                  "content": "￥129.00",
-                                  "fontSize": 13,
-                                  "fontWeight": "600",
-                                  "fill": "#FB9236"
-                                }
-                              ]
-                            }
-                          ]
-                        },
-                        {
-                          "type": "frame",
-                          "id": "botCitation",
-                          "name": "引用溯源卡",
-                          "width": "fill_container",
-                          "layout": "horizontal",
-                          "alignItems": "center",
-                          "gap": 6,
-                          "padding": 8,
-                          "fill": "#E8A33D1F",
-                          "cornerRadius": 8,
-                          "stroke": "#E8A33D",
-                          "strokeWidth": 1,
-                          "children": [
-                            {
-                              "type": "text",
-                              "id": "botCitationTag",
-                              "name": "引用角标",
-                              "content": "[1]",
-                              "fontSize": 11,
-                              "fontWeight": "600",
-                              "fill": "#E8A33D"
-                            },
-                            {
-                              "type": "text",
-                              "id": "botCitationText",
-                              "name": "引用来源",
-                              "content": "《退换货政策》#3 · 7天无理由退货，可点跳原文",
-                              "fontSize": 11,
-                              "fill": "#1F2430"
-                            }
-                          ]
-                        }
-                      ]
-                    }
-                  ]
-                },
-                {
-                  "type": "frame",
-                  "id": "rowUser1",
+                  "id": "wbf057",
                   "name": "用户消息行",
-                  "width": "fill_container",
                   "layout": "horizontal",
-                  "justifyContent": "end",
-                  "gap": 8,
-                  "children": [
-                    {
-                      "type": "frame",
-                      "id": "userBubble1",
-                      "name": "气泡",
-                      "padding": 12,
-                      "fill": "#4F6BFF",
-                      "cornerRadius": [
-                        12,
-                        2,
-                        12,
-                        12
-                      ],
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "userText1",
-                          "name": "文本",
-                          "content": "好的，帮我下单一件 M 码。",
-                          "fontSize": 13,
-                          "fill": "#ffffff"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "ellipse",
-                      "id": "userAvatar1",
-                      "name": "用户头像",
-                      "width": 28,
-                      "height": 28,
-                      "fill": "#1E2742"
-                    }
-                  ]
-                },
-                {
-                  "type": "frame",
-                  "id": "rowBot2",
-                  "name": "机器人消息行-图片",
-                  "width": "fill_container",
-                  "layout": "horizontal",
-                  "alignItems": "start",
-                  "gap": 8,
-                  "children": [
-                    {
-                      "type": "ellipse",
-                      "id": "botAvatar2",
-                      "name": "机器人头像",
-                      "width": 28,
-                      "height": 28,
-                      "fill": "#4F6BFF"
-                    },
-                    {
-                      "type": "frame",
-                      "id": "botBubble2",
-                      "name": "气泡",
-                      "layout": "vertical",
-                      "gap": 6,
-                      "padding": 12,
-                      "fill": "#F2F5FC",
-                      "cornerRadius": [
-                        2,
-                        12,
-                        12,
-                        12
-                      ],
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "botText2",
-                          "name": "文本",
-                          "content": "已收到您的订单。检测到您上传的售后图片，正在识别...",
-                          "fontSize": 13,
-                          "lineHeight": 1.5,
-                          "fill": "#1F2430",
-                          "textGrowth": "fixed-width",
-                          "width": 320
-                        },
-                        {
-                          "type": "rectangle",
-                          "id": "botImgThumb",
-                          "name": "图片缩略图",
-                          "width": 140,
-                          "height": 100,
-                          "fill": "#1E2742",
-                          "cornerRadius": 8
-                        },
-                        {
-                          "type": "frame",
-                          "id": "vlmCard",
-                          "name": "VLM检测卡",
-                          "width": "fill_container",
-                          "layout": "vertical",
-                          "gap": 6,
-                          "padding": 8,
-                          "fill": "#4F6BFF1F",
-                          "cornerRadius": 8,
-                          "stroke": "#4F6BFF",
-                          "strokeWidth": 1,
-                          "children": [
-                            {
-                              "type": "text",
-                              "id": "vlmResult",
-                              "name": "检测结论",
-                              "content": "袖口脱线约2cm · 置信度 0.82",
-                              "fontSize": 12,
-                              "fontWeight": "600",
-                              "fill": "#1F2430"
-                            },
-                            {
-                              "type": "text",
-                              "id": "vlmPlan",
-                              "name": "处理方案",
-                              "content": "方案：退换 [2]《退换货政策》· 已转人工复核请确认",
-                              "fontSize": 12,
-                              "fill": "#1F2430"
-                            }
-                          ]
-                        }
-                      ]
-                    }
-                  ]
-                },
-                {
-                  "type": "frame",
-                  "id": "rowUserVoice",
-                  "name": "用户语音行",
-                  "width": "fill_container",
-                  "layout": "horizontal",
-                  "justifyContent": "end",
                   "alignItems": "center",
-                  "gap": 8,
                   "children": [
                     {
                       "type": "frame",
-                      "id": "voiceBubble",
-                      "name": "语音气泡",
-                      "layout": "horizontal",
-                      "alignItems": "center",
-                      "gap": 8,
-                      "padding": 12,
-                      "fill": "#4F6BFF",
-                      "cornerRadius": [
-                        12,
-                        2,
-                        12,
+                      "id": "wbf043",
+                      "name": "用户气泡",
+                      "layout": "vertical",
+                      "padding": [
+                        8,
                         12
                       ],
+                      "fill": "#4F6BFF",
+                      "cornerRadius": 10,
                       "children": [
                         {
-                          "type": "icon",
-                          "id": "voicePlay",
-                          "name": "播放",
-                          "library": "lucide",
-                          "icon": "play",
-                          "width": 16,
-                          "height": 16,
-                          "fill": "#ffffff"
-                        },
-                        {
-                          "type": "rectangle",
-                          "id": "voiceWave",
-                          "name": "波形",
-                          "width": 120,
-                          "height": 24,
-                          "fill": "#22D3EE",
-                          "cornerRadius": 6
-                        },
+                          "type": "text",
+                          "id": "wbt042",
+                          "name": "用户气泡文案",
+                          "content": "这件衣服袖口脱线了，能换吗？",
+                          "fontSize": 13,
+                          "fill": "#FFFFFF"
+                        }
+                      ]
+                    }
+                  ],
+                  "justifyContent": "end",
+                  "width": "fill_container"
+                },
+                {
+                  "type": "frame",
+                  "id": "wbf058",
+                  "name": "Agent消息行",
+                  "layout": "horizontal",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "wbf045",
+                      "name": "Agent气泡",
+                      "layout": "vertical",
+                      "padding": [
+                        8,
+                        12
+                      ],
+                      "fill": "#F2F5FC",
+                      "cornerRadius": 10,
+                      "children": [
                         {
                           "type": "text",
-                          "id": "voiceMeta",
-                          "name": "时长与置信度",
-                          "content": "0:12 · 转写0.91",
+                          "id": "wbt044",
+                          "name": "Agent气泡文案",
+                          "content": "已识别到瑕疵位置，建议拍照留存后申请换货。",
+                          "fontSize": 13,
+                          "fill": "#1F2430"
+                        }
+                      ]
+                    }
+                  ],
+                  "width": "fill_container"
+                },
+                {
+                  "type": "frame",
+                  "id": "wbf061",
+                  "name": "VLM检测卡",
+                  "layout": "vertical",
+                  "gap": 6,
+                  "padding": 12,
+                  "fill": "#4F6BFF1F",
+                  "cornerRadius": 8,
+                  "stroke": "#4F6BFF",
+                  "strokeWidth": 1,
+                  "width": "fill_container",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "wbt059",
+                      "name": "VLM检测卡标题",
+                      "content": "VLM 瑕疵检测 · 袖口脱线",
+                      "fontSize": 12,
+                      "fill": "#EEF1F8",
+                      "fontWeight": "600"
+                    },
+                    {
+                      "type": "text",
+                      "id": "wbt060",
+                      "name": "VLM检测卡详情",
+                      "content": "类别 脱线 / 置信度 0.87 / 建议 拍照留存后申请换货（<0.6 转人工）",
+                      "fontSize": 12,
+                      "fill": "#A9B1C7"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "wbf064",
+                  "name": "引用溯源卡",
+                  "layout": "vertical",
+                  "gap": 6,
+                  "padding": 12,
+                  "fill": "#E8A33D1F",
+                  "cornerRadius": 8,
+                  "stroke": "#E8A33D",
+                  "strokeWidth": 1,
+                  "width": "fill_container",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "wbt062",
+                      "name": "引用溯源卡标题",
+                      "content": "引用来源 · 售后政策第 3.2 条",
+                      "fontSize": 12,
+                      "fill": "#EEF1F8",
+                      "fontWeight": "600"
+                    },
+                    {
+                      "type": "text",
+                      "id": "wbt063",
+                      "name": "引用溯源卡trace",
+                      "content": "trace_id 8f2c…a4d9 · 点击复制 / 跳原文",
+                      "fontSize": 11,
+                      "fill": "#A9B1C7"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "wbf068",
+                  "name": "语音行",
+                  "layout": "horizontal",
+                  "gap": 8,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "wbf066",
+                      "name": "语音播放键",
+                      "layout": "horizontal",
+                      "padding": [
+                        5,
+                        10
+                      ],
+                      "fill": "#FFFFFF1F",
+                      "cornerRadius": 4,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "wbt065",
+                          "name": "语音播放键文案",
+                          "content": "▶",
                           "fontSize": 11,
-                          "fill": "#ffffff"
+                          "fill": "#EEF1F8"
                         }
                       ]
                     },
                     {
-                      "type": "ellipse",
-                      "id": "userAvatar2",
-                      "name": "用户头像",
-                      "width": 28,
-                      "height": 28,
-                      "fill": "#1E2742"
+                      "type": "text",
+                      "id": "wbt067",
+                      "name": "语音元信息",
+                      "content": "0:06 语音 · 置信度 0.92 · 转写可改（播放互斥）",
+                      "fontSize": 11,
+                      "fill": "#A9B1C7"
+                    }
+                  ],
+                  "width": "fill_container"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "wbf076",
+              "name": "快捷话术",
+              "layout": "horizontal",
+              "gap": 8,
+              "padding": [
+                0,
+                20
+              ],
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "wbf071",
+                  "name": "话术-查物流",
+                  "layout": "horizontal",
+                  "padding": [
+                    5,
+                    10
+                  ],
+                  "fill": "#FFFFFF1F",
+                  "cornerRadius": 999,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "wbt070",
+                      "name": "话术-查物流文案",
+                      "content": "查物流",
+                      "fontSize": 12,
+                      "fill": "#A9B1C7"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "wbf073",
+                  "name": "话术-退换货",
+                  "layout": "horizontal",
+                  "padding": [
+                    5,
+                    10
+                  ],
+                  "fill": "#FFFFFF1F",
+                  "cornerRadius": 999,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "wbt072",
+                      "name": "话术-退换货文案",
+                      "content": "退换货",
+                      "fontSize": 12,
+                      "fill": "#A9B1C7"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "wbf075",
+                  "name": "话术-转人工",
+                  "layout": "horizontal",
+                  "padding": [
+                    5,
+                    10
+                  ],
+                  "fill": "#FFFFFF1F",
+                  "cornerRadius": 999,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "wbt074",
+                      "name": "话术-转人工文案",
+                      "content": "转人工",
+                      "fontSize": 12,
+                      "fill": "#A9B1C7"
                     }
                   ]
                 }
@@ -724,162 +850,122 @@
             },
             {
               "type": "frame",
-              "id": "inputArea",
+              "id": "wbf087",
               "name": "输入区",
-              "width": "fill_container",
               "layout": "vertical",
               "gap": 8,
               "padding": [
-                10,
+                0,
+                20,
                 16,
-                14,
-                16
+                20
               ],
-              "stroke": "#FFFFFF14",
-              "strokeWidth": {
-                "top": 1
-              },
+              "width": "fill_container",
               "children": [
                 {
                   "type": "frame",
-                  "id": "quickReplies",
-                  "name": "快捷回复",
+                  "id": "wbf078",
+                  "name": "输入框",
                   "layout": "horizontal",
-                  "gap": 8,
+                  "padding": [
+                    0,
+                    12
+                  ],
+                  "fill": "#1E2742",
+                  "cornerRadius": 8,
+                  "alignItems": "center",
+                  "height": 44,
+                  "width": "fill_container",
                   "children": [
                     {
-                      "type": "frame",
-                      "id": "qr1",
-                      "name": "快捷1",
-                      "padding": [
-                        4,
-                        10
-                      ],
-                      "fill": "#1E2742",
-                      "cornerRadius": 999,
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "qr1Text",
-                          "name": "文本",
-                          "content": "查物流",
-                          "fontSize": 12,
-                          "fill": "#4F6BFF"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "qr2",
-                      "name": "快捷2",
-                      "padding": [
-                        4,
-                        10
-                      ],
-                      "fill": "#1E2742",
-                      "cornerRadius": 999,
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "qr2Text",
-                          "name": "文本",
-                          "content": "退换货",
-                          "fontSize": 12,
-                          "fill": "#4F6BFF"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "qr3",
-                      "name": "快捷3",
-                      "padding": [
-                        4,
-                        10
-                      ],
-                      "fill": "#1E2742",
-                      "cornerRadius": 999,
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "qr3Text",
-                          "name": "文本",
-                          "content": "转人工",
-                          "fontSize": 12,
-                          "fill": "#4F6BFF"
-                        }
-                      ]
+                      "type": "text",
+                      "id": "wbt077",
+                      "name": "输入占位",
+                      "content": "输入回复内容，Enter 发送 / Shift+Enter 换行",
+                      "fontSize": 12,
+                      "fill": "#8B94AD"
                     }
                   ]
                 },
                 {
                   "type": "frame",
-                  "id": "inputRow",
-                  "name": "输入行",
-                  "width": "fill_container",
-                  "height": 44,
+                  "id": "wbf086",
+                  "name": "输入操作行",
                   "layout": "horizontal",
-                  "alignItems": "center",
                   "gap": 10,
-                  "padding": [
-                    0,
-                    12
-                  ],
-                  "fill": "#0B1124",
-                  "cornerRadius": 22,
+                  "alignItems": "center",
                   "children": [
                     {
-                      "type": "icon",
-                      "id": "iconImage",
-                      "name": "图片",
-                      "library": "lucide",
-                      "icon": "image",
-                      "width": 18,
-                      "height": 18,
-                      "fill": "#8B94AD"
-                    },
-                    {
-                      "type": "icon",
-                      "id": "iconSmile",
-                      "name": "表情",
-                      "library": "lucide",
-                      "icon": "smile",
-                      "width": 18,
-                      "height": 18,
-                      "fill": "#8B94AD"
-                    },
-                    {
-                      "type": "text",
-                      "id": "inputPlaceholder",
-                      "name": "占位",
-                      "content": "输入消息，支持发送图片描述问题...",
-                      "fontSize": 13,
-                      "fill": "#8B94AD",
-                      "width": "fill_container"
-                    },
-                    {
                       "type": "frame",
-                      "id": "sendBtn",
-                      "name": "发送按钮",
-                      "padding": [
-                        6,
-                        16
-                      ],
-                      "fill": "#4F6BFF",
-                      "cornerRadius": 999,
+                      "id": "wbf081",
+                      "name": "输入操作行-左",
+                      "layout": "horizontal",
+                      "gap": 10,
+                      "alignItems": "center",
                       "children": [
                         {
                           "type": "text",
-                          "id": "sendText",
-                          "name": "文本",
-                          "content": "发送",
+                          "id": "wbt079",
+                          "name": "上传图片",
+                          "content": "+ 上传图片",
                           "fontSize": 12,
-                          "fontWeight": "600",
-                          "fill": "#ffffff"
+                          "fill": "#22D3EE"
+                        },
+                        {
+                          "type": "text",
+                          "id": "wbt080",
+                          "name": "按住录音",
+                          "content": "🎤 按住录音 ≤60s",
+                          "fontSize": 12,
+                          "fill": "#22D3EE"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "wbf085",
+                      "name": "输入操作行-右",
+                      "layout": "horizontal",
+                      "gap": 10,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "wbt082",
+                          "name": "发送提示",
+                          "content": "代回内容买家侧即时可见",
+                          "fontSize": 11,
+                          "fill": "#A9B1C7"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "wbf084",
+                          "name": "发送按钮",
+                          "layout": "horizontal",
+                          "padding": [
+                            5,
+                            10
+                          ],
+                          "fill": "#4F6BFF",
+                          "cornerRadius": 8,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "wbt083",
+                              "name": "发送按钮文案",
+                              "content": "代回买家",
+                              "fontSize": 13,
+                              "fill": "#FFFFFF",
+                              "fontWeight": "600"
+                            }
+                          ]
                         }
                       ]
                     }
-                  ]
+                  ],
+                  "width": "fill_container",
+                  "justifyContent": "space_between"
                 }
               ]
             }
@@ -887,214 +973,271 @@
         },
         {
           "type": "frame",
-          "id": "sidePanel",
-          "name": "右侧-订单与信息",
+          "id": "wbf113",
+          "name": "WorkbenchSide",
+          "layout": "vertical",
+          "gap": 12,
+          "padding": 16,
           "width": 300,
           "height": "fill_container",
-          "layout": "vertical",
-          "gap": 16,
           "children": [
             {
               "type": "frame",
-              "id": "orderCard",
-              "name": "订单卡片",
-              "width": "fill_container",
+              "id": "wbf092",
+              "name": "客户与订单卡",
               "layout": "vertical",
-              "gap": 12,
-              "padding": 16,
-              "fill": "#161D33",
-              "cornerRadius": 12,
+              "gap": 6,
+              "width": "fill_container",
               "children": [
                 {
                   "type": "text",
-                  "id": "orderTitle",
-                  "name": "标题",
-                  "content": "当前订单",
-                  "fontSize": 14,
-                  "fontWeight": "600",
+                  "id": "wbt089",
+                  "name": "订单卡标题",
+                  "content": "客户与订单",
+                  "fontSize": 12,
+                  "fill": "#8B94AD",
+                  "fontWeight": "600"
+                },
+                {
+                  "type": "text",
+                  "id": "wbt090",
+                  "name": "订单卡主行",
+                  "content": "订单号 2024091400821 · 已发货",
+                  "fontSize": 13,
                   "fill": "#EEF1F8"
                 },
                 {
-                  "type": "frame",
-                  "id": "orderNo",
-                  "name": "订单号",
-                  "width": "fill_container",
-                  "layout": "horizontal",
-                  "justifyContent": "space_between",
-                  "children": [
-                    {
-                      "type": "text",
-                      "id": "orderNoLabel",
-                      "name": "标签",
-                      "content": "订单号",
-                      "fontSize": 12,
-                      "fill": "#8B94AD"
-                    },
-                    {
-                      "type": "text",
-                      "id": "orderNoValue",
-                      "name": "值",
-                      "content": "2024091400821",
-                      "fontSize": 12,
-                      "fill": "#EEF1F8"
-                    }
-                  ]
-                },
-                {
-                  "type": "frame",
-                  "id": "orderStatus",
-                  "name": "状态",
-                  "width": "fill_container",
-                  "layout": "horizontal",
-                  "justifyContent": "space_between",
-                  "children": [
-                    {
-                      "type": "text",
-                      "id": "orderStatusLabel",
-                      "name": "标签",
-                      "content": "状态",
-                      "fontSize": 12,
-                      "fill": "#8B94AD"
-                    },
-                    {
-                      "type": "text",
-                      "id": "orderStatusValue",
-                      "name": "值",
-                      "content": "待发货",
-                      "fontSize": 12,
-                      "fontWeight": "600",
-                      "fill": "#FB9236"
-                    }
-                  ]
-                },
-                {
-                  "type": "frame",
-                  "id": "orderAmount",
-                  "name": "金额",
-                  "width": "fill_container",
-                  "layout": "horizontal",
-                  "justifyContent": "space_between",
-                  "children": [
-                    {
-                      "type": "text",
-                      "id": "orderAmountLabel",
-                      "name": "标签",
-                      "content": "实付金额",
-                      "fontSize": 12,
-                      "fill": "#8B94AD"
-                    },
-                    {
-                      "type": "text",
-                      "id": "orderAmountValue",
-                      "name": "值",
-                      "content": "￥129.00",
-                      "fontSize": 13,
-                      "fontWeight": "600",
-                      "fill": "#FB9236"
-                    }
-                  ]
+                  "type": "text",
+                  "id": "wbt091",
+                  "name": "订单卡副行",
+                  "content": "实付 ¥458.00 · 会员等级 黄金",
+                  "fontSize": 12,
+                  "fill": "#8B94AD"
                 }
-              ]
+              ],
+              "fill": "#161D3399",
+              "stroke": "#FFFFFF1F",
+              "strokeWidth": 1,
+              "cornerRadius": 12,
+              "padding": 12
             },
             {
               "type": "frame",
-              "id": "aiPanel",
-              "name": "AI 辅助面板",
-              "width": "fill_container",
-              "height": "fill_container",
+              "id": "wbf096",
+              "name": "TracePanel卡",
               "layout": "vertical",
-              "gap": 12,
-              "padding": 16,
-              "fill": "#161D33",
-              "cornerRadius": 12,
+              "gap": 6,
+              "width": "fill_container",
               "children": [
                 {
                   "type": "text",
-                  "id": "aiTitle",
-                  "name": "标题",
-                  "content": "AI 辅助 / 会话洞察",
-                  "fontSize": 14,
-                  "fontWeight": "600",
-                  "fill": "#EEF1F8"
+                  "id": "wbt093",
+                  "name": "Trace卡标题",
+                  "content": "本轮 Trace",
+                  "fontSize": 12,
+                  "fill": "#8B94AD",
+                  "fontWeight": "600"
+                },
+                {
+                  "type": "text",
+                  "id": "wbt094",
+                  "name": "Trace卡链路",
+                  "content": "规划 → 检索 3 篇 → 治理过滤 → 生成 → 复核",
+                  "fontSize": 11,
+                  "fill": "#A9B1C7"
+                },
+                {
+                  "type": "text",
+                  "id": "wbt095",
+                  "name": "Trace卡标识",
+                  "content": "8f2c…a4d9 · 重排 Top1 0.91 · 按 trace_id 去重",
+                  "fontSize": 11,
+                  "fill": "#A9B1C7"
+                }
+              ],
+              "fill": "#161D3399",
+              "stroke": "#FFFFFF1F",
+              "strokeWidth": 1,
+              "cornerRadius": 12,
+              "padding": 12
+            },
+            {
+              "type": "frame",
+              "id": "wbf101",
+              "name": "上下文用量卡",
+              "layout": "vertical",
+              "gap": 6,
+              "width": "fill_container",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "wbt097",
+                  "name": "用量卡标题",
+                  "content": "上下文用量 · 第 4/6 轮",
+                  "fontSize": 12,
+                  "fill": "#8B94AD",
+                  "fontWeight": "600"
                 },
                 {
                   "type": "frame",
-                  "id": "aiHint",
-                  "name": "提示条",
-                  "width": "fill_container",
-                  "layout": "vertical",
-                  "gap": 4,
-                  "padding": 12,
+                  "id": "wbf099",
+                  "name": "用量进度槽",
+                  "layout": "horizontal",
                   "fill": "#1E2742",
-                  "cornerRadius": 8,
+                  "cornerRadius": 3,
+                  "height": 6,
+                  "width": "fill_container",
                   "children": [
                     {
-                      "type": "text",
-                      "id": "aiHintText",
-                      "name": "文本",
-                      "content": "识别到「售后/退款」意图，建议先核对订单状态。",
-                      "fontSize": 12,
-                      "lineHeight": 1.5,
-                      "fill": "#8B94AD",
-                      "textGrowth": "fixed-width",
-                      "width": 240
+                      "type": "frame",
+                      "id": "wbf098",
+                      "name": "用量进度条",
+                      "layout": "vertical",
+                      "fill": "#4F6BFF",
+                      "cornerRadius": 3,
+                      "height": 6,
+                      "width": 100
                     }
                   ]
                 },
                 {
                   "type": "text",
-                  "id": "aiSuggestedLabel",
-                  "name": "小标题",
-                  "content": "推荐回复",
+                  "id": "wbt100",
+                  "name": "用量卡明细",
+                  "content": "1.5k / 3k tokens · 摘要已生效 · 丢弃 2 轮",
+                  "fontSize": 11,
+                  "fill": "#A9B1C7"
+                }
+              ],
+              "fill": "#161D3399",
+              "stroke": "#FFFFFF1F",
+              "strokeWidth": 1,
+              "cornerRadius": 12,
+              "padding": 12
+            },
+            {
+              "type": "frame",
+              "id": "wbf106",
+              "name": "AI辅助卡",
+              "layout": "vertical",
+              "gap": 6,
+              "width": "fill_container",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "wbt102",
+                  "name": "AI辅助标题",
+                  "content": "AI 辅助",
                   "fontSize": 12,
-                  "fontWeight": "600",
-                  "fill": "#8B94AD"
+                  "fill": "#8B94AD",
+                  "fontWeight": "600"
+                },
+                {
+                  "type": "text",
+                  "id": "wbt103",
+                  "name": "AI辅助建议",
+                  "content": "建议回复：为您安排 15 天质量问题换货",
+                  "fontSize": 12,
+                  "fill": "#A9B1C7"
                 },
                 {
                   "type": "frame",
-                  "id": "aiReply1",
-                  "name": "推荐回复1",
-                  "width": "fill_container",
-                  "padding": 10,
-                  "fill": "#1E2742",
-                  "cornerRadius": 8,
+                  "id": "wbf105",
+                  "name": "AI辅助填入",
+                  "layout": "horizontal",
+                  "padding": [
+                    5,
+                    10
+                  ],
+                  "fill": "#FFFFFF1F",
+                  "cornerRadius": 6,
+                  "alignItems": "center",
                   "children": [
                     {
                       "type": "text",
-                      "id": "aiReply1Text",
-                      "name": "文本",
-                      "content": "您的订单已在打包中，预计今日 18:00 前发出。",
-                      "fontSize": 12,
-                      "lineHeight": 1.5,
-                      "fill": "#EEF1F8",
-                      "textGrowth": "fixed-width",
-                      "width": 240
-                    }
-                  ]
-                },
-                {
-                  "type": "frame",
-                  "id": "aiReply2",
-                  "name": "推荐回复2",
-                  "width": "fill_container",
-                  "padding": 10,
-                  "fill": "#1E2742",
-                  "cornerRadius": 8,
-                  "children": [
-                    {
-                      "type": "text",
-                      "id": "aiReply2Text",
-                      "name": "文本",
-                      "content": "如需修改地址，请在发货前告知，我帮您申请。",
-                      "fontSize": 12,
-                      "lineHeight": 1.5,
-                      "fill": "#EEF1F8",
-                      "textGrowth": "fixed-width",
-                      "width": 240
+                      "id": "wbt104",
+                      "name": "AI辅助填入文案",
+                      "content": "填入输入框",
+                      "fontSize": 11,
+                      "fill": "#4F6BFF"
                     }
                   ]
                 }
-              ]
+              ],
+              "fill": "#161D3399",
+              "stroke": "#FFFFFF1F",
+              "strokeWidth": 1,
+              "cornerRadius": 12,
+              "padding": 12
+            },
+            {
+              "type": "frame",
+              "id": "wbf112",
+              "name": "WorkbenchNotes",
+              "layout": "vertical",
+              "gap": 8,
+              "width": "fill_container",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "wbt107",
+                  "name": "备注卡标题",
+                  "content": "内部备注（买家不可见）",
+                  "fontSize": 12,
+                  "fill": "#8B94AD",
+                  "fontWeight": "600"
+                },
+                {
+                  "type": "frame",
+                  "id": "wbf109",
+                  "name": "备注条",
+                  "layout": "vertical",
+                  "padding": 8,
+                  "fill": "#1E2742",
+                  "cornerRadius": 6,
+                  "width": "fill_container",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "wbt108",
+                      "name": "备注条文案",
+                      "content": "admin · 已核对订单，走换货流程",
+                      "fontSize": 11,
+                      "fill": "#A9B1C7"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "wbf111",
+                  "name": "备注输入框",
+                  "layout": "horizontal",
+                  "padding": [
+                    0,
+                    10
+                  ],
+                  "fill": "#1E2742",
+                  "cornerRadius": 6,
+                  "alignItems": "center",
+                  "height": 32,
+                  "width": "fill_container",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "wbt110",
+                      "name": "备注占位",
+                      "content": "添加备注，1..500 字",
+                      "fontSize": 11,
+                      "fill": "#8B94AD"
+                    }
+                  ]
+                }
+              ],
+              "fill": "#161D3399",
+              "stroke": "#FFFFFF1F",
+              "strokeWidth": 1,
+              "cornerRadius": 12,
+              "padding": 12
             }
           ]
         }
@@ -1551,18 +1694,9 @@
           "children": [
             {
               "type": "text",
-              "id": "apprTitle",
-              "name": "标题",
-              "content": "审批中心 · 待办 2",
-              "fontSize": 16,
-              "fontWeight": "600",
-              "fill": "#EEF1F8"
-            },
-            {
-              "type": "text",
               "id": "apprSla",
               "name": "SLA",
-              "content": "超时自动升级 · 记录不可篡改",
+              "content": "超时自动升级 · 批驳记审计 · 状态/类型/关键字筛选",
               "fontSize": 12,
               "fill": "#8B94AD"
             }
@@ -1757,7 +1891,7 @@
               "type": "text",
               "id": "apprDoneText",
               "name": "文本",
-              "content": "补发快递费 ￥12.00 · 已同意 · 可审计回溯",
+              "content": "补发快递费 ￥12.00 · 已同意 · 批驳记审计可回溯",
               "fontSize": 12,
               "fill": "#8B94AD"
             },
@@ -1796,15 +1930,6 @@
           "justifyContent": "space_between",
           "alignItems": "center",
           "children": [
-            {
-              "type": "text",
-              "id": "dashTitle",
-              "name": "标题",
-              "content": "经营大屏 · 今日（PII已脱敏）",
-              "fontSize": 16,
-              "fontWeight": "600",
-              "fill": "#EEF1F8"
-            },
             {
               "type": "text",
               "id": "dashRefresh",
@@ -2226,7 +2351,7 @@
                   "name": "元信息",
                   "content": "12 条 · 3 小时前 · 含引用",
                   "fontSize": 11,
-                  "fill": "#8B94AD"
+                  "fill": "#A9B1C7"
                 }
               ]
             },
@@ -2259,7 +2384,7 @@
                   "name": "元信息",
                   "content": "8 条 · 昨天 · 上下文已摘要",
                   "fontSize": 11,
-                  "fill": "#8B94AD"
+                  "fill": "#A9B1C7"
                 }
               ]
             },
@@ -2285,7 +2410,7 @@
                   "name": "标题",
                   "content": "暂无更多会话",
                   "fontSize": 12,
-                  "fill": "#8B94AD"
+                  "fill": "#A9B1C7"
                 }
               ]
             },
@@ -2305,7 +2430,7 @@
                   "name": "总数",
                   "content": "共 63 条 · 每页 20",
                   "fontSize": 11,
-                  "fill": "#8B94AD"
+                  "fill": "#A9B1C7"
                 },
                 {
                   "type": "frame",
@@ -2386,7 +2511,7 @@
                       "name": "关联订单",
                       "content": "关联订单 #20260914-088",
                       "fontSize": 12,
-                      "fill": "#8B94AD"
+                      "fill": "#A9B1C7"
                     }
                   ]
                 },
@@ -2420,7 +2545,7 @@
                           "id": "ch_top_vt",
                           "name": "文本",
                           "content": "语音 开",
-                          "fontSize": 11,
+                          "fontSize": 12,
                           "fill": "#22D3EE"
                         }
                       ]
@@ -2458,8 +2583,8 @@
                       "id": "ch_top_p",
                       "name": "权限口径",
                       "content": "游客仅本会话 · PII 脱敏 138****1234",
-                      "fontSize": 10,
-                      "fill": "#8B94AD"
+                      "fontSize": 11,
+                      "fill": "#A9B1C7"
                     }
                   ]
                 }
@@ -2510,7 +2635,7 @@
                           "id": "ch_u_txt",
                           "name": "文本",
                           "content": "袖口这里有线头，能换吗？",
-                          "fontSize": 13,
+                          "fontSize": 14,
                           "fill": "#FFFFFF"
                         }
                       ]
@@ -2544,7 +2669,7 @@
                           "id": "ch_a_avt",
                           "name": "字",
                           "content": "AI",
-                          "fontSize": 10,
+                          "fontSize": 11,
                           "fill": "#FFFFFF",
                           "fontWeight": "600"
                         }
@@ -2574,7 +2699,7 @@
                           "id": "ch_a_txt",
                           "name": "正文",
                           "content": "可以。7 天无理由，袖口线头属工艺瑕疵，拍照留存后可直接申请换货，运费我们承担。",
-                          "fontSize": 13,
+                          "fontSize": 14,
                           "fill": "#1F2430"
                         },
                         {
@@ -2608,7 +2733,7 @@
                                   "id": "ch_c1t",
                                   "name": "文本",
                                   "content": "[1]",
-                                  "fontSize": 10,
+                                  "fontSize": 11,
                                   "fill": "#4F6BFF"
                                 }
                               ]
@@ -2635,7 +2760,7 @@
                                   "id": "ch_c2t",
                                   "name": "文本",
                                   "content": "[2]",
-                                  "fontSize": 10,
+                                  "fontSize": 11,
                                   "fill": "#4F6BFF"
                                 }
                               ]
@@ -2645,8 +2770,8 @@
                               "id": "ch_a_ctx",
                               "name": "上下文",
                               "content": "上下文 6 轮 / 约 1.2k token（已摘要）",
-                              "fontSize": 10,
-                              "fill": "#8B94AD"
+                              "fontSize": 11,
+                              "fill": "#5F6B87"
                             }
                           ]
                         }
@@ -2741,8 +2866,8 @@
                               "id": "ch_vlm_igt",
                               "name": "标注",
                               "content": "用户图",
-                              "fontSize": 10,
-                              "fill": "#8B94AD"
+                              "fontSize": 11,
+                              "fill": "#A9B1C7"
                             }
                           ]
                         },
@@ -2760,7 +2885,7 @@
                               "name": "描述",
                               "content": "左袖口外翻线头约 1.2cm，未破洞",
                               "fontSize": 12,
-                              "fill": "#8B94AD"
+                              "fill": "#A9B1C7"
                             },
                             {
                               "type": "text",
@@ -2882,6 +3007,120 @@
                 },
                 {
                   "type": "frame",
+                  "id": "ch_followup",
+                  "name": "追问延伸（猜你想问，随最后一条Agent回复）",
+                  "layout": "vertical",
+                  "width": 560,
+                  "gap": 6,
+                  "padding": 12,
+                  "fill": "#4F6BFF1F",
+                  "cornerRadius": 10,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "ch_fo_t",
+                      "name": "标题",
+                      "content": "猜你想问（点击直接发送）",
+                      "fontSize": 12,
+                      "fill": "#EEF1F8",
+                      "fontWeight": "600"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "ch_fo_row",
+                      "name": "追问行",
+                      "layout": "horizontal",
+                      "width": "fill_container",
+                      "gap": 8,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "ch_fo1",
+                          "name": "按钮-追问：运费谁承担",
+                          "layout": "horizontal",
+                          "width": "fit_content",
+                          "height": "fit_content",
+                          "gap": 0,
+                          "padding": [
+                            4,
+                            10
+                          ],
+                          "fill": "#1E2742",
+                          "cornerRadius": 8,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "ch_fo1t",
+                              "name": "文本",
+                              "content": "运费谁承担？",
+                              "fontSize": 12,
+                              "fill": "#22D3EE"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "ch_fo2",
+                          "name": "按钮-追问：退款到账",
+                          "layout": "horizontal",
+                          "width": "fit_content",
+                          "height": "fit_content",
+                          "gap": 0,
+                          "padding": [
+                            4,
+                            10
+                          ],
+                          "fill": "#1E2742",
+                          "cornerRadius": 8,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "ch_fo2t",
+                              "name": "文本",
+                              "content": "退款多久到账？",
+                              "fontSize": 12,
+                              "fill": "#22D3EE"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "ch_fo3",
+                          "name": "按钮-追问：代申请换货",
+                          "layout": "horizontal",
+                          "width": "fit_content",
+                          "height": "fit_content",
+                          "gap": 0,
+                          "padding": [
+                            4,
+                            10
+                          ],
+                          "fill": "#1E2742",
+                          "cornerRadius": 8,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "ch_fo3t",
+                              "name": "文本",
+                              "content": "帮我提交换货申请",
+                              "fontSize": 12,
+                              "fill": "#22D3EE"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
                   "id": "ch_voice",
                   "name": "语音回复条",
                   "layout": "horizontal",
@@ -2988,7 +3227,7 @@
                       "name": "元信息",
                       "content": "0:07 · 晓晓 1.0x",
                       "fontSize": 11,
-                      "fill": "#8B94AD"
+                      "fill": "#A9B1C7"
                     },
                     {
                       "type": "text",
@@ -3105,7 +3344,7 @@
                       "name": "phase",
                       "content": "phase: 检索中 → 生成中",
                       "fontSize": 11,
-                      "fill": "#8B94AD"
+                      "fill": "#A9B1C7"
                     }
                   ]
                 },
@@ -3138,7 +3377,7 @@
                 {
                   "type": "frame",
                   "id": "ch_empty",
-                  "name": "空态（新会话引导卡）",
+                  "name": "空态：新会话欢迎+预设引导",
                   "layout": "vertical",
                   "width": "fill_container",
                   "height": 96,
@@ -3152,7 +3391,7 @@
                       "type": "text",
                       "id": "ch_empty_t",
                       "name": "标题",
-                      "content": "想了解点什么？",
+                      "content": "你好，我是智能客服小助手",
                       "fontSize": 14,
                       "fill": "#EEF1F8",
                       "fontWeight": "600"
@@ -3161,9 +3400,9 @@
                       "type": "text",
                       "id": "ch_empty_d",
                       "name": "说明",
-                      "content": "可发文字 / 图片（≤9 张）/ 语音，或试试下面的快捷入口",
+                      "content": "试试下面的预设问题，一键发送；回答后还可点追问继续深挖",
                       "fontSize": 12,
-                      "fill": "#8B94AD"
+                      "fill": "#A9B1C7"
                     }
                   ]
                 }
@@ -3172,7 +3411,7 @@
             {
               "type": "frame",
               "id": "ch_quick",
-              "name": "快捷入口",
+              "name": "预设问题（一键发送）",
               "layout": "horizontal",
               "width": "fill_container",
               "gap": 8,
@@ -3181,7 +3420,7 @@
                 {
                   "type": "frame",
                   "id": "ch_q1",
-                  "name": "按钮-尺码助手（身高/体重/版型）",
+                  "name": "按钮-预设：退货政策",
                   "layout": "horizontal",
                   "width": "fit_content",
                   "height": "fit_content",
@@ -3199,8 +3438,8 @@
                       "type": "text",
                       "id": "ch_q1t",
                       "name": "文本",
-                      "content": "尺码助手（身高/体重/版型）",
-                      "fontSize": 11,
+                      "content": "退货政策是什么",
+                      "fontSize": 12,
                       "fill": "#22D3EE"
                     }
                   ]
@@ -3208,7 +3447,7 @@
                 {
                   "type": "frame",
                   "id": "ch_q2",
-                  "name": "按钮-查物流（订单选择器）",
+                  "name": "按钮-预设：破洞换货",
                   "layout": "horizontal",
                   "width": "fit_content",
                   "height": "fit_content",
@@ -3226,8 +3465,8 @@
                       "type": "text",
                       "id": "ch_q2t",
                       "name": "文本",
-                      "content": "查物流（订单选择器）",
-                      "fontSize": 11,
+                      "content": "这件破洞能换货吗",
+                      "fontSize": 12,
                       "fill": "#22D3EE"
                     }
                   ]
@@ -3235,7 +3474,7 @@
                 {
                   "type": "frame",
                   "id": "ch_q3",
-                  "name": "按钮-退换申请 → 提交即进审批",
+                  "name": "按钮-预设：发货时效",
                   "layout": "horizontal",
                   "width": "fit_content",
                   "height": "fit_content",
@@ -3253,8 +3492,8 @@
                       "type": "text",
                       "id": "ch_q3t",
                       "name": "文本",
-                      "content": "退换申请 → 提交即进审批",
-                      "fontSize": 11,
+                      "content": "现在下单多久发货",
+                      "fontSize": 12,
                       "fill": "#E8A33D"
                     }
                   ]
@@ -3319,8 +3558,8 @@
                       "id": "ch_th_hint",
                       "name": "限制",
                       "content": "≤9 张 · 单张 ≤10M · 超限前端压缩 · FormData 不手设 Content-Type",
-                      "fontSize": 10,
-                      "fill": "#8B94AD"
+                      "fontSize": 11,
+                      "fill": "#A9B1C7"
                     }
                   ]
                 },
@@ -3355,7 +3594,7 @@
                           "name": "文本",
                           "content": "发消息，Enter 发送 / Shift+Enter 换行",
                           "fontSize": 12,
-                          "fill": "#8B94AD"
+                          "fill": "#A9B1C7"
                         }
                       ]
                     },
@@ -3474,15 +3713,6 @@
           "justifyContent": "space_between",
           "alignItems": "center",
           "children": [
-            {
-              "type": "text",
-              "id": "tk_title",
-              "name": "标题",
-              "content": "任务中心",
-              "fontSize": 16,
-              "fill": "#EEF1F8",
-              "fontWeight": "600"
-            },
             {
               "type": "text",
               "id": "tk_sub",
@@ -4363,7 +4593,7 @@
               "type": "text",
               "id": "tk_empty_d",
               "name": "说明",
-              "content": "后端缺 GET /tasks 列表接口 → 当前为本地任务盒 + 轮询兜底",
+              "content": "服务端真实列表（GET /tasks 本人维度倒序，状态筛选+分页默认20）+ 活跃任务3s轮询",
               "fontSize": 11,
               "fill": "#8B94AD"
             }
@@ -4585,15 +4815,6 @@
           "justifyContent": "space_between",
           "alignItems": "center",
           "children": [
-            {
-              "type": "text",
-              "id": "db_title",
-              "name": "标题",
-              "content": "数据看板",
-              "fontSize": 16,
-              "fill": "#EEF1F8",
-              "fontWeight": "600"
-            },
             {
               "type": "frame",
               "id": "db_demo",
@@ -7908,15 +8129,6 @@
           "alignItems": "center",
           "children": [
             {
-              "type": "text",
-              "id": "gd_title",
-              "name": "标题",
-              "content": "商品管理",
-              "fontSize": 16,
-              "fill": "#EEF1F8",
-              "fontWeight": "600"
-            },
-            {
               "type": "frame",
               "id": "gd_demo",
               "name": "按钮-演示数据",
@@ -10161,15 +10373,6 @@
           "alignItems": "center",
           "children": [
             {
-              "type": "text",
-              "id": "od_title",
-              "name": "标题",
-              "content": "订单履约",
-              "fontSize": 16,
-              "fill": "#EEF1F8",
-              "fontWeight": "600"
-            },
-            {
               "type": "frame",
               "id": "od_demo",
               "name": "按钮-演示数据",
@@ -11974,15 +12177,6 @@
           "justifyContent": "space_between",
           "alignItems": "center",
           "children": [
-            {
-              "type": "text",
-              "id": "iv_title",
-              "name": "标题",
-              "content": "库存管理",
-              "fontSize": 16,
-              "fill": "#EEF1F8",
-              "fontWeight": "600"
-            },
             {
               "type": "frame",
               "id": "iv_demo",

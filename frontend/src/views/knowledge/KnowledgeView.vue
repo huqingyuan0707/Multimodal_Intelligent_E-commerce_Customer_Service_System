@@ -1,6 +1,5 @@
 <template>
   <div class="page">
-    <h2>知识库</h2>
     <div class="toolbar">
       <AiInput v-model="keyword" placeholder="按标题筛选" clearable @keyup.enter="onSearch" />
       <AiButton @click="onSearch">查询</AiButton>
@@ -62,7 +61,7 @@
         <el-form-item label="渠道"><AiInput v-model="editForm.channels" placeholder="逗号分隔，如 all" /></el-form-item>
         <el-form-item label="生效起"><AiInput v-model="editForm.valid_from" placeholder="YYYY-MM-DD，可空" /></el-form-item>
         <el-form-item label="生效止"><AiInput v-model="editForm.valid_to" placeholder="YYYY-MM-DD，可空" /></el-form-item>
-        <el-form-item label="正文"><el-input v-model="editForm.content" type="textarea" :rows="12" /></el-form-item>
+        <el-form-item label="正文"><AiInput v-model="editForm.content" type="textarea" :rows="12" /></el-form-item>
       </el-form>
       <template #footer>
         <AiButton @click="editVisible = false">取消</AiButton>
@@ -276,7 +275,7 @@ onMounted(() => {
 .meta {
   margin-bottom: 8px;
   font-size: 12px;
-  color: var(--reai-text-muted, #909399);
+  color: var(--reai-text-muted);
 }
 
 .content {

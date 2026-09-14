@@ -13,7 +13,7 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import BusinessError, ErrorCode
@@ -104,7 +104,7 @@ async def get_or_raise(db: AsyncSession, tenant: str, approval_id: str) -> Appro
 async def list_recent(
     db: AsyncSession, *, tenant: str, status: str = "", limit: int = 50
 ) -> list[Approval]:
-    """审批列表（默认待办优先，按创建时间倒序）。"""
+    """审批列表（默认待办优先，按创建时间倒序；存量兼容口径，新代码走 list_page）。"""
     stmt = select(Approval).where(Approval.tenant == tenant)
     if status:
         stmt = stmt.where(Approval.status == status)
@@ -112,6 +112,64 @@ async def list_recent(
         (await db.execute(stmt.order_by(Approval.created_at.desc()).limit(limit))).scalars().all()
     )
     return list(rows)
+
+
+# ---------------- 分页列表（审批中心服务端分页口径） ----------------
+
+
+def _apply_filters(stmt, *, status: str = "", action: str = "", keyword: str = ""):
+    """列表筛选：状态精确 + 类型精确 + 关键字模糊（对象/申请人/原因）。"""
+    if status:
+        stmt = stmt.where(Approval.status == status)
+    if action:
+        stmt = stmt.where(Approval.action == action)
+    key = keyword.strip()
+    if key:
+        like = f"%{key}%"
+        stmt = stmt.where(
+            (Approval.target.like(like))
+            | (Approval.applicant.like(like))
+            | (Approval.reason.like(like))
+        )
+    return stmt
+
+
+async def list_page(
+    db: AsyncSession,
+    *,
+    tenant: str,
+    status: str = "",
+    action: str = "",
+    keyword: str = "",
+    page: int = 1,
+    size: int = 20,
+) -> dict:
+    """审批分页列表（服务端分页默认 20，供审批中心直连；总数一次带出）。"""
+    if status and status not in STATUS_LABELS:
+        raise BusinessError(
+            ErrorCode.PARAM_INVALID,
+            f"审批状态非法：{status}（可选 {'/'.join(STATUS_LABELS)}，空=全部）",
+        )
+    stmt = _apply_filters(
+        select(Approval).where(Approval.tenant == tenant),
+        status=status,
+        action=action,
+        keyword=keyword,
+    )
+    total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
+    rows = list(
+        (
+            await db.execute(
+                stmt.order_by(Approval.created_at.desc()).offset((page - 1) * size).limit(size)
+            )
+        ).scalars()
+    )
+    return {
+        "items": [to_dict(r) for r in rows],
+        "total": total,
+        "page": page,
+        "size": size,
+    }
 
 
 async def _apply(
@@ -162,11 +220,24 @@ async def decide(
     if approve:
         await _apply(db, tenant=tenant, action=row.action, args=args, actor=approver)
         row.status = "approved"
+        if reason.strip():
+            row.reason = f"{row.reason}｜批准说明：{reason.strip()}"[:200]
     else:
         row.status = "rejected"
         if reason.strip():
             row.reason = f"{row.reason}｜驳回原因：{reason.strip()}"[:200]
     row.approver = approver
     row.decided_at = datetime.now(UTC).replace(tzinfo=None)
+    # 批/驳同步记审计（只 flush，与审批同事务；审批中心可回溯谁何时动了哪单）
+    from app.services import admin_service
+
+    await admin_service.record_audit(
+        db,
+        tenant=tenant,
+        actor=approver,
+        action="approval.approve" if approve else "approval.reject",
+        target=row.id,
+        detail={"action": row.action, "target": row.target, "status": row.status},
+    )
     await db.commit()
     return row

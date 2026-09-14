@@ -1,7 +1,6 @@
 <template>
   <div class="page">
     <div class="head">
-      <h2>管理后台</h2>
       <el-tag v-if="demo" type="warning" size="small">演示数据</el-tag>
     </div>
     <div class="cards">

@@ -196,7 +196,12 @@ async def test_agent_stream_endpoint_events_and_persist(
     async def _stub_complete(messages: object, **kwargs: object) -> llm_service.LlmReply:
         return llm_service.LlmReply(text="支持 7 天无理由退货 [1]。", model="stub", latency_ms=1)
 
+    async def _stub_stream(messages: object, **kwargs: object) -> AsyncIterator[str]:
+        # 端点已走 token 流：桩住增量口，整段一次外吐（帧形不断言粒度，只断言有序与幂等）
+        yield "支持 7 天无理由退货 [1]。"
+
     monkeypatch.setattr(llm_service, "complete", _stub_complete)
+    monkeypatch.setattr(llm_service, "acomplete_stream", _stub_stream)
     app.dependency_overrides[get_current_user] = _tester
     try:
         transport = httpx.ASGITransport(app=app)

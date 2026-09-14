@@ -1,7 +1,6 @@
 <template>
   <div class="page">
     <div class="head">
-      <h2>商品管理</h2>
       <el-tag v-if="demo" type="warning" size="small">演示数据</el-tag>
     </div>
     <div class="filters">
@@ -31,7 +30,7 @@
             </el-table-column>
             <el-table-column label="操作" width="170">
               <template #default="s">
-                <el-button
+                <AiButton
                   v-permission="['shop', 'ops', 'admin']"
                   link
                   type="primary"
@@ -39,8 +38,8 @@
                   @click="changePrice(s.row as SkuItem)"
                 >
                   改价
-                </el-button>
-                <el-button
+                </AiButton>
+                <AiButton
                   v-permission="['shop', 'ops', 'admin']"
                   link
                   type="primary"
@@ -48,7 +47,7 @@
                   @click="changeBarcode(s.row as SkuItem)"
                 >
                   改条码
-                </el-button>
+                </AiButton>
               </template>
             </el-table-column>
           </el-table>
@@ -64,7 +63,7 @@
       </el-table-column>
       <el-table-column label="操作" width="150">
         <template #default="s">
-          <el-button
+          <AiButton
             v-permission="['shop', 'ops', 'admin']"
             link
             type="primary"
@@ -72,7 +71,7 @@
             @click="toggleStatus(s.row as GoodsItem)"
           >
             {{ s.row.status === 'on' ? '下架' : '上架' }}
-          </el-button>
+          </AiButton>
         </template>
       </el-table-column>
     </el-table>
@@ -252,12 +251,6 @@ onMounted(() => {
   display: flex;
   gap: 12px;
   align-items: center;
-}
-
-.head h2 {
-  margin: 0;
-  font-size: 18px;
-  color: var(--reai-text-main);
 }
 
 .filters {
