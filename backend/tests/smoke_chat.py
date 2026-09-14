@@ -2,6 +2,7 @@
 
 覆盖：POST /auth/login 取 token → GET /auth/me → POST /chat 有据/2001 拒答 →
 POST /agent/chat/stream 四事件有序 + id 行 + done.session_id →
+done.tool_calls/orchestration（编排接线 B 余①）→
 同 client_msg_id 重发不翻倍 → GET /sessions/{id} 历史可查。
 用法：python tests/smoke_chat.py [http://127.0.0.1:8000]
 前置：后端已 init_db 并启动 uvicorn（默认 admin/admin123，SEED_* 覆盖时改 LOGIN_USER / LOGIN_PASS 环境变量）。
@@ -104,6 +105,27 @@ def main() -> int:
         and '"trace_id"' in agent_done
         and '"session_id"' in agent_done,
         agent_done[:200],
+    )
+
+    # 编排接线（执行步骤 B 余①）：done 透出 tool_calls/orchestration，检索段真走 kb.retrieve 连接器
+    try:
+        done_obj = json.loads(agent_done)
+    except ValueError:
+        done_obj = {}
+    calls = done_obj.get("tool_calls") or []
+    check(
+        "done.tool_calls wired via kb.retrieve",
+        any(
+            isinstance(c, dict) and c.get("tool") == "kb.retrieve" and c.get("status") == "ok"
+            for c in calls
+        ),
+        str(calls)[:200],
+    )
+    orch = done_obj.get("orchestration") or {}
+    check(
+        "done.orchestration.notes is list",
+        isinstance(orch.get("notes"), list),
+        str(orch)[:200],
     )
 
     session_id = ""

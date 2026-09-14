@@ -375,6 +375,120 @@ async def run(
     return await _drive(db, user=user, checkpoint=checkpoint, trace_id=trace)
 
 
+KB_CHAT_SCOPE = "kb:read"
+"""对话链的知识库检索 scope：任何能进对话的主体都隐式具备（与接线前直调口径一致）。"""
+
+
+async def orchestrate(
+    db: AsyncSession,
+    *,
+    user: CurrentUser,
+    query: str,
+    session_id: str = "",
+    tool_args: dict[str, Any] | None = None,
+    trace_id: str = "",
+) -> dict[str, Any] | None:
+    """对话主链编排入口（`/chat` 与 `/chat/stream` 的检索段，对齐执行步骤 B 余项①「接线」）。
+
+    与 run() 的分工（刻意不同，不是重复实现）：
+    - 复用同一套 plan + executor.call：规划规则、Scope 校验、幂等、超时/重试/熔断、tool_calls 审计只有一份；
+    - 不建 tasks 行、不落 checkpoint：对话轮次的「可恢复」由 approvals（敏感动作）与
+      client_msg_id 幂等（断线重放）承担 —— 否则每条买家消息都会在任务中心刷一条 agent.run；
+    - 敏感工具不自动触发：requires_approval 的工具要凑齐必填参数才会被规划出，主链不传 tool_args 时，
+      买家一句「我要退款」只会回落知识库检索，绝不自动生成资金审批单；
+    - 工具业务拒绝（订单不存在/无权调用）不外抛：转成一条 rejected 结果交生成段据实说明，
+      整轮仍走既有降级链路（对齐「外部服务不可用绝不返回 500」）。
+
+    返回 {"refs","tool_calls","notes","tool_block","approval","empty","trace_id"}：
+    refs 直接喂 build_messages/validate_references；tool_calls 直接透给 done（前端 ToolCallCard）；
+    tool_block 是拼给 LLM 的业务事实块。
+    **返回 None = 编排内核未装载**（bootstrap 失败 / 单测未注册连接器）：由调用方回落直连检索，
+    绝不把「工具没装上」放大成「无据拒答」。
+    """
+    if registry.maybe_get(DEFAULT_TOOL) is None:
+        return None
+    trace = trace_id or uuid.uuid4().hex[:16]
+    planned = plan(query, tool_args)
+    notes = list(planned.get("notes") or [])
+    refs: list[dict[str, Any]] = []
+    tool_calls: list[dict[str, Any]] = []
+    facts: list[str] = []
+    approval: dict[str, Any] = {}
+    empty = False
+    # 对话链固有能力：知识库检索对任何能进对话的主体都开放（与接线前直调口径一致）；
+    # 其余工具严格按 Token 角色判 Scope —— 绝不在对话链里替买家放开业务权限。
+    ctx = ToolContext(
+        db=db,
+        tenant=user.tenant,
+        username=user.username,
+        roles=list(dict.fromkeys([*user.roles, KB_CHAT_SCOPE])),
+        session_id=session_id,
+        trace_id=trace,
+    )
+    for step in planned.get("steps") or []:
+        args = dict(step.args)
+        try:
+            outcome = await executor.call(ctx, name=step.tool, args=args, trace_id=trace)
+        except BusinessError as exc:
+            code = int(exc.code)
+            if code == int(ErrorCode.TOOL_SCOPE_DENIED):
+                notes.append(f"当前身份无权调用 {step.tool}，已回落知识库检索")
+                continue
+            tool_calls.append(
+                {
+                    "tool": step.tool,
+                    "status": "rejected",
+                    "code": code,
+                    "message": str(exc),
+                    "args": args,
+                    "result": {},
+                    "approval_required": False,
+                    "approval_id": "",
+                    "attempts": 0,
+                    "latency_ms": 0,
+                    "trace_id": trace,
+                }
+            )
+            notes.append(f"{step.tool} 未成功：{exc}")
+            continue
+        tool_calls.append(outcome)
+        if outcome.get("approval_required"):
+            approval = outcome
+            notes.append("该动作需人工审批，已生成审批单（账目未变动）")
+            break
+        payload = outcome.get("result")
+        result = dict(payload) if isinstance(payload, dict) else {}
+        if step.tool == DEFAULT_TOOL:
+            refs = [item for item in result.get("references") or [] if isinstance(item, dict)]
+            continue
+        if _is_empty(step.tool, result):
+            empty = True
+            notes.append(f"{step.tool} 未返回可用结果，已转人工跟进")
+            continue
+        fact = summarize(step.tool, args, result)
+        if fact:
+            facts.append(fact)
+    record(
+        "agent.orchestrate",
+        {
+            "trace_id": trace,
+            "tools": [str(item.get("tool", "")) for item in tool_calls],
+            "refs": len(refs),
+            "approval": bool(approval),
+            "empty": empty,
+        },
+    )
+    return {
+        "refs": refs,
+        "tool_calls": tool_calls,
+        "notes": notes,
+        "tool_block": "\n".join(facts),
+        "approval": approval,
+        "empty": empty,
+        "trace_id": trace,
+    }
+
+
 async def snapshot(db: AsyncSession, *, tenant: str, task_id: str) -> dict[str, Any]:
     """查编排快照（跨租户 404；无 checkpoint 说明不是 Runtime 任务）。"""
     row = await task_service.get_task(db, tenant=tenant, task_id=task_id)

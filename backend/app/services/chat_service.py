@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.core.observability import record
 from app.core.user_context import CurrentUser, access_context
+from app.modules.agent import runtime as agent_runtime
 from app.services import (
     context_service,
     knowledge_service,
@@ -71,20 +72,40 @@ async def _assemble_generation(
     roles: list[str] | None,
     vision: list[dict[str, object]],
     history_block: str,
+    user: CurrentUser | None = None,
+    session_id: str = "",
 ) -> dict[str, Any]:
-    """生成前半（answer 与 stream_text_turn 共用）：检索 → 无据抛错 → 拼提示词。
+    """生成前半（answer 与 stream_text_turn 共用）：编排/检索 → 无据抛错 → 拼提示词。
 
-    vision 为已清洗的 inspections；返回 messages/refs/need_human/trace_id/vision_block。
-    无据时与 answer 原逻辑一致记 trace + 直接抛 NoEvidenceError。
+    检索段优先走 Agent 编排（plan → executor → 连接器，对齐执行步骤 B 余项①接线）：
+    产出引用 + 业务工具事实 + 编排说明，done 透出 tool_calls（前端 ToolCallCard 直接渲染）；
+    编排不可用（缺 user/db、开关关闭、内部异常）时回落 knowledge_service.retrieve 直调，
+    两条路治理口径一致（租户/密级/生效期/渠道过滤都在 knowledge_service 内）。
+    vision 为已清洗的 inspections；返回 messages/refs/need_human/trace_id/vision_block/tool_calls/notes。
+    无据（引用与业务事实皆空）时与 answer 原逻辑一致记 trace + 直接抛 NoEvidenceError。
     """
     trace_id = uuid.uuid4().hex[:16]
     ctx = access_context()
     vision_block = build_vision_context(vision)
     need_human = any(bool(v.get("need_human")) for v in vision)
-    refs = await knowledge_service.retrieve(
-        query, ctx["tenant"], db=db, roles=roles, trace_id=trace_id
+    refs: list[dict[str, object]] = []
+    tool_calls: list[dict[str, object]] = []
+    notes: list[str] = []
+    tool_block = ""
+    orch = await _orchestrate(
+        db, user=user, query=query, session_id=session_id, trace_id=trace_id
     )
-    if not refs:
+    if orch is None:
+        notes = ["编排不可用，已回落直连检索"]
+        refs = await knowledge_service.retrieve(
+            query, ctx["tenant"], db=db, roles=roles, trace_id=trace_id
+        )
+    else:
+        refs = list(orch["refs"])
+        tool_calls = list(orch["tool_calls"])
+        notes = list(orch["notes"])
+        tool_block = str(orch["tool_block"])
+    if not refs and not tool_block:
         rag_governance.trace_step(
             "rag.reject", tenant=ctx["tenant"], trace_id=trace_id, extra={"refs": 0}
         )
@@ -94,14 +115,43 @@ async def _assemble_generation(
         rag_governance.trace_step(
             "vlm.human", tenant=ctx["tenant"], trace_id=trace_id, extra={"vision": len(vision)}
         )
-    messages = build_messages(query, refs, vision_block, history_block)
+    messages = build_messages(query, refs, vision_block, history_block, tool_block)
     return {
         "messages": messages,
         "refs": refs,
         "need_human": need_human,
         "trace_id": trace_id,
         "vision_block": vision_block,
+        "tool_calls": tool_calls,
+        "notes": notes,
     }
+
+
+async def _orchestrate(
+    db: AsyncSession | None,
+    *,
+    user: CurrentUser | None,
+    query: str,
+    session_id: str,
+    trace_id: str,
+) -> dict[str, Any] | None:
+    """编排尝试：条件不足或内部异常一律返回 None（调用方回落直调，绝不拖垮对话）。"""
+    if user is None or db is None or not settings.AGENT_CHAT_ORCHESTRATE:
+        return None
+    try:
+        return await agent_runtime.orchestrate(
+            db, user=user, query=query, session_id=session_id, trace_id=trace_id
+        )
+    except Exception as exc:
+        # 编排是「加分项」不是「必经路」：任何意外都回落直调，并把原因留在 trace 里可查
+        rag_governance.trace_step(
+            "agent.degraded",
+            tenant=user.tenant,
+            trace_id=trace_id,
+            extra={"reason": str(exc)[:120]},
+        )
+        record("chat", {"trace_id": trace_id, "agent_degraded": str(exc)[:200]})
+        return None
 
 
 def _finalize_turn(
@@ -116,6 +166,8 @@ def _finalize_turn(
     need_human: bool,
     context: dict[str, int] | None,
     started: float,
+    tool_calls: list[dict[str, object]] | None = None,
+    notes: list[str] | None = None,
 ) -> dict[str, object]:
     """生成后半（answer 与 stream_text_turn 共用）：引用校验 → guard/faith → 结果字典。
 
@@ -141,6 +193,8 @@ def _finalize_turn(
         "vision": vision,
         "need_human": need_human,
         "context": dict(context or {"rounds": 0, "tokens": 0, "dropped": 0}),
+        "tool_calls": list(tool_calls or []),
+        "orchestration": {"notes": list(notes or [])},
     }
     if not guard["pass"]:
         rag_governance.trace_step(
@@ -169,9 +223,11 @@ async def answer(
     inspections: list[dict[str, object]] | None = None,
     history: str = "",
     context: dict[str, int] | None = None,
+    user: CurrentUser | None = None,
+    session_id: str = "",
 ) -> dict[str, object]:
     """问答主入口，返回 {answer, references, guard, faithfulness, model, degraded, trace_id, usage,
-    vision, need_human, context}。
+    vision, need_human, context, tool_calls, orchestration}。
 
     db 有值走 DB 三路链（租户/密级/生效期/渠道治理）；db=None 走历史种子路径。
     图文轮 inspections 拼进提示词（定级+方案+时效），need_human 透给端点转人工卡。
@@ -181,13 +237,21 @@ async def answer(
     started = time.perf_counter()
     vision = sanitize_inspections(inspections or [], settings.IMAGE_MAX_COUNT)
     asm = await _assemble_generation(
-        query, db=db, roles=roles, vision=vision, history_block=history
+        query,
+        db=db,
+        roles=roles,
+        vision=vision,
+        history_block=history,
+        user=user,
+        session_id=session_id,
     )
     refs = asm["refs"]
     need_human = bool(asm["need_human"])
     trace_id = str(asm["trace_id"])
     messages = asm["messages"]
     vision_block = str(asm["vision_block"])
+    tool_calls = asm["tool_calls"]
+    notes = asm["notes"]
     ctx = access_context()
 
     degraded = False
@@ -221,6 +285,8 @@ async def answer(
         need_human=need_human,
         context=context,
         started=started,
+        tool_calls=tool_calls,
+        notes=notes,
     )
 
 
@@ -256,6 +322,7 @@ async def _begin_turn(
         )
         if saved is not None:
             await db.commit()
+            # 重放不重跑模型与工具：tool_calls 给空数组（帧形稳定），溯源走同一 trace_id 查 tool_calls 表
             replay = {
                 "answer": saved.content,
                 "references": _loads_list(saved.citations),
@@ -268,6 +335,8 @@ async def _begin_turn(
                 "need_human": False,
                 "context": history_ctx,
                 "session_id": session.id,
+                "tool_calls": [],
+                "orchestration": {"notes": ["重放命中：未重跑工具调用，可按 trace_id 回查审计"]},
                 "replayed": True,
                 "rejected": False,
             }
@@ -329,8 +398,14 @@ async def _persist_agent_turn(
     usage: dict[str, int],
     trace_id: str,
     need_human: bool,
+    tool_calls: list[dict[str, object]] | None = None,
+    notes: list[str] | None = None,
 ) -> dict[str, object]:
-    """agent 行落库 + 成本审计 + 会话刷新 + commit，返回 run_text_turn 同形 result。"""
+    """agent 行落库 + 成本审计 + 会话刷新 + commit，返回 run_text_turn 同形 result。
+
+    tool_calls/orchestration 原样透出（本步不新落库：逐步审计已由 executor 写 tool_calls 表，
+    同一 trace_id 可回查），前端 ToolCallCard 与非流式响应共用同一形状。
+    """
     await session_service.save_agent_message(
         db,
         tenant=user.tenant,
@@ -360,6 +435,8 @@ async def _persist_agent_turn(
         "vision": vision,
         "need_human": need_human,
         "context": history_ctx,
+        "tool_calls": list(tool_calls or []),
+        "orchestration": {"notes": list(notes or [])},
     }
     await _record_cost_and_audit(db, user=user, session_id=session.id, result=result, query=query)
     await session_service.touch_session(
@@ -413,6 +490,8 @@ async def _persist_reject(
         "need_human": any(bool(v.get("need_human")) for v in vision),
         "context": history_ctx,
         "session_id": session.id,
+        "tool_calls": [],
+        "orchestration": {"notes": ["无据拒答：未产出可引用资料，已转人工"]},
         "replayed": False,
         "rejected": True,
     }
@@ -460,6 +539,8 @@ async def run_text_turn(
             inspections=vision,
             history=history_block,
             context=history_ctx,
+            user=user,
+            session_id=session.id,
         )
     except NoEvidenceError as exc:
         return await _persist_reject(
@@ -474,6 +555,8 @@ async def run_text_turn(
     refs_raw = result["references"]
     guard_raw = result["guard"]
     usage_raw = result.get("usage")
+    calls_raw = result.get("tool_calls")
+    orch_raw = result.get("orchestration")
     return await _persist_agent_turn(
         db,
         user=user,
@@ -493,6 +576,10 @@ async def run_text_turn(
         usage=dict(usage_raw) if isinstance(usage_raw, dict) else {},
         trace_id=str(result["trace_id"]),
         need_human=bool(result.get("need_human", False)),
+        tool_calls=[dict(c) for c in calls_raw] if isinstance(calls_raw, list) else [],
+        notes=list(orch_raw.get("notes") or [])
+        if isinstance(orch_raw, dict) and isinstance(orch_raw.get("notes"), list)
+        else [],
     )
 
 
@@ -538,7 +625,13 @@ async def stream_text_turn(
     key = str(begun["key"])
     try:
         asm = await _assemble_generation(
-            query, db=db, roles=user.roles, vision=vision, history_block=history_block
+            query,
+            db=db,
+            roles=user.roles,
+            vision=vision,
+            history_block=history_block,
+            user=user,
+            session_id=session.id,
         )
     except NoEvidenceError as exc:
         result = await _persist_reject(
@@ -600,6 +693,8 @@ async def stream_text_turn(
         need_human=need_human,
         context=history_ctx,
         started=started,
+        tool_calls=asm["tool_calls"],
+        notes=asm["notes"],
     )
     result = await _persist_agent_turn(
         db,
@@ -620,6 +715,8 @@ async def stream_text_turn(
         usage={},
         trace_id=str(checked["trace_id"]),
         need_human=bool(checked.get("need_human", False)),
+        tool_calls=list(asm["tool_calls"]),
+        notes=list(asm["notes"]),
     )
     yield result
 

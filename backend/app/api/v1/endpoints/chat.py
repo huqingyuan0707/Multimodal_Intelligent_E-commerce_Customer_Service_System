@@ -1,8 +1,11 @@
 """对话端点（13 步问答侧，对齐 API 规范 §4.2/§5 + RAG 规范 §4）
 
-链路：POST /chat → run_text_turn（检索→拼接→生成→校验→落库）→ ok()/2001；
+链路：POST /chat → run_text_turn（编排/检索→拼接→生成→校验→落库）→ ok()/2001；
 POST /chat/stream → source/phase(retrieving/inspecting/generating) → message token 增量
-→ phase(validating) → done（含引用/guard/faithfulness/trace_id/session_id/vision）。
+→ phase(validating) → done（含引用/guard/faithfulness/trace_id/session_id/vision/
+tool_calls/orchestration.notes）。
+检索段走 Agent 编排（plan→executor→连接器，执行步骤 B 余项①接线），编排不可用回落
+knowledge_service.retrieve 直调（开关 AGENT_CHAT_ORCHESTRATE 一键回退），两条路治理口径一致。
 生成为模型 token 流（首字不等全文）；降级/重放为整段切片，帧形一致。
 图文轮 inspections 随请求透传（清洗+阈值重算在 service），低置信 done.need_human。
 """
@@ -86,6 +89,8 @@ async def chat_stream(
                 "faithfulness": 0.0,
                 "trace_id": "",
                 "context": {"rounds": 0, "tokens": 0, "dropped": 0, "summarized": False},
+                "tool_calls": [],
+                "orchestration": {"notes": []},
             },
             f"{sid}:0",
         )
@@ -136,6 +141,8 @@ async def chat_stream(
                 "context": result.get(
                     "context", {"rounds": 0, "tokens": 0, "dropped": 0, "summarized": False}
                 ),
+                "tool_calls": result.get("tool_calls", []),
+                "orchestration": result.get("orchestration", {"notes": []}),
             },
             f"{sid}:{seq}",
         )

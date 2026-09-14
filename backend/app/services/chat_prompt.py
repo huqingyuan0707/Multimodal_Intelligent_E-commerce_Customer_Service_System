@@ -14,7 +14,7 @@ from app.config import settings
 # 提示词硬约束：宁可不答不可答错（换模型不改这里）
 _SYSTEM_PROMPT = (
     "你是电商店铺的在线客服，代表商家回答买家问题。必须遵守："
-    "1) 只依据【资料】作答，资料里没有的价格、尺码、面料、发货时限、快递单号、政策一律不得编造；"
+    "1) 只依据【资料】与【业务查询】作答，两者都没有的价格、尺码、面料、发货时限、快递单号、政策一律不得编造；"
     "2) 资料不足以回答时，直接说明「这点资料里没有，我帮你转人工确认」，不要猜测；"
     "3) 用简体中文，简洁分点，引用来源时在句末标注编号，例如 [1]。"
 )
@@ -27,12 +27,15 @@ def build_messages(
     refs: list[dict[str, object]],
     vision_block: str = "",
     history_block: str = "",
+    tool_block: str = "",
 ) -> list[dict[str, str]]:
     """拼提示词：资料按 [n] 编号注入（单条 LLM_REF_CHARS 截断，总预算 TOP_K 倍封顶）。
 
     拼接预算：总资料字符超 TOP_K*LLM_REF_CHARS 则从末尾丢块，保证小模型上下文不爆。
     图文轮 vision_block（检测结果）插在资料与问题之间，LLM 按“致歉+定级+方案+时效”生成。
     多轮 history_block（摘要 + 窗口，context_service 已做预算裁剪/PII 清洗）插在检测后。
+    tool_block 为 Agent 编排（FR-3/FR-5 接线）实查到的业务事实（订单/物流/库存等）：
+    与【资料】并列作为可依据事实，但不参与 [n] 编号，避免 LLM 编造出不存在的引用号。
     """
     budget = settings.TOP_K * settings.LLM_REF_CHARS
     blocks: list[str] = []
@@ -45,6 +48,7 @@ def build_messages(
         blocks.append(f"[{i}]《{ref.get('title', '')}》{piece}")
     body = "\n".join(blocks)
     vision = f"\n\n【图像检测】\n{vision_block[:800]}" if vision_block.strip() else ""
+    tool = f"\n\n【业务查询】\n{tool_block[:800]}" if tool_block.strip() else ""
     history = (
         f"\n\n{history_block[: settings.SESSION_TOKEN_BUDGET * 2]}"
         if history_block.strip()
@@ -55,8 +59,8 @@ def build_messages(
         {
             "role": "user",
             "content": (
-                f"【资料】\n{body}{vision}{history}\n\n【问题】{query[:500]}\n"
-                "请只依据上面资料作答，历史对话仅用于理解指代（如“这个”“刚才那件”）。"
+                f"【资料】\n{body}{tool}{vision}{history}\n\n【问题】{query[:500]}\n"
+                "请只依据上面资料与业务查询结果作答，历史对话仅用于理解指代（如“这个”“刚才那件”）。"
             ),
         },
     ]

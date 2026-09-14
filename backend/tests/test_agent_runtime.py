@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
@@ -22,12 +23,13 @@ from app.core.exceptions import BusinessError, ErrorCode
 from app.core.rbac import get_current_user
 from app.core.user_context import CurrentUser, set_current_user
 from app.db import session as session_mod
-from app.db.models import ToolCall
+from app.db.models import Task, ToolCall
 from app.db.seed import seed_on_startup
 from app.db.session import init_models
 from app.main import app
-from app.modules.agent import connectors, executor, policy, registry
+from app.modules.agent import connectors, executor, policy, registry, runtime
 from app.modules.agent.contracts import ToolContext, ToolSpec, validate_args
+from app.services import llm_service, order_service
 
 TENANT = settings.SEED_TENANT
 TESTER = CurrentUser(username="tester", tenant=TENANT, roles=["*"])
@@ -474,3 +476,117 @@ async def test_runtime_waiting_human_when_no_evidence(client: httpx.AsyncClient)
     assert "转人工" in run["answer"] or any("转人工" in n for n in run["notes"])
     queue = await _ok(await client.get("/api/v1/workbench/queue"))
     assert any(row["id"] == session["id"] for row in queue["items"]), "无据必须自动挂起待接队列"
+
+
+# ---------------- 对话主链：检索段走编排（执行步骤 B 余项①接线） ----------------
+
+_KB_HIT = "退货政策是什么"
+
+
+def _offline_llm(monkeypatch: pytest.MonkeyPatch) -> None:
+    """模型离线（确定性）：只验编排接线与帧形，不依赖本机 Ollama。"""
+
+    async def _no_complete(_messages: list[dict[str, str]]) -> object:
+        raise llm_service.LlmUnavailableError("单测：模型离线")
+
+    async def _no_stream(_messages: list[dict[str, str]]) -> AsyncIterator[str]:
+        raise llm_service.LlmUnavailableError("单测：模型离线")
+        yield ""  # pragma: no cover - 仅为让桩函数是 async generator
+
+    monkeypatch.setattr(llm_service, "complete", _no_complete)
+    monkeypatch.setattr(llm_service, "acomplete_stream", _no_stream)
+
+
+async def _done_payload(client: httpx.AsyncClient, body: dict[str, Any]) -> dict[str, Any]:
+    """跑一次 /agent/chat/stream 并取 done 帧载荷（顺带断言 source 起、done 收）。"""
+    async with client.stream("POST", "/api/v1/agent/chat/stream", json=body) as resp:
+        assert resp.status_code == 200, resp.text[:200]
+        lines = [line async for line in resp.aiter_lines()]
+    events = [line.removeprefix("event: ") for line in lines if line.startswith("event: ")]
+    assert events and events[0] == "source" and events[-1] == "done", events
+    payload = next(
+        (
+            lines[index + 1].removeprefix("data: ")
+            for index, line in enumerate(lines)
+            if line == "event: done"
+        ),
+        "",
+    )
+    assert payload, "done 帧必须带 data"
+    return json.loads(payload)
+
+
+async def test_chat_main_chain_orchestrates_kb_retrieve(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """主链接线：编排规划出 kb.retrieve 并真调连接器，非流式与 done 帧都透出 tool_calls。"""
+    _offline_llm(monkeypatch)
+    login_as(TESTER)
+    data = await _ok(await client.post("/api/v1/agent/chat", json={"query": _KB_HIT}))
+    assert [call["tool"] for call in data["tool_calls"]] == ["kb.retrieve"], "检索段必须走工具执行器"
+    call = data["tool_calls"][0]
+    assert call["status"] == "ok" and call["scope"] == "kb:read"
+    assert call["trace_id"] == data["trace_id"], "工具审计与回答必须同一 trace_id 可回查"
+    assert data["orchestration"] == {"notes": []}
+    assert data["references"], "工具结果要回喂检索口径，引用不能因改走编排而丢"
+    done = await _done_payload(client, {"query": _KB_HIT, "client_msg_id": "orch-sse-1"})
+    assert [c["tool"] for c in done["tool_calls"]] == ["kb.retrieve"]
+    assert done["orchestration"]["notes"] == [] and done["references"]
+
+
+async def test_chat_orchestration_notes_are_honest(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """命中「退款」却缺订单号：绝不自动生成资金审批单，编排说明如实透出。"""
+    _offline_llm(monkeypatch)
+    login_as(TESTER)
+    data = await _ok(await client.post("/api/v1/agent/chat", json={"query": "退款时效是多久"}))
+    assert any("缺少必填参数" in note for note in data["orchestration"]["notes"])
+    assert [call["tool"] for call in data["tool_calls"]] == ["kb.retrieve"], "缺参不得带残参硬调"
+    assert data["references"]
+    pending = await _ok(
+        await client.get("/api/v1/approvals", params={"status": "pending", "page": 1, "size": 20})
+    )
+    assert all(row["action"] != "order.refund" for row in pending["items"]), (
+        "对话主链不得替买家自动发起退款审批"
+    )
+
+
+async def test_chat_orchestration_switch_and_kernel_fallback(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """一键回退与内核未装载两条路都回落直连检索：引用照旧、绝不 500、绝不 2001 拒答。"""
+    _offline_llm(monkeypatch)
+    login_as(TESTER)
+    monkeypatch.setattr(settings, "AGENT_CHAT_ORCHESTRATE", False)
+    off = await _ok(await client.post("/api/v1/agent/chat", json={"query": _KB_HIT}))
+    assert off["references"] and off["tool_calls"] == []
+    assert off["orchestration"] == {"notes": ["编排不可用，已回落直连检索"]}
+    monkeypatch.setattr(settings, "AGENT_CHAT_ORCHESTRATE", True)
+    monkeypatch.setattr(registry, "maybe_get", lambda _name: None)
+    bare = await _ok(await client.post("/api/v1/agent/chat", json={"query": _KB_HIT}))
+    assert bare["references"] and bare["tool_calls"] == []
+    assert bare["orchestration"]["notes"] == ["编排不可用，已回落直连检索"]
+
+
+async def test_orchestrate_business_fact_without_task_row(db: Any) -> None:
+    """编排入口：给全主键才真调业务工具，事实拼进 tool_block；对话轮次绝不建 tasks 行。"""
+    set_current_user(TESTER)
+    orders = await order_service.list_orders(db, tenant=TENANT, status="shipped", size=1)
+    assert orders["items"], "种子缺少已发货订单，无法验证业务事实注入"
+    data = await runtime.orchestrate(
+        db,
+        user=TESTER,
+        query="我的快递到哪了",
+        tool_args={"order_id": str(orders["items"][0]["id"])},
+        trace_id="t-orch",
+    )
+    assert data is not None, "内核已装载时必须给出编排结果"
+    assert [call["tool"] for call in data["tool_calls"]] == ["logistics.query"]
+    assert "物流" in data["tool_block"], "业务事实必须拼给模型，否则等于白调"
+    assert data["refs"] == [], "引用只由 kb.retrieve 提供"
+    assert data["empty"] is False and data["approval"] == {}
+    tasks = (await db.execute(select(func.count()).select_from(Task))).scalar_one()
+    assert tasks == 0, "对话主链不建 tasks 行（否则每条买家消息都刷任务中心）"
+    audits = (await db.execute(select(func.count()).select_from(ToolCall))).scalar_one()
+    assert audits >= 1, "编排调用同样要落 tool_calls 审计"

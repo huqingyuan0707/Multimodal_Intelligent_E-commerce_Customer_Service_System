@@ -69,11 +69,13 @@ api_router.include_router(chat.router, dependencies=[Depends(get_current_user)])
 - 开发默认账号：**租户 `demo-tenant` / 用户名 `admin` / 密码 `admin123` / 角色 `cs,kb`**（`.env` 的 `SEED_*` 可覆盖）。种子幂等且**不覆盖已存在账号**，改 `SEED_PASSWORD` 只对新建账号生效。
 
 ### 4.2 对话（非流式，调试/短问答）
-- `POST /agent/chat {query, thread_id?, security_level?, client_msg_id?, image_ids[]?, inspections[]?}` → `ok({answer, references[], guard:{pass,degraded}, faithfulness, model, degraded, trace_id, session_id, vision[], need_human, context{rounds,tokens,dropped,summarized}})`（规范路径；`/chat` 为兼容别名，行为一致）。
+- `POST /agent/chat {query, thread_id?, security_level?, client_msg_id?, image_ids[]?, inspections[]?}` → `ok({answer, references[], guard:{pass,degraded}, faithfulness, model, degraded, trace_id, session_id, vision[], need_human, context{rounds,tokens,dropped,summarized}, tool_calls[], orchestration{notes[]}})`（规范路径；`/chat` 为兼容别名，行为一致）。
 - 入参 `thread_id` 命中本人会话则复用，否则新建（标题取问题前 20 字，他人/异租户 id 视为未传）；`client_msg_id` 为前端每次发送生成的幂等键，同（会话，键）重调只落一行，重放不再调模型。
 - 用户消息与助手回复（含引用/guard/忠实度/trace）双双落 `messages` 表，刷新后 `GET /sessions/{id}` 可回放。
 - 生成走适配层 `llm_service`（本地 Ollama `qwen2.5`，ADR-0001）；模型不可用**不 500**：降级片段摘要，`degraded=true`、`model="template"`。
 - `faithfulness`：回答内 `[n]` 引用越界按比例扣分（无引用记 0.9），低分前端可提示核对来源。
+- `tool_calls[]`：本轮检索段经 Agent 编排真调的工具记录（形状同 `POST /agent/tools/{name}/invoke` 出参，含 `scope/attempts/latency_ms/trace_id`，前端 `ToolCallCard` 直接渲染）；走回落直调时为空数组，帧形不随分支变化。
+- `orchestration{notes[]}`：编排说明（中文可读，空数组 = 规划按预期命中）。固定文案：`命中「退款」但缺少必填参数（如订单号/SKU），已回落知识库检索` / `当前身份无权调用 X，已回落知识库检索` / `X 未返回可用结果，已转人工跟进` / `该动作需人工审批，已生成审批单（账目未变动）` / `编排不可用，已回落直连检索`。
 - `2001` 表示无据拒答，前端渲染拒答话术 + 转人工按钮，不当错误抛异常（拒答同样落库，`rejected` 标记）。
 
 ### 4.3 会话与记忆（三层：Session→Message→Context，对齐 FR-1.4）
@@ -169,13 +171,14 @@ api_router.include_router(chat.router, dependencies=[Depends(get_current_user)])
 - `GET /agent/runtime/{task_id}` → `ok(快照同形)`；跨租户 / 无检查点 → `4001`「任务不存在或已过期」/「该任务不是 Agent 编排任务，无检查点」（不泄露存在性）。
 - `POST /agent/runtime/{task_id}/resume` → `ok(快照)`，从 `cursor` 续跑剩余步骤，**不重放已完成步**。审批未决 → `4003`「该轮已提交审批，请等审批通过后再继续推进」（HTTP 409），绝不放行绕过人工；已驳回 → 收敛 `FAILED`。
 - 任务态映射：`DONE → tasks.status=done`，其余挂起/失败态留 `running/error`，`tasks.output` 落 `{state, answer, steps}`（`GET /tasks/{id}` 可轮询）。
-- 可调全进 `Settings`：`AGENT_TOOL_TIMEOUT_SECONDS / AGENT_TOOL_MAX_RETRIES / AGENT_TOOL_CIRCUIT_THRESHOLD / AGENT_TOOL_CIRCUIT_COOLDOWN_SECONDS / AGENT_TOOL_RETRY_BACKOFF_SECONDS / AGENT_MAX_STEPS`（前四项进 `_HOT_FIELDS`）。
+- 对话主链接线（`/agent/chat` 与 `/agent/chat/stream`，`/chat` 别名同）：检索段不再直调 `knowledge_service.retrieve`，改由 `runtime.orchestrate()` 规划 → `executor.call()` 执行 → `kb.retrieve` 结果回喂同一 `build_messages/validate_references` 口径。**不建 `tasks` 行、不落检查点**（对话轮次不是任务，否则每条买家消息都刷任务中心）；业务查询事实以 `【业务查询】` 块注入提示词（不占 `[n]` 引用编号）。治理口径不变：`refs` 仍来自 `kb.retrieve`（租户/密级/生效期/渠道过滤在 service 内），敏感工具（`refund.create`）**不自动触发**——缺必填参数即回落检索。编排不可用（开关关闭 / 连接器未装载 / 内部异常）一律回落直连检索并记 `agent.degraded` trace，**绝不 500、绝不把「工具没装上」放大成 `2001`**。
+- 可调全进 `Settings`：`AGENT_TOOL_TIMEOUT_SECONDS / AGENT_TOOL_MAX_RETRIES / AGENT_TOOL_CIRCUIT_THRESHOLD / AGENT_TOOL_CIRCUIT_COOLDOWN_SECONDS / AGENT_TOOL_RETRY_BACKOFF_SECONDS / AGENT_MAX_STEPS / AGENT_CHAT_ORCHESTRATE`（前四项进 `_HOT_FIELDS`；`AGENT_CHAT_ORCHESTRATE=false` 即对话链一键回退直调）。
 - 启动注册：`main.py::lifespan → modules/agent/bootstrap.startup()` 幂等装载 6 个连接器；注册失败只告警不阻断启动（编排是增强能力，缺它服务仍须可用）。
-- openapi 自查说明：本轮以 `app.openapi()` 导出核对，新增 6 条 `/agent/*` path（`tools`、`tools/{name}`、`tools/{name}/invoke`、`run`、`runtime/{task_id}`、`runtime/{task_id}/resume`），总 **78** paths，其余端点未变。配套：工具 Scope 令牌 `kb:read`/`vision:inspect`/`trade:refund` 已并入 `SEED_ROLES`（seed 侧只并集补齐，不覆盖存量密码与角色）。
+- openapi 自查说明：本轮以 `app.openapi()` 导出核对，新增 6 条 `/agent/*` path（`tools`、`tools/{name}`、`tools/{name}/invoke`、`run`、`runtime/{task_id}`、`runtime/{task_id}/resume`），总 **78** paths，其余端点未变。对话主链接线**不动路径与入参**，只在 `ok()` / `done` 载荷新增 `tool_calls[]` 与 `orchestration{notes[]}`（加法，向后兼容；老前端忽略即可）。配套：工具 Scope 令牌 `kb:read`/`vision:inspect`/`trade:refund` 已并入 `SEED_ROLES`（seed 侧只并集补齐，不覆盖存量密码与角色）。
 
 ## 5. SSE 流式协议（项目实际形态）
 
-后端事件名固定：`source / phase(retrieving[/inspecting]/generating/validating) / message / done`（任务类另有 `progress/complete/error`；图文轮多一帧 `inspecting`，纯文本轮无此帧）。`done` 载荷必含 `references + guard + faithfulness + trace_id + session_id`，图文轮加带 `vision[] + need_human`（前端渲染检测卡 + 低置信转人工按钮），多轮加带 `context{rounds,tokens,dropped,summarized}`（前端气泡小字透出用量）。每帧必带 `id:` 行（`{stream_id}:{seq}`，`stream_id` 由 `client_msg_id` 确定性派生，重放帧 id 相同），前端同流内按 id 去重，断线重连不重复拼接。`message` 负载为模型 token 级增量（在线时首字不等全文拼完）；降级模板/重放命中时为整段按 `SSE_CHUNK_CHARS` 切片，帧形与幂等语义一致。`validating` 帧在全文到齐后发出（流式下位于末尾 `message` 之后、`done` 之前）。
+后端事件名固定：`source / phase(retrieving[/inspecting]/generating/validating) / message / done`（任务类另有 `progress/complete/error`；图文轮多一帧 `inspecting`，纯文本轮无此帧）。`done` 载荷必含 `references + guard + faithfulness + trace_id + session_id + tool_calls[] + orchestration{notes[]}`，图文轮加带 `vision[] + need_human`（前端渲染检测卡 + 低置信转人工按钮），多轮加带 `context{rounds,tokens,dropped,summarized}`（前端气泡小字透出用量）。每帧必带 `id:` 行（`{stream_id}:{seq}`，`stream_id` 由 `client_msg_id` 确定性派生，重放帧 id 相同），前端同流内按 id 去重，断线重连不重复拼接。`message` 负载为模型 token 级增量（在线时首字不等全文拼完）；降级模板/重放命中时为整段按 `SSE_CHUNK_CHARS` 切片，帧形与幂等语义一致。`validating` 帧在全文到齐后发出（流式下位于末尾 `message` 之后、`done` 之前）。
 
 ```python
 """聊天流 endpoint（对齐 API 规范 §5）"""
@@ -187,7 +190,7 @@ import asyncio
 async def _demo_stream(query: str):
     # 模型不可用时演示降级，绝不 500
     yield "event: message\ndata: {\"content\":\"演示模式：\"}\n\n"
-    yield "event: done\ndata: {\"references\":[],\"guard\":{\"pass\":true},\"faithfulness\":1.0,\"trace_id\":\"demo\",\"session_id\":\"\"}\n\n"
+    yield "event: done\ndata: {\"references\":[],\"guard\":{\"pass\":true},\"faithfulness\":1.0,\"trace_id\":\"demo\",\"session_id\":\"\",\"tool_calls\":[],\"orchestration\":{\"notes\":[]}}\n\n"
 
 @router.post("/agent/chat/stream")
 async def chat_stream(payload: ChatRequest, user=Depends(get_current_user)):
