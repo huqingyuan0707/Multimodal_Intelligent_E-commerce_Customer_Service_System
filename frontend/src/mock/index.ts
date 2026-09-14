@@ -1,4 +1,5 @@
 // 演示兜底数据（后端不可用时回退，对齐前端 Skill §6；口径见页面设计 §4）
+import type { AgentMessage } from '@/types/agent';
 import type { ApprovalItem } from '@/types/approval';
 import type { GoodsItem, InventoryRow, OrderItem } from '@/types/shop';
 
@@ -283,6 +284,45 @@ export const mockApprovals: ApprovalItem[] = [
 // 对话兜底回复（SSE 多次重连仍失败时本地回显，明确标注演示身份）
 export const mockChatFallback =
   '网络开小差了，这是本地演示回复：退货政策是 7 天无理由、质量问题 15 天（演示数据，后端恢复后可重发）。';
+
+// 工作台首屏种子（画布屏一：尺码咨询＋VLM＋引用＋语音行；类型复用 types/agent，不自造形状）
+export const mockWorkbenchSeed = () => {
+  const seed: AgentMessage[] = [
+    { id: 'm-u-1', role: 'user', modality: 'text', content: '这件衣服有 L 码吗？' },
+    {
+      id: 'm-a-1',
+      role: 'agent',
+      modality: 'text',
+      content: '您好，我是智能客服小助手。已为您查到该款商品 L 码库存充足，预计 48 小时内发货。',
+      references: mockCitations.map(c => ({ source: c.source, title: c.title, score: c.score })),
+      trace_id: mockCustomer.traceId,
+      vision: [
+        {
+          category: mockVlmResult.category,
+          confidence: mockVlmResult.confidence,
+          desc: mockVlmResult.advice,
+          need_human: mockVlmResult.confidence < 0.6,
+          degraded: false,
+        },
+      ],
+    },
+    { id: 'm-u-2', role: 'user', modality: 'text', content: '好的，帮我下单一件 M 码。' },
+    { id: 'v-1', role: 'user', modality: 'voice', content: '袖口这里好像脱线了' },
+    {
+      id: 'm-a-2',
+      role: 'agent',
+      modality: 'text',
+      content: '已收到您的订单。检测到您上传的售后图片，正在识别…',
+    },
+    ...mockWorkMessages.map(m => ({
+      id: m.id,
+      role: m.from,
+      modality: 'text' as const,
+      content: m.content,
+    })),
+  ];
+  return seed;
+};
 
 // 管理后台演示数据（后端 /admin 未就绪时占位，字段对齐 types/admin）
 export const mockAdminTenants = [

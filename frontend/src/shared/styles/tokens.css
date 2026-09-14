@@ -23,6 +23,10 @@
   --reai-glass-bg: rgb(22 29 51 / 60%);
   --reai-glass-border: rgb(255 255 255 / 12%);
   --reai-glow: 0 0 24px rgb(79 107 255 / 25%);
+  /* 语义卡底：12% 语义色叠在卡片上（VLM 检测卡 / 引用溯源卡 / 预警卡） */
+  --reai-primary-soft: rgb(79 107 255 / 12%);
+  --reai-gold-soft: rgb(232 163 61 / 12%);
+  --reai-notice-soft: rgb(251 146 54 / 12%);
   --reai-page-gradient:
     radial-gradient(1000px 500px at 15% 10%, rgb(79 107 255 / 25%), transparent 60%),
     radial-gradient(800px 500px at 85% 90%, rgb(139 92 246 / 22%), transparent 60%), #0b1124;

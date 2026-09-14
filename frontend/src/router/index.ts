@@ -91,6 +91,26 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/reviews/ReviewView.vue'),
         meta: { title: '评价工单', roles: ['cs', 'shop', 'admin'] },
       },
+      {
+        path: 'screen',
+        component: () => import('@/views/screen/BizScreenView.vue'),
+        meta: { title: '经营大屏', roles: ['shop', 'admin'] },
+      },
+      {
+        path: 'purchase',
+        component: () => import('@/views/purchase/PurchaseView.vue'),
+        meta: { title: '采购协同', roles: ['shop', 'stock', 'admin'] },
+      },
+      {
+        path: 'finance',
+        component: () => import('@/views/finance/FinanceView.vue'),
+        meta: { title: '对账结算', roles: ['shop', 'admin'] },
+      },
+      {
+        path: 'risk',
+        component: () => import('@/views/risk/RiskView.vue'),
+        meta: { title: '风控工单', roles: ['shop', 'cs', 'admin'] },
+      },
     ],
   },
   {
