@@ -1,5 +1,11 @@
 // SSE 流式对话（对齐 API 规范 §5：event source/phase/message/done；fetch 必带 Authorization，401 走中央 handle401）
-import type { AgentMessage, Reference, SessionContext, VisionInspection } from '@/types/agent';
+import type {
+  AgentMessage,
+  Reference,
+  SessionContext,
+  ToolCall,
+  VisionInspection,
+} from '@/types/agent';
 import { API_BASE, handle401 } from './http';
 
 // 历史回放映射：后端 message_to_dict 行 → AgentMessage（引用/检测卡/trace 一次收口，页面只消费）
@@ -55,6 +61,9 @@ export type DonePayload = {
   vision?: VisionInspection[];
   need_human?: boolean;
   context?: SessionContext;
+  // 检索段编排产出：真调工具记录 + 编排说明（重放轮 tool_calls 为空、notes 说明未重跑，对齐后端 replay 口径）
+  tool_calls?: ToolCall[];
+  orchestration?: { notes?: string[] };
 };
 
 export type StreamHandlers = {

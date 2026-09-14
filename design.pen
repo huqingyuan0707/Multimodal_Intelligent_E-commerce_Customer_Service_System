@@ -659,6 +659,121 @@
                 },
                 {
                   "type": "frame",
+                  "id": "wtk00",
+                  "name": "工具调用卡",
+                  "layout": "vertical",
+                  "gap": 6,
+                  "padding": 12,
+                  "fill": "#FFFFFF1F",
+                  "cornerRadius": 8,
+                  "stroke": "#FFFFFF14",
+                  "strokeWidth": 1,
+                  "width": "fill_container",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "wtk01",
+                      "name": "工具调用卡头部",
+                      "layout": "horizontal",
+                      "gap": 8,
+                      "alignItems": "center",
+                      "width": "fill_container",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "wtk02",
+                          "name": "工具调用卡标题",
+                          "content": "工具调用 · kb.retrieve",
+                          "fontSize": 12,
+                          "fill": "#EEF1F8",
+                          "fontWeight": "600"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "wtk04",
+                          "name": "工具调用卡状态",
+                          "layout": "horizontal",
+                          "padding": 4,
+                          "fill": "#34D399",
+                          "cornerRadius": 999,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "wtk05",
+                              "name": "工具调用卡状态文字",
+                              "content": "成功",
+                              "fontSize": 11,
+                              "fill": "#1F2430",
+                              "fontWeight": "600"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "wtk03",
+                          "name": "工具调用卡折叠箭头",
+                          "content": "▾",
+                          "fontSize": 12,
+                          "fill": "#A9B1C7"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "wtk06",
+                      "name": "工具调用卡元信息",
+                      "content": "scope kb:read · 耗时 0.42s · 1 次 · trace_id 8f2c…a4d9",
+                      "fontSize": 11,
+                      "fill": "#A9B1C7"
+                    },
+                    {
+                      "type": "text",
+                      "id": "wtk07",
+                      "name": "工具调用卡参数",
+                      "content": "参数 {\"query\": \"退货政策是什么\"}",
+                      "fontSize": 11,
+                      "fill": "#8B94AD"
+                    },
+                    {
+                      "type": "text",
+                      "id": "wtk08",
+                      "name": "工具调用卡结果",
+                      "content": "结果 命中 3 条 · 相似度 0.81 · 已注入提示词",
+                      "fontSize": 11,
+                      "fill": "#A9B1C7"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "wtk10",
+                  "name": "编排说明行",
+                  "layout": "horizontal",
+                  "gap": 6,
+                  "alignItems": "center",
+                  "width": "fill_container",
+                  "children": [
+                    {
+                      "type": "rectangle",
+                      "id": "wtk11",
+                      "name": "编排说明条",
+                      "width": 2,
+                      "height": 14,
+                      "fill": "#FB9236",
+                      "cornerRadius": 1
+                    },
+                    {
+                      "type": "text",
+                      "id": "wtk12",
+                      "name": "编排说明文字",
+                      "content": "编排说明 · 命中「退款」但缺少必填参数（如订单号/SKU），已回落知识库检索",
+                      "fontSize": 11,
+                      "fill": "#FB9236"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
                   "id": "wbf061",
                   "name": "VLM检测卡",
                   "layout": "vertical",
@@ -762,6 +877,143 @@
                     }
                   ],
                   "width": "fill_container"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "wtk30",
+              "name": "工具调用卡状态族",
+              "layout": "horizontal",
+              "gap": 12,
+              "padding": [
+                0,
+                20
+              ],
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "wtk31",
+                  "name": "工具调用卡-待审批态",
+                  "layout": "vertical",
+                  "gap": 6,
+                  "padding": 12,
+                  "fill": "#FFFFFF1F",
+                  "cornerRadius": 8,
+                  "stroke": "#FFFFFF14",
+                  "strokeWidth": 1,
+                  "width": "fill_container",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "wtk32",
+                      "name": "待审批态头部",
+                      "layout": "horizontal",
+                      "gap": 8,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "wtk33",
+                          "name": "待审批态标题",
+                          "content": "工具调用 · refund.create",
+                          "fontSize": 12,
+                          "fill": "#EEF1F8",
+                          "fontWeight": "600"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "wtk34",
+                          "name": "待审批态状态",
+                          "layout": "horizontal",
+                          "padding": 4,
+                          "fill": "#E8A33D",
+                          "cornerRadius": 999,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "wtk35",
+                              "name": "待审批态状态文字",
+                              "content": "待审批",
+                              "fontSize": 11,
+                              "fill": "#1F2430",
+                              "fontWeight": "600"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "wtk36",
+                      "name": "待审批态结果",
+                      "content": "结果 已提交审批（账目未变动）· 单号 ap-2f19",
+                      "fontSize": 11,
+                      "fill": "#A9B1C7"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "wtk40",
+                  "name": "工具调用卡-被拒态",
+                  "layout": "vertical",
+                  "gap": 6,
+                  "padding": 12,
+                  "fill": "#FFFFFF1F",
+                  "cornerRadius": 8,
+                  "stroke": "#FFFFFF14",
+                  "strokeWidth": 1,
+                  "width": "fill_container",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "wtk41",
+                      "name": "被拒态头部",
+                      "layout": "horizontal",
+                      "gap": 8,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "wtk42",
+                          "name": "被拒态标题",
+                          "content": "工具调用 · order.query",
+                          "fontSize": 12,
+                          "fill": "#EEF1F8",
+                          "fontWeight": "600"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "wtk43",
+                          "name": "被拒态状态",
+                          "layout": "horizontal",
+                          "padding": 4,
+                          "fill": "#FB9236",
+                          "cornerRadius": 999,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "wtk44",
+                              "name": "被拒态状态文字",
+                              "content": "被拒",
+                              "fontSize": 11,
+                              "fill": "#1F2430",
+                              "fontWeight": "600"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "wtk45",
+                      "name": "被拒态结果",
+                      "content": "结果 订单不存在，已回落知识库检索并记编排说明",
+                      "fontSize": 11,
+                      "fill": "#A9B1C7"
+                    }
+                  ]
                 }
               ]
             },

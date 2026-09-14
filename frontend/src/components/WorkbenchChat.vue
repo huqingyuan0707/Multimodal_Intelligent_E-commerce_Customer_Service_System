@@ -1,25 +1,29 @@
 <template>
   <div class="msgs">
     <p v-if="phaseText" class="phase">{{ phaseText }}</p>
-    <div v-for="m in messages" :key="m.id" class="msg" :class="m.role">
-      <template v-if="m.role === 'agent'">
-        <span class="avatar agent">AI</span>
-        <div class="bubble">
-          <p class="text">{{ m.content || '思考中…' }}</p>
-          <VisionResultCard :inspections="m.vision ?? []" />
-          <CitationList :refs="m.references ?? []" :trace-id="m.trace_id" @open="emit('open-doc', $event)" />
-        </div>
-      </template>
-      <template v-else>
-        <div v-if="m.modality === 'voice'" class="bubble voice">
-          <button class="play" :aria-label="`播放语音 ${m.id}`" @click="emit('play-voice', m.id)">▶</button>
-          <span class="wave"><i /></span>
-          <span class="vmeta">{{ voiceText(m.id) }}</span>
-        </div>
-        <p v-else class="bubble user">{{ m.content }}</p>
-        <span class="avatar">{{ name.charAt(0) || '客' }}</span>
-      </template>
-    </div>
+    <template v-for="m in messages" :key="m.id">
+      <div class="msg" :class="m.role">
+        <template v-if="m.role === 'agent'">
+          <span class="avatar agent">AI</span>
+          <div class="bubble">
+            <p class="text">{{ m.content || '思考中…' }}</p>
+            <VisionResultCard :inspections="m.vision ?? []" />
+            <CitationList :refs="m.references ?? []" :trace-id="m.trace_id" @open="emit('open-doc', $event)" />
+          </div>
+        </template>
+        <template v-else>
+          <div v-if="m.modality === 'voice'" class="bubble voice">
+            <button class="play" :aria-label="`播放语音 ${m.id}`" @click="emit('play-voice', m.id)">▶</button>
+            <span class="wave"><i /></span>
+            <span class="vmeta">{{ voiceText(m.id) }}</span>
+          </div>
+          <p v-else class="bubble user">{{ m.content }}</p>
+          <span class="avatar">{{ name.charAt(0) || '客' }}</span>
+        </template>
+      </div>
+      <!-- 工具透明展示：编排真调的工具 + 中文说明（画板 wtk00/wtk10），挂在对应 Agent 消息行下方 -->
+      <ToolCallCard v-if="m.role === 'agent'" :calls="m.tool_calls ?? []" :notes="m.notes ?? []" />
+    </template>
     <el-empty v-if="!messages.length && !streaming" description="本会话暂无消息" :image-size="56" />
   </div>
 
@@ -60,6 +64,7 @@
 import AiButton from '@/shared/components/AiButton.vue';
 import AiInput from '@/shared/components/AiInput.vue';
 import CitationList from '@/components/CitationList.vue';
+import ToolCallCard from '@/components/ToolCallCard.vue';
 import VisionResultCard from '@/components/VisionResultCard.vue';
 import type { AgentMessage } from '@/types/agent';
 

@@ -76,7 +76,7 @@ export const useAgentStream = () => {
     streaming.value = false;
   };
 
-  // 收尾为一条 AgentMessage（引用/trace/检测卡/上下文用量随 done 落盘显示）
+  // 收尾为一条 AgentMessage（引用/trace/检测卡/上下文用量/工具调用随 done 落盘显示）
   const toMessage = (id: string) => ({
     id,
     role: 'agent' as const,
@@ -87,6 +87,9 @@ export const useAgentStream = () => {
     vision: done.value?.vision ?? [],
     need_human: done.value?.need_human ?? false,
     context: done.value?.context,
+    // 工具透明展示：编排真调的每一步 + 中文说明（缺参/越权/回落）原样透出，前端不加工
+    tool_calls: done.value?.tool_calls ?? [],
+    notes: done.value?.orchestration?.notes ?? [],
   });
 
   return { streaming, sources, phase, draft, done, error, start, stop, toMessage };

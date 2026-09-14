@@ -15,6 +15,27 @@ export type VisionInspection = {
   degraded: boolean;
 };
 
+// 工具调用记录（done.tool_calls 与 POST /agent/tools/{name}/invoke 出参同一形状，
+// 对齐 API 规范 §4.12/§5 + FR-5「ToolCallCard 透明展示、可展开参果」）
+// status：ok=已执行（approval_required 为真表示结果进审批闸门，账目未变动）/ rejected=业务拒绝（越权、参数、不存在）
+export type ToolCall = {
+  tool: string;
+  status: 'ok' | 'rejected';
+  scope?: string;
+  idempotent?: boolean;
+  requires_approval?: boolean;
+  approval_required?: boolean;
+  approval_id?: string;
+  args?: object;
+  result?: object;
+  attempts?: number;
+  latency_ms?: number;
+  timeout_seconds?: number;
+  code?: number;
+  message?: string;
+  trace_id?: string;
+};
+
 export type AgentMessage = {
   id: string;
   role: ChatRole;
@@ -28,6 +49,9 @@ export type AgentMessage = {
   context?: SessionContext;
   // 追问延伸 chips（随最后一条 Agent 回复展示，点击直接发送，对齐页面设计 §3.1）
   followups?: string[];
+  // 本轮真调工具记录（ToolCallCard 透明展示）与编排说明（缺必填参数/无权调用/回落如实透出）
+  tool_calls?: ToolCall[];
+  notes?: string[];
 };
 
 export type AgentEvent =

@@ -53,5 +53,6 @@
 - **批量写画板的省 token 姿势**：临时 Python 生成器（`T/F/chip/bar/field/cell` helper + 色值常量）→ `json.load` → 按 route 幂等替换 `children` → `json.dumps(indent=2, ensure_ascii=False)` → 用完即删。比手搓 JSON 省一大半 token，色值走常量不会漂。
 - **`#FFFFFF` 在画板里有两种语义，禁止盲替**：容器面 → `--reai-card #161d33`；彩色底上的白字/白图标 → `#ffffff`。Agent 气泡（`frame` 且 name 含「气泡」且 fill 白）→ `--reai-bubble-agent #f2f5fc`，其子树文字 → `--reai-text-on-light #1f2430`。
 - `tokens.css` 已含 3 个语义卡底：`--reai-primary-soft` / `--reai-gold-soft` / `--reai-notice-soft`（12% 叠底）→ 前端实现 VLM 检测卡 / 引用溯源卡 / 预警卡时直接用。
+- **`-/workbench` 消息流里的语义卡在画板中是「同级全宽块」**（`VLM检测卡`/`引用溯源卡`/`工具调用卡` 都与 `Agent消息行` 平级、全宽、深底浅字，fill 12% 白 `#FFFFFF1F` + 8% 描边 `#FFFFFF14`）。代码侧现状：VLM/引用卡在**浅气泡内**（存量层级差异，未统一），`ToolCallCard`（2026-09-15 新增）按画板挂在消息行**下方**（`.msgs` 里 `<template>` 包住「消息行+工具卡」）。**新卡一律照画板挂同级；不要塞进浅气泡**（白底上白卡必糊，且改配色＝自创视觉）。
 - `check_design.py::norm_color` 已归一到 RGBA（`#rrggbb` / `#rrggbb@aa`），否则 hex-alpha 与 `rgb(… / n%)` 会被误判为不一致。
 - 一次性迁移/探针脚本**用完即删**，不给 `design.pen` 留第二事实源。
