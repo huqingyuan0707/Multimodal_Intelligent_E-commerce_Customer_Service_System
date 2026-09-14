@@ -1,6 +1,6 @@
 # 多模态智能电商客服系统
 
-> 版本：v0.1.0 | 日期：2026-09-13 | 状态：**P0/P1 代码已落地，CI/CD 与容器化部署已跑通**（文档基线 → 可运行系统）
+> 版本：v0.2.7 | 日期：2026-09-15 | 状态：**P0/P1 代码已落地，CI/CD 与容器化部署已跑通**（文档基线 → 可运行系统）
 
 **多模态交互（文本/图片/语音）+ Agent Runtime 状态机 + 场景化 RAG 与业务连接器 + 人机协同审批与坐席工作台 + 多租户与模型网关 + 全链路可观测与评估 + K8s 云原生交付 + 成本与 ROI 闭环 = 生产可用、可治理、可评估、成本可控的智能客服平台。**
 
@@ -147,12 +147,18 @@ Agent 平台层：Runtime 状态机 | 多模态路由 | 工具注册 | RAG | 记
 └── skills/                        # 技能源文件（与 .codebuddy/skills 同步）
 ```
 
-### 尚未落地的目标结构（后续阶段）
+### Agent Runtime 模块结构（v0.2.6 已落地）
 
 ```text
-backend/app/modules/agent/         # Agent Runtime 状态机（IDLE→PLANNING→ACTING→…）
-  {runtime,state,orchestrator,tools,router,service}.py
-                                   # 当前对话形态为 services/chat_service + SSE 流式，状态机是 P2 目标
+backend/app/modules/agent/         # Agent Runtime 状态机（IDLE→PLANNING→ACTING→OBSERVING→REFLECTING→DONE）
+  contracts.py    # 状态机白名单 TRANSITIONS + ToolSpec + JSON Schema 子集校验（无三方依赖，中文报错）
+  registry.py     # 工具注册中心（超时/重试口径单源解析）
+  policy.py       # Scope 硬拦 + 敏感动作恒判送审
+  executor.py     # 30s 超时、幂等退避重试 3 次、非幂等恒 1 次、连续失败熔断 60s、全分支 tool_calls 审计
+  connectors.py   # 附录 A 6 个业务连接器（order/logistics/stock/coupon/kb/refund）
+  runtime.py      # 规则规划 → 逐步执行 → tasks.checkpoint 每步落盘 → resume 续跑不重放
+  bootstrap.py    # 启动幂等注册，失败只告警不阻断
+                                   # 对话主链检索段经 runtime.orchestrate() 接线（AGENT_CHAT_ORCHESTRATE 可一键回退直连检索）
 ```
 
 ---
@@ -383,5 +389,5 @@ Smoke 脚本（`backend/tests/smoke_*.py`）强制风格：头 docstring 写覆�
 | `frontend/` 应用代码                                                              | ✅ 已落地：14 个域页面（登录 / 对话 / 坐席工作台 / 管理 / 看板 / 商品 / 库存 / 订单…），`v-permission` 按钮级权限、mock 降级、列表分页规范                                            |
 | 容器化部署                                                                        | ✅ 已跑通：compose + GHCR 镜像（CI 自动发布）+ `deploy.ps1` 端到端 4 项验证全绿；v0.1.0 已发布                                                                                        |
 | GitOps / K8s                                                                      | 🔶 ArgoCD 清单就绪（`deploy/argocd/`，dev 自动同步 / prod 手动审批），集群侧待接入                                                                                                    |
-| Agent Runtime 状态机（`modules/agent/`）                                          | ⬜ 待落地（当前为 services + SSE 形态，P2 目标）                                                                                                                                      |
+| Agent Runtime 状态机（`modules/agent/`）                                          | ✅ 已落地（v0.2.6/v0.2.7）：状态机白名单 + checkpoint 断点续跑、工具注册中心、Scope 策略、超时重试熔断执行器、6 连接器、6 条 `/agent/*` 端点；对话主链检索段走 `runtime.orchestrate()`（可一键回退），`refund.create` 恒送审。缺口：编排层「规则机器人」降级话术（FR-5 三级容错第三级） |
 | 黄金集（≥ 500 条）与评估流水线                                                    | ⬜ 待建                                                                                                                                                                               |
