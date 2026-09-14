@@ -1,0 +1,62 @@
+---
+description: 设计先行红线（UI 先出 design.pen 画板、再按图写代码、画板与代码同 commit、色值以 tokens.css 为唯一事实源）。写 frontend/src 下任何 UI 代码前必读。
+alwaysApply: true
+enabled: true
+---
+
+# 设计先行红线（`design.pen` 是 UI 唯一事实源，违反即返工）
+
+## 0. 职责边界
+- `design.pen` 定「长什么样」：结构 / 层级 / 间距 / 圆角 / 色值 / 文案。
+- 代码定「怎么跑」：数据 / 交互 / 状态 / 接口 / 权限。
+- 代码**不得自创视觉**。要改视觉（配色、布局、组件形态）→ 先改画板，再改代码。
+
+## 1. 工作流（顺序不可颠倒）
+1. **定输入**：`多模态智能电商客服系统需求文档-FRDv2.md` 相关章节 + `页面设计.md` §1 路由表 / §3 页面详设 / §7 组件清单 + 现有 `frontend/src/{views,components}` + `frontend/src/shared/styles/tokens.css`。
+2. **先出图**：在 `design.pen` 建/改画板（一页一 frame）。
+3. **再写码**：按画板写页面骨架、层级、色值、文案。
+4. **同 commit 回填**：画板与代码不允许跨提交漂移（`design-guard` 拦）。
+
+## 2. 画板命名（机检 key，必须遵守）
+**画板 = 名字为 `<中文标题>-/<route>` 的 frame**，`<route>` 必须在 `页面设计.md` §1 路由表里查得到。带该后缀的 frame 一律按画板统计，所以不要给普通容器 frame 加 `-/xxx` 后缀。
+
+| 现状 | 画板名 | 判定 |
+|---|---|---|
+| ✅ | `知识库管理-/knowledge` | 合规 |
+| ✅ | `审批中心-/approvals` | 合规 |
+| ✅ | `经营大屏-/screen` | 合规 |
+| ⚠️ | `电商客服聊天界面` | 缺 route 后缀（存量债，棘轮计数，改这个画板时必须补成 `-/workbench`） |
+
+- route 不重复；顶层 frame 名不重复。
+- 一页一画板，画板**建议顶层并列**摆放（现有 4 个画板都嵌在根 frame `电商客服聊天界面` 内，属存量结构债，整理画布时提到顶层）。
+- 同一页的不同状态（空态/加载/错误）画成画板内的并列 frame，不新开画板。
+
+## 3. 色值唯一事实源 = `frontend/src/shared/styles/tokens.css`
+- 画板里任何色值必须取自 `tokens.css` 的变量取值，**禁止自造色**。
+- 代码里色值只许出现在 `tokens.css`，`.vue` 一律 `var(--reai-*)`。
+- **已知存量漂移（触碰即修）**：当前画板是浅色（背景 `#F5F6F8`、卡片 `#FFFFFF`、主色 `#4C8DFF`），与 token 的深色科技风（`--reai-bg #0b1124`、`--reai-card #161d33`、`--reai-primary #4f6bff`）不一致。改任何一个画板时，该画板配色必须一并切到 token。
+
+## 4. MCP 降级（不允许以「连不上」为由跳过设计）
+- `pencil.execute` 可用 → 在当前打开的画布上改（首选）。
+- 不可用（本机实测常见报错 `transport not connected to app: codebuddy`）→ **直接读写 `design.pen` 文本 JSON**，效果等同，**不得跳过设计直接写代码**。格式与字段见 skill `design-first` §4。
+
+## 5. 豁免（不写清楚豁免，规则会被绕过而不是被遵守）
+- 纯逻辑改动（`src/{api,stores,composables,types}`，不动模板/样式）→ 不触发本规则。
+- 文案 / 色值 / 间距微调 → 允许只改一边，但提交信息必须带 trailer：
+  `Design-Sync: skip reason="<具体理由>"`
+- 后端 / 文档 / 部署改动 → 完全不触发。
+
+## 6. 门禁（软约束之外的真拦截）
+`python scripts/check_design.py`（本地）/ CI `design-guard`（强拦）检查四件事：
+1. `design.pen` 可解析、frame 名唯一、命名与 route 合法；
+2. 路由覆盖率只升不降（棘轮，基线见脚本常量）；
+3. 改了 `frontend/src/{views,components}` 必须同一次改动带上 `design.pen`，或有 `Design-Sync: skip reason=`；
+4. 画板色值 ∈ `tokens.css` 取值集合（先告警，适应后由 `--strict-color` 转硬拦）。
+
+## 7. 完成前自检
+```bash
+python scripts/check_design.py --staged
+```
+输出 ERROR 即未完成，不许用 `--warn-only` 或跳过门禁来「变绿」。
+
+> 方法论细则（怎么读输入、`.pen` 字段速查、深色 token 映射、状态完整性清单）见 skill `design-first`。

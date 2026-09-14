@@ -44,3 +44,7 @@ data/
 .DS_Store
 Thumbs.db
 *.log
+
+# ---- 设计工具产物（画板唯一事实源是 design.pen，其余不入库）----
+*.pen.bak
+pencil-shadcn.pen

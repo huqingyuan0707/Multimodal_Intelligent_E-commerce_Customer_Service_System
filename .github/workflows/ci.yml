@@ -206,6 +206,27 @@ jobs:
           echo "$CHANGED" | grep -q "^backend/app/db/" && ! echo "$CHANGED" | grep -q "数据模型与存储设计.md" && { echo "::error::改了表/迁移 必须同 PR 改 数据模型文档"; fail=1; }
           exit $fail
 
+  # ---------------- 设计先行门禁：UI 代码与 design.pen 画板必须同改（对应 AGENTS.md §5） ----------------
+  # 检查项与规则正文在 scripts/check_design.py（单一实现，不在此处重复逻辑）
+  design-guard:
+    name: design-guard · 设计稿与代码同改检查
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: 画板结构 / 命名 / 路由覆盖 / 色值一致性
+        run: python scripts/check_design.py
+      - name: UI 改动与 design.pen 同改
+        run: |
+          BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
+          HEAD="${{ github.event.pull_request.head.sha || github.sha }}"
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE" 2>/dev/null; then
+            echo "::notice::取不到有效基线，跳过同改检查"
+            exit 0
+          fi
+          python scripts/check_design.py --range "$BASE..$HEAD"
+
 # 已落地（对应 ADR-0002 / 部署工程化.md §五/§十二/§十三）：
 #   - security job：Trivy fs 扫描只告警（exit-code 0），适应后改 1 即转硬门禁
 #   - package.yml：前后端镜像推送（latest + 短 sha + 版本号）+ Trivy 镜像扫描（同为告警级）

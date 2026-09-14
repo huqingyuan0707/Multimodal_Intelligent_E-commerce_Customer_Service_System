@@ -16,16 +16,17 @@
 | 任务优先级/剩余工序           | `执行步骤.md`（现状盘点 + 剩余工序 A-F）                                                              |
 | 后端风格                      | `skills/backend-code-style/SKILL.md`                                                                  |
 | 前端风格                      | `skills/frontend-code-style/SKILL.md`                                                                 |
-| 架构健康/防屎山（提交前自检） | `skills/anti-shit-code/SKILL.md`（含硬检查脚本 `scripts/check_arch.py`）                              |
+| 架构健康/防屎山（提交前自检） | `skills/anti-shit-code/SKILL.md`（含硬检查脚本 `scripts/check_arch.py`）                              || UI/设计稿（画板）             | `design.pen`（画板名 `<中文标题>-/<route>`）+ `skills/design-first/SKILL.md`                           |
 
 ## 2. AI 工作流（强制）
 
 1. 用 `skill` 工具加载对应风格 Skill；用 `read` 打开上面表格里的一行规范，不凭记忆写。
-2. 回复开头声明一行：`对齐文档：<文件名> §<节> + Skill §<节>`。
-3. 新文件必须写中文文件头 docstring（职责 + 链路 + 对齐章节），见后端 Skill §2。
-4. 改接口必须同步改 `API接口与SSE事件协议规范.md` + 自查 `openapi.json`；改 RAG 同步 RAG 规范；改页面同步 `页面设计.md`。
-5. **完成代码任务后，同一次提交内更新 `执行步骤.md`**（现状盘点表状态 + 剩余工序划掉前移 + 头部日期版本），细则见 `quality-gate` 规则。
-6. 贴验证命令输出，不说“应该过了”。
+2. **UI 改动先设计先行**：在 `design.pen` 出/改画板（画板名 `<中文标题>-/<route>`）→ 再按画板写代码 → 同一次提交回填画板；每次执行完 UI 任务后，再执行 `/impeccable init`。MCP 不可用时直接读写 `design.pen` 文本，**不得跳过**（见 `.codebuddy/rules/design-first.mdc` + skill `design-first`）。
+3. 回复开头声明一行：`对齐文档：<文件名> §<节> + Skill §<节>`。
+4. 新文件必须写中文文件头 docstring（职责 + 链路 + 对齐章节），见后端 Skill §2。
+5. 改接口必须同步改 `API接口与SSE事件协议规范.md` + 自查 `openapi.json`；改 RAG 同步 RAG 规范；改页面同步 `页面设计.md` + `design.pen` 画板。
+6. **完成代码任务后，同一次提交内更新 `执行步骤.md`**（现状盘点表状态 + 剩余工序划掉前移 + 头部日期版本），细则见 `quality-gate` 规则。
+7. 贴验证命令输出，不说“应该过了”。
 
 ## 3. 后端红线（FastAPI）
 
@@ -56,6 +57,7 @@
 - 后端改路由/schema/错误码 → 同 PR 改 API 规范 + `openapi.json` 自查说明。
 - 改 RAG（切分/召回/阈值/密级）→ 同 PR 改 RAG 规范 + 检索测试截图/输出。
 - 改页面/组件/路由权限 → 同 PR 改 `页面设计.md` 对应节 + 埋点说明。
+- 改页面/组件**视觉**（`frontend/src/{views,components}`）→ 必须同 PR 改 `design.pen` 对应画板（`design-guard` 拦）；纯文案/色值微调写 `Design-Sync: skip reason="理由"`。
 - 改表/键/存储 → 同 PR 改数据模型文档 + Alembic 说明（先加字段后发代码再删旧字段）。
 - 选型变更先写 ADR（见 `ADR规范与模板.md`），不直接改代码。
 - 完成代码功能/修复 → 同 PR 更新 `执行步骤.md`（盘点表 + 剩余工序），保持"做到哪、还差什么"始终最新。
@@ -75,4 +77,10 @@ pnpm lint ; pnpm typecheck ; pnpm build
 pnpm test
 ```
 
-CI（`.github/workflows/ci.yml`）与本地 `lint-staged + husky` 任一红灯不合并；`docs-guard` 检查接口与文档是否同改。
+CI（`.github/workflows/ci.yml`）与本地 `lint-staged + husky` 任一红灯不合并；`docs-guard` 检查接口与文档是否同改，`design-guard` 检查 UI 代码与 `design.pen` 画板是否同改（`python scripts/check_design.py`）。
+
+## 7. UI 设计规则
+
+- 开始任何 UI / 前端设计任务前，先确认项目已执行过 `/impeccable init`；如果未执行，则先运行 `npx impeccable install` 并执行 `/impeccable init`。
+- 每次完成 UI 设计任务后，执行 `/impeccable critique` 对界面进行设计评审，并根据评审结果用 `/impeccable polish` 进行优化。
+- 避免生成常见的 AI 设计套路（如 Inter 字体、紫色渐变、卡片套卡片等）。
