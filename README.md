@@ -1,6 +1,6 @@
 # 多模态智能电商客服系统
 
-> 版本：v0.2.7 | 日期：2026-09-15 | 状态：**P0/P1 代码已落地，CI/CD 与容器化部署已跑通**（文档基线 → 可运行系统）
+> 版本：v0.2.8 | 日期：2026-09-15 | 状态：**P0/P1 代码已落地，CI/CD 与容器化部署已跑通**（文档基线 → 可运行系统）
 
 **多模态交互（文本/图片/语音）+ Agent Runtime 状态机 + 场景化 RAG 与业务连接器 + 人机协同审批与坐席工作台 + 多租户与模型网关 + 全链路可观测与评估 + K8s 云原生交付 + 成本与 ROI 闭环 = 生产可用、可治理、可评估、成本可控的智能客服平台。**
 
@@ -386,7 +386,7 @@ Smoke 脚本（`backend/tests/smoke_*.py`）强制风格：头 docstring 写覆�
 | AI 协作层（`AGENTS.md` + skills + alwaysApply rules）                             | ✅ 就绪                                                                                                                                                                               |
 | 工程门禁（ESLint / Prettier / Stylelint / ruff / mypy / husky / CI / docs-guard） | ✅ **已对真实代码生效**，CI 绿灯为合并前提                                                                                                                                            |
 | `backend/` 应用代码                                                               | ✅ 已落地：鉴权（JWT + 用户切换）、SSE 流式对话 + RAG、订单 / 商品 / 库存 / 物流 / 评价 / 营销 / 文档 / 审批 / 任务 / 工单 / 管理中心，种子数据 + Alembic 迁移，覆盖率门禁 ≥ 70% 达标 |
-| `frontend/` 应用代码                                                              | ✅ 已落地：14 个域页面（登录 / 对话 / 坐席工作台 / 管理 / 看板 / 商品 / 库存 / 订单…），`v-permission` 按钮级权限、mock 降级、列表分页规范                                            |
+| `frontend/` 应用代码                                                              | ✅ 已落地：14 个域页面（登录 / 对话 / 坐席工作台 / 管理 / 看板 / 商品 / 库存 / 订单…），`v-permission` 按钮级权限、mock 降级、列表分页规范；对话页渲染 `done.tool_calls` 工具调用卡（v0.2.8）                                            |
 | 容器化部署                                                                        | ✅ 已跑通：compose + GHCR 镜像（CI 自动发布）+ `deploy.ps1` 端到端 4 项验证全绿；v0.1.0 已发布                                                                                        |
 | GitOps / K8s                                                                      | 🔶 ArgoCD 清单就绪（`deploy/argocd/`，dev 自动同步 / prod 手动审批），集群侧待接入                                                                                                    |
 | Agent Runtime 状态机（`modules/agent/`）                                          | ✅ 已落地（v0.2.6/v0.2.7）：状态机白名单 + checkpoint 断点续跑、工具注册中心、Scope 策略、超时重试熔断执行器、6 连接器、6 条 `/agent/*` 端点；对话主链检索段走 `runtime.orchestrate()`（可一键回退），`refund.create` 恒送审。缺口：编排层「规则机器人」降级话术（FR-5 三级容错第三级） |
