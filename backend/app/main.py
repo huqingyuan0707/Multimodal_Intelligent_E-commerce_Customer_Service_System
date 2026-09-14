@@ -24,16 +24,19 @@ from app.core.middleware import TraceMiddleware
 from app.core.responses import fail
 from app.db.seed import seed_on_startup
 from app.db.session import init_models
+from app.modules.agent.bootstrap import startup as startup_agent_kernel
 
 logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    """启动建表（幂等，防空库 500）+ 种子账号（SEED_ON_START=false 可关，生产必关）。"""
+    """启动建表（幂等，防空库 500）+ 种子账号（SEED_ON_START=false 可关，生产必关）
+    + Agent 内核工具注册（FR-5：6 个连接器进注册中心，幂等且失败不阻断启动）。"""
     await init_models()
     if settings.SEED_ON_START:
         await seed_on_startup()
+    await startup_agent_kernel()
     yield
 
 

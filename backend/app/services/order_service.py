@@ -236,8 +236,14 @@ async def create_aftersale(
     trace_id: str,
     applicant: str,
     evidence: list[str] | None = None,
+    force_approval: bool = False,
 ) -> dict[str, Any]:
-    """发起售后：退款金额超阈值自动转审批（账不动，等批准）。"""
+    """发起售后：退款金额超阈值自动转审批（账不动，等批准）。
+
+    force_approval：AI（Agent 工具 refund.create）发起的退款恒进审批，不看金额——
+    对齐 FRD 附录 A「refund.create 恒进审批，不直执」与 FR-7；人工后台链路仍走阈值规则
+    （默认 False，存量行为不变），避免把「客服按政策小额赔付」也全压到审批队列。
+    """
     if amount < 0:
         raise BusinessError(ErrorCode.PARAM_INVALID, "退款金额不能为负（单位：分）")
     if not reason.strip():
@@ -248,7 +254,7 @@ async def create_aftersale(
             ErrorCode.ORDER_STATE_ILLEGAL,
             f"当前状态「{STATUS_LABELS.get(order.status, order.status)}」不可发起售后",
         )
-    need_approval = amount > settings.REFUND_APPROVAL_LIMIT_CENTS
+    need_approval = force_approval or amount > settings.REFUND_APPROVAL_LIMIT_CENTS
     row = Aftersale(
         tenant=tenant,
         sales_order_id=order.id,
@@ -268,7 +274,11 @@ async def create_aftersale(
             action="order.refund",
             target=f"{order.platform} {order.outer_id}",
             args={"aftersale_id": row.id, "order_id": order.id, "amount": amount},
-            reason=f"退款 {amount / 100:.2f} 元超阈值，转审批：{reason.strip()}",
+            reason=(
+                f"AI 发起的退款 {amount / 100:.2f} 元恒进审批：{reason.strip()}"
+                if force_approval
+                else f"退款 {amount / 100:.2f} 元超阈值，转审批：{reason.strip()}"
+            ),
             applicant=applicant,
             session_id=trace_id,
         )

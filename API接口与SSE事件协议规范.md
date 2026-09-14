@@ -27,7 +27,7 @@ return fail(ErrorCode.PARAM_INVALID, "请至少选择一个文件", 400)
 | 1xxx | 通用 | 1000 OK / 1001 PARAM_INVALID / 1002 UNAUTHORIZED(等同HTTP401走handle401) / 1003 FORBIDDEN / 1004 NOT_FOUND / 1005 QUOTA_EXCEEDED / 1006 RATE_LIMITED |
 | 2xxx | RAG对话 | 2000 LLM_FAILED / 2001 NO_EVIDENCE拒答 / 2002 CONVERSATION_LIMITED / 2003 UNSAFE_CONTENT / 2004 IMAGE_TOO_LARGE |
 | 3xxx | 户型/业务 Skill | 3001 ORDER_NOT_FOUND / 3002 ORDER_NOT_OWNED(越权) / 3003 REFUND_NEED_APPROVAL / 3004 STOCK_SHORTAGE(库存不足) / 3005 ORDER_STATE_ILLEGAL(订单状态非法) / 3006 COUPON_EXHAUSTED(券预算不足) / 3007 RISK_BLOCKED(风控拦截转人工) |
-| 4xxx | 任务 | 4001 TASK_NOT_FOUND / 4002 TASK_TIMEOUT / 4003 APPROVAL_REQUIRED / 4004 APPROVAL_DENIED |
+| 4xxx | 任务/工具 | 4001 TASK_NOT_FOUND / 4002 TASK_TIMEOUT(工具超时同码) / 4003 APPROVAL_REQUIRED / 4004 APPROVAL_DENIED / 4005 TOOL_NOT_FOUND / 4006 TOOL_SCOPE_DENIED / 4007 TOOL_CIRCUIT_OPEN / 4008 TOOL_CALL_FAILED / 4009 AGENT_STATE_ILLEGAL |
 | 5xxx | 系统 | 5000 INTERNAL / 5001 UPSTREAM_FAILED / 5002 MODEL_UNAVAILABLE(走降级绝不500给用户) |
 
 前端：HTTP401 或业务码 `1002` 一律走中央 `handle401()` 清登录态跳登录页，禁止各页面自写跳转。
@@ -157,6 +157,21 @@ api_router.include_router(chat.router, dependencies=[Depends(get_current_user)])
 - `GET /workbench/sessions/{id}/trace?size=50` → `ok({session, messages[], context{summary,rounds,tokens,dropped,budget,window_rounds}})`。与买家侧 `get_session_detail` **完全同源**（同 `message_to_dict`、同 `context_service.load_window/build_history_block`），坐席所见即买家所得；`size` 1..200。
 - 跨租户 / 不存在的会话一律 `404`「会话不存在或已过期」（不泄露存在性）。
 - openapi 自查说明：本轮以 `app.openapi()` 导出核对，新增 8 条 `/workbench/*` path，总 **72** paths，其余端点未变。
+
+### 4.12 Agent Runtime 与工具注册中心（对齐 FRD-3/FR-5 + 附录 A，同基座 JWT/租户隔离/审批/审计）
+> 状态机：`IDLE → PLANNING → ACTING → OBSERVING → REFLECTING → DONE`，分支 `WAITING_APPROVAL / WAITING_HUMAN / FAILED`；非法流转 `4009`「状态流转非法：X → Y」（白名单见 `modules/agent/contracts.py::TRANSITIONS`）。
+> 工具契约（附录 A 逐条对齐）：`order.query`/`logistics.query` = `order:read`、`stock.query` = `stock:read`、`coupon.query` = `promo:read`、`kb.retrieve` = `kb:read`、`refund.create` = `trade:refund`（`requires_approval=true`，非幂等）。
+> 执行口径：超时 30s（`AGENT_TOOL_TIMEOUT_SECONDS`）→ 幂等工具退避重试 3 次（`AGENT_TOOL_MAX_RETRIES`，**非幂等工具恒 1 次**）→ 连续失败 3 次熔断 60s（`AGENT_TOOL_CIRCUIT_*`）。**业务拒绝（`BusinessError`，如订单不存在）不重试、不计熔断，原码上抛**；超时给 `4002`，其他依赖失败给 `4008`。全部分支（含被拒/超时/熔断）都写 `tool_calls` 审计，工具调用可回放。
+- `GET /agent/tools` → `ok({total, items[{name, scope, description, params(JSON Schema), idempotent, requires_approval, approval_action, timeout_seconds, max_retries, breaker{failures, open, last_error, recent_latency_ms}}]})`。登录即可读（Agent Studio 工具页直接渲染）；注册中心为空时 `msg` 提示且不报错。**出参绝不含 handler**（可调用对象不下发）。
+- `GET /agent/tools/{name}` → `ok(同上单项)`；未注册 → `4005`「工具不存在：X，可用：A/B/C」。
+- `POST /agent/tools/{name}/invoke {args, session_id?, trace_id?}` → `ok({tool, status:"ok", scope, idempotent, requires_approval, approval_required, approval_id, args, result, attempts, latency_ms, timeout_seconds, trace_id})`。受控试调（ToolCallCard 透明展示）：Scope 不命中 → `4006` + HTTP 403；入参不全 → `1001`（附中文逐条原因）；熔断中 → `4007` + HTTP 503。敏感工具调用后 `approval_required=true` 且返回 `approval_id`，**账不动**（`msg` 明示「已提交审批，待人工确认后生效」）。
+- `POST /agent/run {query, session_id?, tool_args?, trace_id?}` → `ok({task_id, state, state_label, query, session_id, cursor, steps[{tool,args,reason}], results[], notes[], answer, approval_id, error, trace_id, updated_at})`。规则规划（可解释，命中即用；缺必填参数**不硬调**，回落 `kb.retrieve` 并在 `notes` 说明）。每步落 `tasks.checkpoint` 并提交，崩溃可续跑；命中敏感工具即挂 `WAITING_APPROVAL`；检索零召回挂 `WAITING_HUMAN` 并同步 `mark_pending_if_idle` 进坐席待接队列（不抢已认领）。
+- `GET /agent/runtime/{task_id}` → `ok(快照同形)`；跨租户 / 无检查点 → `4001`「任务不存在或已过期」/「该任务不是 Agent 编排任务，无检查点」（不泄露存在性）。
+- `POST /agent/runtime/{task_id}/resume` → `ok(快照)`，从 `cursor` 续跑剩余步骤，**不重放已完成步**。审批未决 → `4003`「该轮已提交审批，请等审批通过后再继续推进」（HTTP 409），绝不放行绕过人工；已驳回 → 收敛 `FAILED`。
+- 任务态映射：`DONE → tasks.status=done`，其余挂起/失败态留 `running/error`，`tasks.output` 落 `{state, answer, steps}`（`GET /tasks/{id}` 可轮询）。
+- 可调全进 `Settings`：`AGENT_TOOL_TIMEOUT_SECONDS / AGENT_TOOL_MAX_RETRIES / AGENT_TOOL_CIRCUIT_THRESHOLD / AGENT_TOOL_CIRCUIT_COOLDOWN_SECONDS / AGENT_TOOL_RETRY_BACKOFF_SECONDS / AGENT_MAX_STEPS`（前四项进 `_HOT_FIELDS`）。
+- 启动注册：`main.py::lifespan → modules/agent/bootstrap.startup()` 幂等装载 6 个连接器；注册失败只告警不阻断启动（编排是增强能力，缺它服务仍须可用）。
+- openapi 自查说明：本轮以 `app.openapi()` 导出核对，新增 6 条 `/agent/*` path（`tools`、`tools/{name}`、`tools/{name}/invoke`、`run`、`runtime/{task_id}`、`runtime/{task_id}/resume`），总 **78** paths，其余端点未变。配套：工具 Scope 令牌 `kb:read`/`vision:inspect`/`trade:refund` 已并入 `SEED_ROLES`（seed 侧只并集补齐，不覆盖存量密码与角色）。
 
 ## 5. SSE 流式协议（项目实际形态）
 

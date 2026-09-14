@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends
 
 from app.api.v1.endpoints import (
     admin,
+    agent,
     approvals,
     auth,
     chat,
@@ -34,6 +35,8 @@ api_router.include_router(auth.router)
 api_router.include_router(chat.router, dependencies=[Depends(get_current_user)])
 # 文本对话规范路径（任务 + FRDv2 口径）：/agent/chat 复用同一 router，/chat 保留兼容
 api_router.include_router(chat.router, prefix="/agent", dependencies=[Depends(get_current_user)])
+# Agent 内核（FR-3/FR-5）：/agent/tools 注册中心 + /agent/run 编排 + /agent/runtime/{id} 检查点
+api_router.include_router(agent.router, dependencies=[Depends(get_current_user)])
 api_router.include_router(sessions.router, dependencies=[Depends(get_current_user)])
 api_router.include_router(documents.router, dependencies=[Depends(get_current_user)])
 api_router.include_router(mining.router, dependencies=[Depends(get_current_user)])

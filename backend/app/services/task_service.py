@@ -100,6 +100,25 @@ async def get_task(db: AsyncSession, *, tenant: str, task_id: str) -> Task:
     return row
 
 
+async def save_checkpoint(
+    db: AsyncSession, *, tenant: str, task_id: str, checkpoint: dict[str, Any]
+) -> Task:
+    """Agent Runtime 检查点落盘（FR-3：每步持久化，支持暂停/恢复/重试）。
+
+    只 flush 不 commit：调用方决定提交时机（Runtime 每步提交，保证崩溃后可续跑）。
+    """
+    row = await get_task(db, tenant=tenant, task_id=task_id)
+    row.checkpoint = json.dumps(checkpoint, ensure_ascii=False, default=str)
+    await db.flush()
+    return row
+
+
+def checkpoint_of(row: Task) -> dict[str, Any]:
+    """读检查点（脏数据按空对象处理，不让编排链路因一条坏行整体炸掉）。"""
+    loaded = _parse_json(row.checkpoint, {})
+    return loaded if isinstance(loaded, dict) else {}
+
+
 async def run_direct_task(
     *, tenant: str, task_id: str, type: str, payload: dict[str, Any] | None = None
 ) -> None:

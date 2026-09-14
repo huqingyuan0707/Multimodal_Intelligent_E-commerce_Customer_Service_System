@@ -39,7 +39,10 @@ class Settings(BaseSettings):
     SEED_ROLES: str = (
         "cs,kb,shop,stock,ops,admin,"
         "goods:read,goods:write,stock:read,stock:write,order:read,order:fulfill,"
-        "promo:read,promo:write,review:read,review:write,ticket:read,ticket:write"
+        "promo:read,promo:write,review:read,review:write,ticket:read,ticket:write,"
+        # Agent 工具 Scope（FRDv2 附录 A）：kb.retrieve/refund.create 的 Scope 令牌，
+        # 缺了会让客服账号调不动工具（seed 侧只并集补齐，不覆盖存量密码与角色）。
+        "kb:read,vision:inspect,trade:refund"
     )
 
     # RAG 热更字段（_HOT_FIELDS 子集，详见 RAG 规范）
@@ -54,7 +57,9 @@ class Settings(BaseSettings):
     # 13 步链路新增可调（上传→解析→向量化→混合检索→Rerank→过滤→拼接→生成→校验→落库→Mining）
     EMB_MODEL: str = "stdlib-hash-64"  # P0 确定性哈希向量；BGE 接入后改名即切
     EMB_DIM: int = 64  # 哈希向量维度（纯 Python 无依赖，万级块毫秒级）
-    VECTOR_FUSE_RANK: bool = False  # P0 只索引/打分/上报，不进 RRF（哈希碰撞会扰动排序；BGE 后置 true）
+    VECTOR_FUSE_RANK: bool = (
+        False  # P0 只索引/打分/上报，不进 RRF（哈希碰撞会扰动排序；BGE 后置 true）
+    )
     BGE_RERANKER: str = "rrf-cosine-stub"  # P1 替换为 bge-reranker 模型名
     VECTOR_BACKEND: str = "memory"  # memory/Chroma/pgvector/Milvus（业务只走适配层）
     MAX_UPLOAD_BYTES: int = 5 * 1024 * 1024  # 单文件上限 5M（超限 1001 中文提示）
@@ -73,6 +78,11 @@ class Settings(BaseSettings):
         "SSE_CHUNK_CHARS",
         "VLM_CONFIDENCE_THRESHOLD",
         "ASR_CONFIDENCE_THRESHOLD",
+        "AGENT_TOOL_TIMEOUT_SECONDS",
+        "AGENT_TOOL_MAX_RETRIES",
+        "AGENT_TOOL_CIRCUIT_THRESHOLD",
+        "AGENT_TOOL_CIRCUIT_COOLDOWN_SECONDS",
+        "AGENT_CHAT_ORCHESTRATE",
     )
 
     # 大模型：本地 Ollama（OpenAI 兼容协议 /v1），见 ADR-0001。业务代码只调 llm_service，禁止写地址/模型名。
@@ -132,6 +142,16 @@ class Settings(BaseSettings):
     DEFAULT_QUOTA_TOKENS: int = 1000000
     DEFAULT_QUOTA_CONCURRENCY: int = 50
     TENANT_PLANS: list[str] = ["trial", "basic", "pro", "enterprise"]
+
+    # Agent Runtime / 工具注册中心（FRD FR-3/FR-5，执行步骤 B）：超时、重试、熔断一律进 Settings，
+    # 业务代码禁止硬编码；改这里即改全站工具行为（同时在 _HOT_FIELDS 内可热更）。
+    AGENT_TOOL_TIMEOUT_SECONDS: float = 30.0  # 附录 A：单次工具调用超时 30s
+    AGENT_TOOL_MAX_RETRIES: int = 3  # 仅幂等安全方法自动重试（非幂等恒 1 次）
+    AGENT_TOOL_CIRCUIT_THRESHOLD: int = 3  # 连续失败达此值即开闸（熔断）
+    AGENT_TOOL_CIRCUIT_COOLDOWN_SECONDS: int = 60  # 开闸后冷却秒数，到点半开试探
+    AGENT_TOOL_RETRY_BACKOFF_SECONDS: float = 0.2  # 重试间隔（按第 n 次线性放大）
+    AGENT_MAX_STEPS: int = 4  # 单轮规划最多执行步数（防编排空转）
+    AGENT_CHAT_ORCHESTRATE: bool = True  # /chat 检索段走 Agent 编排；false 一键回退直调 knowledge_service
 
     # B 端业务阈值（数据模型文档 §2.1 / API 规范 §4.7）：金额一律整数「分」，禁浮点。
     B2B_SEED_DEMO: bool = True  # 演示数据（商品/仓库/库存/订单），生产置 false
