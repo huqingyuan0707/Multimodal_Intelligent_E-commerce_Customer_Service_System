@@ -22,7 +22,7 @@
 - **跑测试/探针的输出文件一律写 `$env:TEMP`，禁止落仓库**：`backend/_pytest_out.txt` 被并行窗口的 `git add -A` 扫进索引（状态 `AD`），得 `git rm --cached --ignore-unmatch` 撤出。gitignore 挡不住索引。
 - **pytest 汇总行在本机管道里会被吞**（`-q` 明明全过却看不到 `N passed`；另有 GBK `UnicodeDecodeError` 噪声来自 CodeBuddy 的 fs shim）。取得**确定**用例数的可靠姿势：`pytest --junit-xml=_x.xml -q` → 用 Python 解析 `tests/failures/errors/skipped`；或 `Select-Object -Last 3`。
 - **`| Select-Object` 会吞掉真实退出码**（管道后 `$LASTEXITCODE` 来自 Select-Object）→ 判断成败要看输出内容或用 `Out-File` 后再读，别只看 exit code。
-- **`backend/.pytest-tmp` 首跑偶发 `OSError: [Errno 53]`**（目录不存在时创建走 shim + `\\?\` 扩展路径）→ 该文件所有 setup 报错，重跑即绿，非代码问题。
+- **`backend/.pytest-tmp` 全量跑必挂（真因＝中文路径，2026-09-15 定论）**：CodeBuddy fs shim 的 `GetShortPathNameW` 对含中文的路径返回 0 → 清理 basetemp 时 `OSError: [Errno 53]`，表现为**整批 async 测试 setup 全红**（实测 73 errors + pytest exit 3），与代码无关。**可靠解法：`--basetemp="$env:TEMP\pt"` 把 basetemp 挪出中文路径**（`New-Item` 预建 `.pytest-tmp` 无效，别再试）；只跑单个测试文件时可能侥幸不触发，**别据此判绿**。
 - **8000 端口被占时先判定归属再动手**：`Get-CimInstance Win32_Process -Filter "ProcessId=<pid>"` 看 `CommandLine`——**命令行带 `--reload` 且父进程也是 python.exe = 用户自己的开发服务，别杀**；我用 `Start-Process` 起的 uvicorn 一定带 `--log-level warning`。端口被占时我的进程会**静默退出**（`Stop-Process` 报 "already gone"），此时冒烟打的是用户的服务（带 reload 会自动加载我的改动，结论仍有效）。
 - **`isinstance` 守卫必须与取值同表达式**：`dict(result["k"]) if isinstance(result.get("k"), dict) else {}` 会让 mypy 收窄不传导（`dict(object)` 无匹配重载，报 1 error）。同口径提局部变量即可，勿用 `# type: ignore`。
 - **前端手写原生 `<button>` 必须自带 hover + `:focus-visible`**：Element Plus 的焦点环只作用于 EP 组件，`.quick`/`.suggest` 这类自写 button 默认是裸的（`.card`/`.chip` 的 token：`outline: 2px solid var(--reai-primary) + outline-offset: 2px`）。
