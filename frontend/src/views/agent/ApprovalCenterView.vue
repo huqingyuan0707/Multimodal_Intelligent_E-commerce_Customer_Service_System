@@ -6,12 +6,28 @@
     </div>
     <div class="filters">
       <el-select v-model="status" placeholder="状态" class="sel" @change="onSearch">
-        <el-option v-for="o in APPROVAL_STATUS_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
+        <el-option
+          v-for="o in APPROVAL_STATUS_OPTIONS"
+          :key="o.value"
+          :label="o.label"
+          :value="o.value"
+        />
       </el-select>
       <el-select v-model="action" placeholder="类型" class="sel" @change="onSearch">
-        <el-option v-for="o in APPROVAL_ACTION_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
+        <el-option
+          v-for="o in APPROVAL_ACTION_OPTIONS"
+          :key="o.value"
+          :label="o.label"
+          :value="o.value"
+        />
       </el-select>
-      <AiInput v-model="keyword" placeholder="搜对象/申请人/原因" class="kw" clearable @keyup.enter="onSearch" />
+      <AiInput
+        v-model="keyword"
+        placeholder="搜对象/申请人/原因"
+        class="kw"
+        clearable
+        @keyup.enter="onSearch"
+      />
       <AiButton @click="onSearch">查询</AiButton>
       <AiButton v-permission="['shop', 'ops', 'admin']" @click="batch">批量批准</AiButton>
     </div>
@@ -178,7 +194,7 @@ const load = async () => {
       a =>
         (!status.value || a.status === status.value) &&
         (!action.value || a.action === action.value) &&
-        (!kw || `${a.target}${a.applicant}${a.reason}`.includes(kw))
+        (!kw || `${a.target}${a.applicant}${a.reason}`.includes(kw)),
     );
     total.value = filtered.length;
     rows.value = filtered.slice((page.value - 1) * size.value, page.value * size.value);

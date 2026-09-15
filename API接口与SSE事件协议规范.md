@@ -270,4 +270,4 @@ export const useSessionStore = defineStore('session', () => {
 ```
 
 ## 7. 联调门禁
-`python -m py_compile <改动文件>`；接口改必 `openapi.json` 自查；跑对应 `tests/smoke_*.py`；前端 `pnpm lint`（0 errors）+ `pnpm typecheck` + `pnpm build`。CI 任一红灯不合并。
+`python -m py_compile <改动文件>`；接口改必 `openapi.json` 自查；跑对应 `tests/smoke_*.py`；后端 `ruff check .` + `ruff format --check .`（ruff 版本与 `.pre-commit-config.yaml` rev 钉死一致，当前 0.16.7）；前端 `pnpm lint`（0 errors）+ `pnpm format:check` + `pnpm typecheck` + `pnpm build`。CI 任一红灯不合并；红灯后 `ai-diagnose.yml` 自动出「哪里错了 + 修复建议」评论。

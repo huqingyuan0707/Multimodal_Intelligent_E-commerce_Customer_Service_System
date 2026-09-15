@@ -87,7 +87,9 @@ const loading = ref(false);
 const page = ref(1);
 const size = ref(20);
 const total = computed(() => rows.value.length);
-const paged = computed(() => rows.value.slice((page.value - 1) * size.value, page.value * size.value));
+const paged = computed(() =>
+  rows.value.slice((page.value - 1) * size.value, page.value * size.value),
+);
 const dialog = ref(false);
 const submitting = ref(false);
 const form = ref({ order_id: '', reason: '', amount: '', trace_id: '', evidence: '' });

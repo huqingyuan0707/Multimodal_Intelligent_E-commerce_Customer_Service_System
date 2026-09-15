@@ -80,7 +80,9 @@ async def main() -> int:
     total = len(samples)
     per_class = total // len(CATEGORIES)
     mode = "网关真图" if gateway else "stub"
-    print(f"样本：{total} 张（{len(CATEGORIES)} 类 × {per_class} 张/类，合成集={synthetic}，模式={mode}）")
+    print(
+        f"样本：{total} 张（{len(CATEGORIES)} 类 × {per_class} 张/类，合成集={synthetic}，模式={mode}）"
+    )
 
     tp: dict[str, int] = defaultdict(int)
     fp: dict[str, int] = defaultdict(int)

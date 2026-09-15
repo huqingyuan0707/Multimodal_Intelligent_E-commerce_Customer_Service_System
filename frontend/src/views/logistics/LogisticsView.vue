@@ -1,7 +1,12 @@
 <template>
   <div class="page">
     <div class="toolbar">
-      <AiInput v-model="trackingNo" placeholder="输入运单号，如 SF123456" clearable @keyup.enter="track" />
+      <AiInput
+        v-model="trackingNo"
+        placeholder="输入运单号，如 SF123456"
+        clearable
+        @keyup.enter="track"
+      />
       <AiButton type="primary" :loading="querying" @click="track">查询</AiButton>
       <span class="hint">查询结果会暂存成本页列表，离开本页后清空</span>
     </div>
@@ -15,7 +20,10 @@
         <AiButton link @click="goReviews">去评价页处理</AiButton>
       </template>
     </el-alert>
-    <el-empty v-if="!ships.length && !querying" description="暂无查询记录，在上方输入运单号开始查询" />
+    <el-empty
+      v-if="!ships.length && !querying"
+      description="暂无查询记录，在上方输入运单号开始查询"
+    />
     <el-table v-loading="querying" :data="paged" style="width: 100%" :row-class-name="rowTone">
       <el-table-column prop="company" label="快递" width="120" />
       <el-table-column prop="no" label="运单号" min-width="160" />
@@ -85,7 +93,10 @@ const KIND_TAG = {
 
 type ExKind = keyof typeof KIND_TAG;
 
-const kindOptions = (Object.keys(KIND_TAG) as ExKind[]).map(k => ({ value: k, label: KIND_TAG[k] }));
+const kindOptions = (Object.keys(KIND_TAG) as ExKind[]).map(k => ({
+  value: k,
+  label: KIND_TAG[k],
+}));
 
 const kindLabel = (k: string) => (k in KIND_TAG ? KIND_TAG[k as ExKind] : k);
 

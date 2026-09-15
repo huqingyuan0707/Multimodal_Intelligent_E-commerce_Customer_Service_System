@@ -17,57 +17,59 @@
       <div class="top">
         <AiButton class="sess-btn" @click="openSessions">会话</AiButton>
       </div>
-    <div ref="listRef" class="list" @scroll="onListScroll">
-      <ChatSuggestions
-        v-if="isEmpty"
-        :empty="true"
-        :welcome="welcomeSuggestions"
-        :followups="[]"
-        @ask="sendPreset"
+      <div ref="listRef" class="list" @scroll="onListScroll">
+        <ChatSuggestions
+          v-if="isEmpty"
+          :empty="true"
+          :welcome="welcomeSuggestions"
+          :followups="[]"
+          @ask="sendPreset"
+        />
+        <div v-if="hasMore" class="more-row">
+          <AiButton @click="loadEarlier">加载更早消息</AiButton>
+        </div>
+        <ChatMessage
+          v-for="m in messages"
+          :key="m.id"
+          :message="m"
+          :show-followups="m.role === 'agent' && m.id === lastAgentId && !streaming"
+          @ask="sendPreset"
+          @preview="preview"
+          @transfer="transfer"
+        />
+        <div v-if="streaming" class="bubble agent">
+          <p class="content">{{ draft || phase || '思考中…' }}</p>
+          <p v-if="sources.length" class="refs">来源：{{ sources.join(' / ') }}</p>
+        </div>
+      </div>
+      <div v-if="pendingImages.length" class="thumbs">
+        <div v-for="img in pendingImages" :key="img.id" class="thumb">
+          <img :src="img.preview" alt="待发送图片" />
+          <button class="x" :aria-label="`移除图片 ${img.id}`" @click="removeImage(img.id)">
+            ×
+          </button>
+        </div>
+      </div>
+      <p v-if="imgError" class="err">{{ imgError }}</p>
+      <VoicePanel v-if="voiceOpen" @transcribed="onTranscribed" />
+      <ImagePreviewDialog ref="previewRef" />
+      <div class="input-row">
+        <AiInput v-model="input" placeholder="请输入问题，如：退货政策是什么" @keyup.enter="send" />
+        <AiButton aria-label="上传图片" @click="pick">图片</AiButton>
+        <AiButton aria-label="语音输入" @click="voiceOpen = !voiceOpen">语音</AiButton>
+        <AiButton v-if="!streaming" @click="send">发送</AiButton>
+        <AiButton v-else @click="stop">停止</AiButton>
+        <AiButton :loading="transferring" @click="doTransfer">转人工</AiButton>
+      </div>
+      <input
+        ref="fileRef"
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        multiple
+        hidden
+        aria-label="选择图片文件"
+        @change="onPick"
       />
-      <div v-if="hasMore" class="more-row">
-        <AiButton @click="loadEarlier">加载更早消息</AiButton>
-      </div>
-      <ChatMessage
-        v-for="m in messages"
-        :key="m.id"
-        :message="m"
-        :show-followups="m.role === 'agent' && m.id === lastAgentId && !streaming"
-        @ask="sendPreset"
-        @preview="preview"
-        @transfer="transfer"
-      />
-      <div v-if="streaming" class="bubble agent">
-        <p class="content">{{ draft || phase || '思考中…' }}</p>
-        <p v-if="sources.length" class="refs">来源：{{ sources.join(' / ') }}</p>
-      </div>
-    </div>
-    <div v-if="pendingImages.length" class="thumbs">
-      <div v-for="img in pendingImages" :key="img.id" class="thumb">
-        <img :src="img.preview" alt="待发送图片" />
-        <button class="x" :aria-label="`移除图片 ${img.id}`" @click="removeImage(img.id)">×</button>
-      </div>
-    </div>
-    <p v-if="imgError" class="err">{{ imgError }}</p>
-    <VoicePanel v-if="voiceOpen" @transcribed="onTranscribed" />
-    <ImagePreviewDialog ref="previewRef" />
-    <div class="input-row">
-      <AiInput v-model="input" placeholder="请输入问题，如：退货政策是什么" @keyup.enter="send" />
-      <AiButton aria-label="上传图片" @click="pick">图片</AiButton>
-      <AiButton aria-label="语音输入" @click="voiceOpen = !voiceOpen">语音</AiButton>
-      <AiButton v-if="!streaming" @click="send">发送</AiButton>
-      <AiButton v-else @click="stop">停止</AiButton>
-      <AiButton :loading="transferring" @click="doTransfer">转人工</AiButton>
-    </div>
-    <input
-      ref="fileRef"
-      type="file"
-      accept="image/jpeg,image/png,image/webp"
-      multiple
-      hidden
-      aria-label="选择图片文件"
-      @change="onPick"
-    />
       <SessionDrawer
         ref="drawerRef"
         :sessions="sessionStore.sessions"
@@ -111,8 +113,13 @@ const input = ref('');
 const drawerRef = ref<{ open: () => unknown; close: () => unknown } | null>(null);
 const fileRef = ref<HTMLInputElement | null>(null);
 const sessionStore = useSessionStore();
-const { hasMore, restore: restoreBase, loadEarlier, resetHistory, forgetSession } =
-  useChatHistory(messages);
+const {
+  hasMore,
+  restore: restoreBase,
+  loadEarlier,
+  resetHistory,
+  forgetSession,
+} = useChatHistory(messages);
 
 // 切会话恢复后给最后一条 Agent 回复挂追问（历史消息无 followups，前端按内容规则补）
 const restore = async (id: string) => {

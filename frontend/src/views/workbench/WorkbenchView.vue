@@ -26,11 +26,7 @@
           <span class="online">{{ statusText }}</span>
         </span>
         <el-tag v-if="traceDemo" size="small" type="warning" effect="plain">演示消息</el-tag>
-        <AiButton
-          v-if="currentRow?.statusKey === 'pending'"
-          type="primary"
-          @click="claim()"
-        >
+        <AiButton v-if="currentRow?.statusKey === 'pending'" type="primary" @click="claim()">
           认领
         </AiButton>
         <template v-else-if="isMine">

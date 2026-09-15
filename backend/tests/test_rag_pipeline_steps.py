@@ -115,7 +115,12 @@ async def test_ingest_retrieve_answer_mining(
 
     set_current_user(CurrentUser(username="tester", tenant=TENANT, roles=["cs"]))
     try:
-        result = await chat_service.run_text_turn(db, user=CurrentUser(username="tester", tenant=TENANT, roles=["cs"]), query="退货政策", client_msg_id="pipe-1")
+        result = await chat_service.run_text_turn(
+            db,
+            user=CurrentUser(username="tester", tenant=TENANT, roles=["cs"]),
+            query="退货政策",
+            client_msg_id="pipe-1",
+        )
     finally:
         set_current_user(None)
     assert result["rejected"] is False and result["references"]
@@ -124,8 +129,16 @@ async def test_ingest_retrieve_answer_mining(
 
     from app.db.models import AuditLog, CostRecord
 
-    costs = (await db.execute(select(func.count()).select_from(CostRecord).where(CostRecord.tenant == TENANT))).scalar_one()
-    audits = (await db.execute(select(func.count()).select_from(AuditLog).where(AuditLog.tenant == TENANT))).scalar_one()
+    costs = (
+        await db.execute(
+            select(func.count()).select_from(CostRecord).where(CostRecord.tenant == TENANT)
+        )
+    ).scalar_one()
+    audits = (
+        await db.execute(
+            select(func.count()).select_from(AuditLog).where(AuditLog.tenant == TENANT)
+        )
+    ).scalar_one()
     assert int(costs) >= 1 and int(audits) >= 2
 
     # Mining：对助手回复差评 → 候选可见
@@ -133,9 +146,21 @@ async def test_ingest_retrieve_answer_mining(
 
     from app.db.models import Message
 
-    agent_msg = (await db.execute(_select(Message).where(Message.session_id == str(result["session_id"]), Message.role == "agent"))).scalars().first()
+    agent_msg = (
+        (
+            await db.execute(
+                _select(Message).where(
+                    Message.session_id == str(result["session_id"]), Message.role == "agent"
+                )
+            )
+        )
+        .scalars()
+        .first()
+    )
     assert agent_msg is not None
-    fb = await mining_service.submit_feedback(db, tenant=TENANT, actor="tester", message_id=agent_msg.id, vote="down", comment="答非所问")
+    fb = await mining_service.submit_feedback(
+        db, tenant=TENANT, actor="tester", message_id=agent_msg.id, vote="down", comment="答非所问"
+    )
     assert fb.id
     cands = await mining_service.list_candidates(db, tenant=TENANT)
     assert any(c["message_id"] == agent_msg.id for c in cands)

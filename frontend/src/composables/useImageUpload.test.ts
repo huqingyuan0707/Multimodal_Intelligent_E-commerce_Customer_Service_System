@@ -8,7 +8,7 @@ vi.mock('@/api', () => ({
   uploadAndInspectImageApi: vi.fn(),
 }));
 
-const fakeFile = (name: string) => ({ name, size: 10 } as unknown as File);
+const fakeFile = (name: string) => ({ name, size: 10 }) as unknown as File;
 
 const seed = (n: number, status = 'ready') => {
   const { images, uploadAll } = useImageUpload();

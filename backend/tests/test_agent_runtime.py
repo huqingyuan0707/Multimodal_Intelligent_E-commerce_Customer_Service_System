@@ -106,7 +106,11 @@ async def _code(resp: httpx.Response) -> dict[str, Any]:
 
 async def _ctx(db: Any, user: CurrentUser = TESTER) -> ToolContext:
     return ToolContext(
-        db=db, tenant=user.tenant, username=user.username, roles=list(user.roles), trace_id="t-trace"
+        db=db,
+        tenant=user.tenant,
+        username=user.username,
+        roles=list(user.roles),
+        trace_id="t-trace",
     )
 
 
@@ -248,9 +252,7 @@ async def test_executor_timeout_and_retry(db: Any) -> None:
         assert err.value.code == ErrorCode.TASK_TIMEOUT and "超时" in err.value.msg
         got = await executor.call(ctx, name="t.flaky")
         assert got["status"] == "ok" and got["attempts"] == 3 and calls["n"] == 3
-        rows = (
-            await db.execute(select(func.count()).select_from(ToolCall))
-        ).scalar_one()
+        rows = (await db.execute(select(func.count()).select_from(ToolCall))).scalar_one()
         assert rows >= 2, "成功与失败都必须落 tool_calls 审计"
     finally:
         registry.unregister("t.slow")
@@ -260,6 +262,7 @@ async def test_executor_timeout_and_retry(db: Any) -> None:
 
 async def test_executor_circuit_breaker(db: Any) -> None:
     """熔断：连续失败达阈值即开闸，后续调用快速失败 4007；复位后可再调。"""
+
     async def _boom(_ctx: ToolContext, _args: dict[str, Any]) -> dict[str, Any]:
         raise RuntimeError("供应商挂了")
 
@@ -353,9 +356,7 @@ async def test_refund_tool_always_approval(client: httpx.AsyncClient) -> None:
     detail = await _ok(await client.get(f"/api/v1/orders/{order_id}"))
     assert detail["status"] == "shipped", "审批未过，订单状态绝不能先动"
     pending = await _ok(
-        await client.get(
-            "/api/v1/approvals", params={"status": "pending", "page": 1, "size": 20}
-        )
+        await client.get("/api/v1/approvals", params={"status": "pending", "page": 1, "size": 20})
     )
     ids = [row["id"] for row in pending["items"]]
     assert data["approval_id"] in ids
@@ -379,7 +380,9 @@ async def test_agent_perm_and_isolation(client: httpx.AsyncClient) -> None:
         )
     )
     assert denied["code"] == 4006, "买家无 order:read，工具调用必须被策略拦下"
-    assert (await _ok(await client.get("/api/v1/agent/tools")))["total"] == 6, "清单只读，登录即可见"
+    assert (await _ok(await client.get("/api/v1/agent/tools")))["total"] == 6, (
+        "清单只读，登录即可见"
+    )
     # 参数校验在策略之后：换成有 order:read 的客服，才能走到 1001 分支
     login_as(CS)
     bad_args = await _code(
@@ -389,7 +392,8 @@ async def test_agent_perm_and_isolation(client: httpx.AsyncClient) -> None:
     login_as(TESTER)
     run = await _ok(
         await client.post(
-            "/api/v1/agent/run", json={"query": "我的订单发货了吗", "tool_args": {"order_id": order_id}}
+            "/api/v1/agent/run",
+            json={"query": "我的订单发货了吗", "tool_args": {"order_id": order_id}},
         )
     )
     login_as(OTHER)
@@ -445,9 +449,7 @@ async def test_runtime_approval_gate_and_resume(client: httpx.AsyncClient) -> No
         )
     )
     assert run["state"] == "WAITING_APPROVAL" and run["approval_id"]
-    blocked = await _code(
-        await client.post(f"/api/v1/agent/runtime/{run['task_id']}/resume")
-    )
+    blocked = await _code(await client.post(f"/api/v1/agent/runtime/{run['task_id']}/resume"))
     assert blocked["code"] == 4003, "审批未决不得绕过人工放行续跑"
     await _ok(
         await client.post(
@@ -462,9 +464,7 @@ async def test_runtime_approval_gate_and_resume(client: httpx.AsyncClient) -> No
 async def test_runtime_waiting_human_when_no_evidence(client: httpx.AsyncClient) -> None:
     """无据分支：知识库零召回 → WAITING_HUMAN（不编造答案），并把会话挂进待接队列。"""
     login_as(BUYER)
-    session = await _ok(
-        await client.post("/api/v1/sessions", json={"title": "无据兜底用例"})
-    )
+    session = await _ok(await client.post("/api/v1/sessions", json={"title": "无据兜底用例"}))
     login_as(TESTER)
     run = await _ok(
         await client.post(
@@ -523,7 +523,9 @@ async def test_chat_main_chain_orchestrates_kb_retrieve(
     _offline_llm(monkeypatch)
     login_as(TESTER)
     data = await _ok(await client.post("/api/v1/agent/chat", json={"query": _KB_HIT}))
-    assert [call["tool"] for call in data["tool_calls"]] == ["kb.retrieve"], "检索段必须走工具执行器"
+    assert [call["tool"] for call in data["tool_calls"]] == ["kb.retrieve"], (
+        "检索段必须走工具执行器"
+    )
     call = data["tool_calls"][0]
     assert call["status"] == "ok" and call["scope"] == "kb:read"
     assert call["trace_id"] == data["trace_id"], "工具审计与回答必须同一 trace_id 可回查"

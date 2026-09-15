@@ -1,7 +1,9 @@
 <template>
   <div class="side">
     <div class="card">
-      <h3 class="card-title">当前订单 <el-tag v-if="demo" type="warning" size="small">演示数据</el-tag></h3>
+      <h3 class="card-title">
+        当前订单 <el-tag v-if="demo" type="warning" size="small">演示数据</el-tag>
+      </h3>
       <el-empty v-if="!order" description="暂无关联订单" />
       <template v-else>
         <p class="kv">订单号：{{ order.no }}</p>
@@ -33,7 +35,9 @@
           Token：<span class="mono">{{ usage.tokens }}</span> / 预算 {{ usage.budget }}
         </p>
         <p class="kv">
-          摘要：<span :class="usage.hasSummary ? 'ok' : 'warn'">{{ usage.hasSummary ? '已生成' : '未生成' }}</span>
+          摘要：<span :class="usage.hasSummary ? 'ok' : 'warn'">{{
+            usage.hasSummary ? '已生成' : '未生成'
+          }}</span>
           <span class="tsum">裁剪 {{ usage.dropped }} 次</span>
         </p>
         <div class="bar"><i :style="{ width: `${usage.ratio}%` }" /></div>
@@ -70,7 +74,12 @@ export type TraceRef = {
   summary: string;
 };
 
-defineProps<{ order: SideOrder | null; demo: boolean; traces: TraceRef[]; usage: SideUsage | null }>();
+defineProps<{
+  order: SideOrder | null;
+  demo: boolean;
+  traces: TraceRef[];
+  usage: SideUsage | null;
+}>();
 const emit = defineEmits(['fill']);
 
 const suggestions = [

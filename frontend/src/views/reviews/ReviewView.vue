@@ -141,7 +141,10 @@ const ticketPage = ref(1);
 const ticketSize = ref(20);
 const ticketTotal = computed(() => tickets.value.length);
 const pagedTickets = computed(() =>
-  tickets.value.slice((ticketPage.value - 1) * ticketSize.value, ticketPage.value * ticketSize.value),
+  tickets.value.slice(
+    (ticketPage.value - 1) * ticketSize.value,
+    ticketPage.value * ticketSize.value,
+  ),
 );
 const tSubmitting = ref(false);
 const transferDialog = ref(false);

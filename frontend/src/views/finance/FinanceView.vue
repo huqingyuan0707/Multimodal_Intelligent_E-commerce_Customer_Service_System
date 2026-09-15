@@ -24,7 +24,7 @@
       </el-table-column>
       <el-table-column label="差异" width="110">
         <template #default="s">
-          <span :class="{ over: s.row.diff > 500}">{{ money(s.row.diff) }}</span>
+          <span :class="{ over: s.row.diff > 500 }">{{ money(s.row.diff) }}</span>
         </template>
       </el-table-column>
       <el-table-column label="状态" width="110">
@@ -75,8 +75,22 @@ const loadBills = async () => {
   loading.value = true;
   try {
     bills.value = [
-      { day: '2026-09-13', receivable: 124000, received: 121000, refund: 2000, diff: 1000, done: false },
-      { day: '2026-09-12', receivable: 98000, received: 97800, refund: 1500, diff: 200, done: true },
+      {
+        day: '2026-09-13',
+        receivable: 124000,
+        received: 121000,
+        refund: 2000,
+        diff: 1000,
+        done: false,
+      },
+      {
+        day: '2026-09-12',
+        receivable: 98000,
+        received: 97800,
+        refund: 1500,
+        diff: 200,
+        done: true,
+      },
     ];
     total.value = bills.value.length;
   } catch {

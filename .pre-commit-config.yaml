@@ -2,7 +2,10 @@
 # 安装：pip install pre-commit ; pre-commit install
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.6.9
+    # 必须与 CI 安装的 ruff 版本一致（ci.yml「安装工具链」里钉 ruff==0.16.7）：
+    # 两处版本一旦漂移，格式化口径就不同（0.16 会合并能放下单行的调用），
+    # 本地绿灯、CI 的 ruff format --check 必红。升级时两边同步改。
+    rev: v0.16.7
     hooks:
       - id: ruff
         args: [check, backend]

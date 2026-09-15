@@ -11,14 +11,15 @@
         <span><AiButton disabled>检索测试</AiButton></span>
       </el-tooltip>
     </div>
-    <el-empty
-      v-if="!docs.length && !loading"
-      description="暂无文档（后端不可用时显示演示数据）"
-    />
+    <el-empty v-if="!docs.length && !loading" description="暂无文档（后端不可用时显示演示数据）" />
     <el-table v-loading="loading" :data="docs" style="width: 100%">
       <el-table-column prop="title" label="标题" min-width="220" />
       <el-table-column label="密级" width="100">
-        <template #default="{ row }"><el-tag :type="levelType(row.security_level)" size="small">{{ levelText(row.security_level) }}</el-tag></template>
+        <template #default="{ row }"
+          ><el-tag :type="levelType(row.security_level)" size="small">{{
+            levelText(row.security_level)
+          }}</el-tag></template
+        >
       </el-table-column>
       <el-table-column label="渠道" width="120">
         <template #default="{ row }">{{ (row.channels ?? []).join('、') || 'all' }}</template>
@@ -58,10 +59,18 @@
             <el-option label="机密" value="confidential" />
           </el-select>
         </el-form-item>
-        <el-form-item label="渠道"><AiInput v-model="editForm.channels" placeholder="逗号分隔，如 all" /></el-form-item>
-        <el-form-item label="生效起"><AiInput v-model="editForm.valid_from" placeholder="YYYY-MM-DD，可空" /></el-form-item>
-        <el-form-item label="生效止"><AiInput v-model="editForm.valid_to" placeholder="YYYY-MM-DD，可空" /></el-form-item>
-        <el-form-item label="正文"><AiInput v-model="editForm.content" type="textarea" :rows="12" /></el-form-item>
+        <el-form-item label="渠道"
+          ><AiInput v-model="editForm.channels" placeholder="逗号分隔，如 all"
+        /></el-form-item>
+        <el-form-item label="生效起"
+          ><AiInput v-model="editForm.valid_from" placeholder="YYYY-MM-DD，可空"
+        /></el-form-item>
+        <el-form-item label="生效止"
+          ><AiInput v-model="editForm.valid_to" placeholder="YYYY-MM-DD，可空"
+        /></el-form-item>
+        <el-form-item label="正文"
+          ><AiInput v-model="editForm.content" type="textarea" :rows="12"
+        /></el-form-item>
       </el-form>
       <template #footer>
         <AiButton @click="editVisible = false">取消</AiButton>
@@ -137,7 +146,11 @@ const validText = (d: KnowledgeDoc) => {
 const loadDocs = async () => {
   loading.value = true;
   try {
-    const res = await listDocumentsApi({ page: page.value, size: size.value, keyword: keyword.value.trim() });
+    const res = await listDocumentsApi({
+      page: page.value,
+      size: size.value,
+      keyword: keyword.value.trim(),
+    });
     const rows = (res.items ?? res) as KnowledgeDoc[];
     docs.value = rows.filter(r => r && (r.doc_id || r.id));
     total.value = res.total ?? rows.length;
@@ -223,7 +236,10 @@ const saveEdit = async () => {
       title: editForm.value.title.trim(),
       content: editForm.value.content,
       security_level: editForm.value.security_level,
-      channels: editForm.value.channels.split(',').map(s => s.trim()).filter(Boolean),
+      channels: editForm.value.channels
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean),
       valid_from: editForm.value.valid_from.trim(),
       valid_to: editForm.value.valid_to.trim(),
     });

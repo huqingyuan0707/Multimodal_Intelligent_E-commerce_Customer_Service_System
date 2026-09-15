@@ -225,7 +225,12 @@ async def retrieve(
             "rag.retrieve",
             tenant=tenant,
             trace_id=trace_id,
-            extra={"total_docs": total_docs, "expired": n_expired, "channel_cut": n_channel, "refs": 0},
+            extra={
+                "total_docs": total_docs,
+                "expired": n_expired,
+                "channel_cut": n_channel,
+                "refs": 0,
+            },
         )
         return []
     doc_ids = [d.id for d in docs]
@@ -262,7 +267,12 @@ async def retrieve(
             "rag.retrieve",
             tenant=tenant,
             trace_id=trace_id,
-            extra={"total_docs": total_docs, "chunks": len(chunks), "best": round(best, 4), "refs": 0},
+            extra={
+                "total_docs": total_docs,
+                "chunks": len(chunks),
+                "best": round(best, 4),
+                "refs": 0,
+            },
         )
         return []
     refs: list[dict[str, object]] = []
@@ -283,7 +293,12 @@ async def retrieve(
         "rag.retrieve",
         tenant=tenant,
         trace_id=trace_id,
-        extra={"total_docs": total_docs, "chunks": len(chunks), "refs": len(refs), "vec_ok": vec_ok},
+        extra={
+            "total_docs": total_docs,
+            "chunks": len(chunks),
+            "refs": len(refs),
+            "vec_ok": vec_ok,
+        },
     )
     return refs
 

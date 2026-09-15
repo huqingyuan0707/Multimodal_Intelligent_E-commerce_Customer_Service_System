@@ -32,9 +32,7 @@ async def submit_feedback(
     from app.core.exceptions import BusinessError, ErrorCode
 
     msg = (
-        await db.execute(
-            select(Message).where(Message.id == message_id, Message.tenant == tenant)
-        )
+        await db.execute(select(Message).where(Message.id == message_id, Message.tenant == tenant))
     ).scalar_one_or_none()
     if msg is None:
         raise BusinessError(ErrorCode.NOT_FOUND, "消息不存在或无权访问", 404)
@@ -78,9 +76,7 @@ async def list_candidates(
     )
     msg_ids = [f.message_id for f in fb_rows]
     msgs = (
-        list(
-            (await db.execute(select(Message).where(Message.id.in_(msg_ids)))).scalars()
-        )
+        list((await db.execute(select(Message).where(Message.id.in_(msg_ids)))).scalars())
         if msg_ids
         else []
     )
@@ -95,7 +91,9 @@ async def list_candidates(
                 "session_id": fb.session_id,
                 "vote": fb.vote,
                 "comment": fb.comment,
-                "query": msg.content if msg and msg.role == "agent" else (msg.content if msg else ""),
+                "query": msg.content
+                if msg and msg.role == "agent"
+                else (msg.content if msg else ""),
                 "created_at": fb.created_at.isoformat(sep=" ", timespec="seconds")
                 if fb.created_at
                 else "",

@@ -52,9 +52,7 @@ def sanitize_text(text: str, limit: int = 0) -> str:
 # ---------------- 窗口加载 ----------------
 
 
-async def load_window(
-    db: AsyncSession, *, session_id: str, rounds: int = 0
-) -> list[Message]:
+async def load_window(db: AsyncSession, *, session_id: str, rounds: int = 0) -> list[Message]:
     """取最近 N 轮消息（正序；user+agent 配对算一轮，落库中途行也计入保证连续）。
 
     rounds<=0 取 Settings.SESSION_HISTORY_ROUNDS；调用方传更大值做摘要源。
@@ -94,9 +92,7 @@ def message_line(row: Message) -> str:
         attachments = json.loads(row.attachments or "")
     except ValueError:
         attachments = []
-    extra = "".join(
-        _attachment_line(a) for a in attachments if isinstance(a, dict)
-    )
+    extra = "".join(_attachment_line(a) for a in attachments if isinstance(a, dict))
     who = "用户" if row.role == "user" else "客服"
     return f"{who}：{sanitize_text(row.content)}{extra}"
 

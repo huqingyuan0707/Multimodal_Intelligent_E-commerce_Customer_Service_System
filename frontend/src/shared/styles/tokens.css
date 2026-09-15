@@ -37,8 +37,8 @@
   --reai-glow: 0 0 24px rgb(79 107 255 / 25%);
   /* 字体栈（中文优先苹方/微软雅黑，mono 给 trace/语音时长） */
   --reai-font-sans:
-    'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans SC', system-ui,
-    -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
+    'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans SC', system-ui, -apple-system,
+    'Segoe UI', Roboto, Arial, sans-serif;
   --reai-font-mono:
     ui-monospace, 'SF Mono', 'JetBrains Mono', Consolas, 'Noto Sans Mono', monospace;
   /* 字阶（正文 14 起跳，微文案最小 11；行高正文 1.6、标题 1.4） */

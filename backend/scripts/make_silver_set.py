@@ -42,11 +42,16 @@ def _paint(category: str, seed: int, size: int = 320):
         for r in (46, 34, 22):
             draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(96, 74, 52))
     elif category == "破洞":
-        draw.polygon([(cx - 50, cy + 8), (cx - 10, cy - 10), (cx + 40, cy + 6), (cx + 5, cy + 18)], fill=(18, 18, 18))
+        draw.polygon(
+            [(cx - 50, cy + 8), (cx - 10, cy - 10), (cx + 40, cy + 6), (cx + 5, cy + 18)],
+            fill=(18, 18, 18),
+        )
     elif category == "脱线":
         for i in range(5):
             y = cy - 30 + i * 14
-            draw.line([(cx - 60, y), (cx + 60, y + rng.randrange(-8, 8))], fill=(120, 120, 116), width=2)
+            draw.line(
+                [(cx - 60, y), (cx + 60, y + rng.randrange(-8, 8))], fill=(120, 120, 116), width=2
+            )
         draw.line([(cx - 60, cy + 44), (cx + 58, cy + 30)], fill=(60, 60, 58), width=3)
     elif category == "色差":
         draw.rectangle([0, 0, size // 2, size], fill=(196, 178, 168))

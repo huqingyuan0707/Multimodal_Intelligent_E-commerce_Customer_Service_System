@@ -40,7 +40,11 @@ const FOLLOWUP_RULES = [
   },
 ] as const;
 
-const DEFAULT_FOLLOWUPS = ['还能再详细说说吗？', '有相关的政策原文吗？', '帮我转人工确认一下'] as const;
+const DEFAULT_FOLLOWUPS = [
+  '还能再详细说说吗？',
+  '有相关的政策原文吗？',
+  '帮我转人工确认一下',
+] as const;
 
 // 空态预设问题（欢迎卡 chips 用）
 export const getWelcomeSuggestions = () => [...WELCOME_SUGGESTIONS];

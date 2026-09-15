@@ -64,7 +64,13 @@
           <AiButton v-if="row.status === 'done'" link size="small" @click="download(row)">
             下载结果
           </AiButton>
-          <AiButton v-if="row.status === 'error'" link size="small" type="danger" @click="retry(row)">
+          <AiButton
+            v-if="row.status === 'error'"
+            link
+            size="small"
+            type="danger"
+            @click="retry(row)"
+          >
             重试
           </AiButton>
         </template>
@@ -164,7 +170,8 @@ const resultText = (row: TaskItem) => {
   if (r && typeof r === 'object') {
     const docs = (r as { docs?: unknown }).docs;
     const chunks = (r as { chunks?: unknown }).chunks;
-    if (docs !== undefined || chunks !== undefined) return `文档 ${String(docs ?? '—')} · 分块 ${String(chunks ?? '—')}`;
+    if (docs !== undefined || chunks !== undefined)
+      return `文档 ${String(docs ?? '—')} · 分块 ${String(chunks ?? '—')}`;
   }
   return '已完成，可下载结果';
 };
@@ -179,7 +186,8 @@ const load = async () => {
     const items: TaskItem[] = Array.isArray(res) ? res : (res.items ?? []);
     tasks.value = items;
     // 后端暂只返数组无 total：满页则 +1 探针保证“下一页”可点，空页即到头
-    total.value = (page.value - 1) * size.value + items.length + (items.length === size.value ? 1 : 0);
+    total.value =
+      (page.value - 1) * size.value + items.length + (items.length === size.value ? 1 : 0);
   } catch (e) {
     tasks.value = [];
     total.value = 0;
@@ -244,7 +252,11 @@ const ensureTimer = () => {
 };
 
 const create = async () => {
-  if (form.value.type === 'reindex' && form.value.scope === 'channel' && !form.value.channel.trim()) {
+  if (
+    form.value.type === 'reindex' &&
+    form.value.scope === 'channel' &&
+    !form.value.channel.trim()
+  ) {
     ElMessage.warning('已选指定渠道，请填写渠道标识');
     return;
   }
@@ -271,7 +283,11 @@ const openLog = async (row: TaskItem) => {
     const r = await getTaskApi({ taskId: row.task_id });
     logText.value = JSON.stringify({ result: r.result ?? null, error: r.error ?? null }, null, 2);
   } catch {
-    logText.value = JSON.stringify({ result: row.result ?? null, error: row.error ?? null }, null, 2);
+    logText.value = JSON.stringify(
+      { result: row.result ?? null, error: row.error ?? null },
+      null,
+      2,
+    );
   }
   logVisible.value = true;
 };

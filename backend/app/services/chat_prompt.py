@@ -50,9 +50,7 @@ def build_messages(
     vision = f"\n\n【图像检测】\n{vision_block[:800]}" if vision_block.strip() else ""
     tool = f"\n\n【业务查询】\n{tool_block[:800]}" if tool_block.strip() else ""
     history = (
-        f"\n\n{history_block[: settings.SESSION_TOKEN_BUDGET * 2]}"
-        if history_block.strip()
-        else ""
+        f"\n\n{history_block[: settings.SESSION_TOKEN_BUDGET * 2]}" if history_block.strip() else ""
     )
     return [
         {"role": "system", "content": _SYSTEM_PROMPT},
@@ -94,9 +92,7 @@ def faithfulness(text: str, ref_count: int) -> float:
     return round(len(cited & valid) / len(cited), 2)
 
 
-def validate_references(
-    text: str, refs: list[dict[str, object]]
-) -> dict[str, object]:
+def validate_references(text: str, refs: list[dict[str, object]]) -> dict[str, object]:
     """引用校验（第 11 步）：faithfulness + 越界编号 + guard 判定（纯函数可单测）。
 
     guard.pass=False 当 faith < FAITHFULNESS_WARN 或出现越界引用；调用方据此进 Mining。

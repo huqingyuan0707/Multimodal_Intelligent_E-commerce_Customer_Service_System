@@ -1,8 +1,6 @@
-/**
- * 对话建议组件（职责：空态欢迎卡 + 追问延伸 chips，点击直接发送）
- * 链路：ChatView 空态 / 最后一条 Agent 回复下 → ask 事件回 ChatView.sendPreset
- * 对齐：页面设计.md §3.1 状态空 + design.pen 对话助手-预设/追问画板
- */
+/** * 对话建议组件（职责：空态欢迎卡 + 追问延伸 chips，点击直接发送） * 链路：ChatView 空态 /
+最后一条 Agent 回复下 → ask 事件回 ChatView.sendPreset * 对齐：页面设计.md §3.1 状态空 + design.pen
+对话助手-预设/追问画板 */
 <template>
   <div v-if="empty" class="welcome">
     <h3 class="welcome-title">你好，我是智能客服小助手</h3>

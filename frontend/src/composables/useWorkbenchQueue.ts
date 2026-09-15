@@ -117,7 +117,11 @@ export const useWorkbenchQueue = () => {
       loading.value = false;
     }
     if (!patch?.keep || !currentId.value) {
-      select(rows.value.some(r => r.id === currentId.value) ? currentId.value : (rows.value[0]?.id ?? ''));
+      select(
+        rows.value.some(r => r.id === currentId.value)
+          ? currentId.value
+          : (rows.value[0]?.id ?? ''),
+      );
     }
     return rows.value;
   };
@@ -186,11 +190,15 @@ export const useWorkbenchQueue = () => {
     let text = conclusion ?? '';
     if (conclusion === undefined) {
       try {
-        const res = await ElMessageBox.prompt('填写解决小结（买家不可见，用于质检复盘）', '解决会话', {
-          inputPlaceholder: '如：已按 15 天质量问题换货处理',
-          confirmButtonText: '确认解决',
-          cancelButtonText: '取消',
-        });
+        const res = await ElMessageBox.prompt(
+          '填写解决小结（买家不可见，用于质检复盘）',
+          '解决会话',
+          {
+            inputPlaceholder: '如：已按 15 天质量问题换货处理',
+            confirmButtonText: '确认解决',
+            cancelButtonText: '取消',
+          },
+        );
         text = 'value' in res ? String(res.value ?? '').trim() : '';
       } catch {
         return false;
@@ -205,7 +213,10 @@ export const useWorkbenchQueue = () => {
     if (!target) {
       return false;
     }
-    return run(() => handoffWorkbenchApi({ id: target, reason: reason ?? '坐席挂起待人工' }), '已转入待接队列');
+    return run(
+      () => handoffWorkbenchApi({ id: target, reason: reason ?? '坐席挂起待人工' }),
+      '已转入待接队列',
+    );
   };
 
   return {

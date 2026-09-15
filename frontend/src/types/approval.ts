@@ -56,7 +56,8 @@ export const approvalAmountOf = (item: ApprovalItem) => {
     return `￥${(args.amount / 100).toFixed(2)}`;
   }
   if (typeof args.new_price === 'number') {
-    const old = typeof args.old_price === 'number' ? `￥${(args.old_price / 100).toFixed(2)} → ` : '';
+    const old =
+      typeof args.old_price === 'number' ? `￥${(args.old_price / 100).toFixed(2)} → ` : '';
     return `${old}￥${(args.new_price / 100).toFixed(2)}`;
   }
   return '';

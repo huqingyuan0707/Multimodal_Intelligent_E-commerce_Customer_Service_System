@@ -15,9 +15,7 @@
       </el-table-column>
       <el-table-column label="操作" width="220" fixed="right">
         <template #default="s">
-          <AiButton v-permission="['shop', 'admin']" link @click="passRisk(s.row)">
-            通过
-          </AiButton>
+          <AiButton v-permission="['shop', 'admin']" link @click="passRisk(s.row)"> 通过 </AiButton>
           <AiButton v-permission="['shop', 'admin']" link type="danger" @click="blockRisk(s.row)">
             拦截（进复核）
           </AiButton>

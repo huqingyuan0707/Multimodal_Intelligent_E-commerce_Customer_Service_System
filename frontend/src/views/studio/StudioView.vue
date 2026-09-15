@@ -85,7 +85,9 @@
         <el-descriptions :column="3" border>
           <el-descriptions-item label="faithfulness">{{ result.faith }}</el-descriptions-item>
           <el-descriptions-item label="拦截率">{{ result.guard }}</el-descriptions-item>
-          <el-descriptions-item label="结论">{{ pass ? '达标可发布' : '不达标禁发布' }}</el-descriptions-item>
+          <el-descriptions-item label="结论">{{
+            pass ? '达标可发布' : '不达标禁发布'
+          }}</el-descriptions-item>
         </el-descriptions>
       </el-tab-pane>
     </el-tabs>

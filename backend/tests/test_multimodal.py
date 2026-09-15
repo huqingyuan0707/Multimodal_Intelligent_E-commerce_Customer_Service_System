@@ -34,6 +34,7 @@ def _resp(status: int, body: Any) -> httpx.Response:
         return httpx.Response(status, json=body, request=request)
     return httpx.Response(status, text=str(body), request=request)
 
+
 # ---------------- 图片预检 ----------------
 
 
@@ -138,7 +139,15 @@ async def test_vlm_call_posts_image_url(monkeypatch: pytest.MonkeyPatch) -> None
         seen.update(payload)
         return _resp(
             200,
-            {"choices": [{"message": {"content": '{"category":"污渍","confidence":0.8,"desc":"领口污渍"}'}}]},
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": '{"category":"污渍","confidence":0.8,"desc":"领口污渍"}'
+                        }
+                    }
+                ]
+            },
         )
 
     monkeypatch.setattr(vision_service, "_post_json", _fake)
@@ -156,7 +165,9 @@ async def test_vlm_call_ollama_native_shape(monkeypatch: pytest.MonkeyPatch) -> 
     async def _fake(url: str, payload: dict[str, Any], headers: dict[str, str]) -> httpx.Response:
         seen.update(payload)
         assert url.endswith("/api/chat")
-        return _resp(200, {"message": {"content": '{"category":"开线","confidence":0.7,"desc":"缝线裂开"}'}})
+        return _resp(
+            200, {"message": {"content": '{"category":"开线","confidence":0.7,"desc":"缝线裂开"}'}}
+        )
 
     monkeypatch.setattr(settings, "VLM_PROTOCOL", "ollama")
     monkeypatch.setattr(vision_service, "_post_json", _fake)
@@ -244,9 +255,7 @@ async def test_transcribe_degraded_stub(monkeypatch: pytest.MonkeyPatch) -> None
     )
     assert hot["confidence"] == 0.82
     assert hot["need_confirm"] is False
-    cold = await speech_service.transcribe(
-        filename="hi.webm", content_type="audio/webm", size=100
-    )
+    cold = await speech_service.transcribe(filename="hi.webm", content_type="audio/webm", size=100)
     assert cold["need_confirm"] is True
     assert cold["degraded"] is True
 

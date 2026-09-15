@@ -23,7 +23,9 @@
       type="textarea"
       :rows="2"
       :disabled="disabled"
-      :placeholder="disabled ? '暂不可写（演示数据或未选中会话）' : '记录买家诉求 / 处理动作，买家不可见'"
+      :placeholder="
+        disabled ? '暂不可写（演示数据或未选中会话）' : '记录买家诉求 / 处理动作，买家不可见'
+      "
     />
     <AiButton size="small" type="primary" :loading="saving" :disabled="disabled" @click="submit">
       保存备注

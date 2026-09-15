@@ -34,7 +34,10 @@ export const toSideUsage = (ctx: WorkbenchContext | null): SideUsage | null => {
   };
 };
 
-export const useWorkbenchSide = (messages: Ref<AgentMessage[]>, context: Ref<WorkbenchContext | null>) => {
+export const useWorkbenchSide = (
+  messages: Ref<AgentMessage[]>,
+  context: Ref<WorkbenchContext | null>,
+) => {
   // 右栏订单：会话关联订单接口就绪前用演示数据并挂标（由 demo 旗标明示，不伪装真实）
   const sideOrder = computed(() => ({ no: '2024091400821', status: '待发货', amount: '￥129.00' }));
   const sideDemo = computed(() => true);

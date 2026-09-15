@@ -1,8 +1,6 @@
-/**
- * 单条对话气泡（职责：用户/Agent 泡 + 图片/检测卡/引用/trace/追问 chips 渲染）
- * 链路：ChatView 消息列表 v-for → 预览/转人工/追问事件回抛页面层处理
- * 对齐：页面设计.md §3.1 StreamMessage/CitationList + design.pen 对话助手画板
- */
+/** * 单条对话气泡（职责：用户/Agent 泡 + 图片/检测卡/引用/trace/追问 chips 渲染） * 链路：ChatView
+消息列表 v-for → 预览/转人工/追问事件回抛页面层处理 * 对齐：页面设计.md §3.1
+StreamMessage/CitationList + design.pen 对话助手画板 */
 <template>
   <div class="bubble" :class="message.role">
     <div v-if="message.images?.length" class="thumbs">

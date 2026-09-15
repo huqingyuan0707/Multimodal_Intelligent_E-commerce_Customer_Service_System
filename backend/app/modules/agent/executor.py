@@ -255,9 +255,7 @@ async def call(
         reason = _breakers.get(spec.name, _Breaker()).last_error or f"工具 {spec.name} 调用失败"
         await _audit_failure(ctx, name=spec.name, args=payload, message=reason, trace_id=trace)
         record("agent.tool", {"tool": spec.name, "ok": False, "latency_ms": latency_ms})
-        raise BusinessError(
-            code or ErrorCode.TOOL_CALL_FAILED, f"{reason}；已尝试 {attempts} 次"
-        )
+        raise BusinessError(code or ErrorCode.TOOL_CALL_FAILED, f"{reason}；已尝试 {attempts} 次")
 
     data = _outcome(
         spec, result=result, args=payload, attempts=attempts, latency_ms=latency_ms, trace_id=trace

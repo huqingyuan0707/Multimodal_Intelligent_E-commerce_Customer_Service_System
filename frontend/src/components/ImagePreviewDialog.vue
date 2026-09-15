@@ -24,7 +24,12 @@ const emits = defineEmits(['mark']);
 const visible = ref(false);
 const src = ref('');
 // 标注框：相对坐标 0-1（与后端 bbox 百分比口径一致）
-const box = ref({ x: 0.2, y: 0.2, w: 0.3, h: 0.3 } as { x: number; y: number; w: number; h: number } | null);
+const box = ref({ x: 0.2, y: 0.2, w: 0.3, h: 0.3 } as {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+} | null);
 
 const boxStyle = computed(() => ({
   left: `${(box.value?.x ?? 0) * 100}%`,

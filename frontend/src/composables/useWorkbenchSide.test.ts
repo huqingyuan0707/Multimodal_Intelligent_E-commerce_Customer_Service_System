@@ -50,7 +50,14 @@ describe('useWorkbenchSide', () => {
   it('上下文用量按 tokens/budget 折算比例并标注摘要', () => {
     const messages = ref<AgentMessage[]>([]);
     const context = ref<WorkbenchContext | null>(
-      ctx({ summary: '已摘要', rounds: 4, window_rounds: 6, tokens: 1500, budget: 3000, dropped: 2 }),
+      ctx({
+        summary: '已摘要',
+        rounds: 4,
+        window_rounds: 6,
+        tokens: 1500,
+        budget: 3000,
+        dropped: 2,
+      }),
     );
     const { sideUsage } = useWorkbenchSide(messages, context);
     expect(sideUsage.value).toEqual({

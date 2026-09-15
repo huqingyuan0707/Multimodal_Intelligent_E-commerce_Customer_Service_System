@@ -148,7 +148,9 @@ def _headers() -> dict[str, str]:
     return {"Authorization": f"Bearer {settings.VLM_API_KEY.get_secret_value()}"}
 
 
-async def _post_json(url: str, payload: dict[str, object], headers: dict[str, str]) -> httpx.Response:
+async def _post_json(
+    url: str, payload: dict[str, object], headers: dict[str, str]
+) -> httpx.Response:
     """唯一的 VLM POST 出口（测试在此打桩；trust_env=False 防代理劫持本机网关）。"""
     async with httpx.AsyncClient(timeout=settings.VLM_TIMEOUT_SECONDS, trust_env=False) as client:
         return await client.post(url, json=payload, headers=headers)
@@ -264,9 +266,7 @@ def _ollama_url() -> str:
     return root + "/api/chat"
 
 
-async def _vlm_call_openai(
-    *, filename: str, data_url: str | None, started: float
-) -> VisionResult:
+async def _vlm_call_openai(*, filename: str, data_url: str | None, started: float) -> VisionResult:
     """OpenAI 兼容分支（/v1/chat/completions + image_url + think 开关）。"""
     if data_url:
         user_content: object = [
@@ -306,9 +306,7 @@ async def _vlm_call_openai(
     return _parse_vlm_result(text)
 
 
-async def _vlm_call_ollama(
-    *, data_url: str | None, started: float
-) -> VisionResult:
+async def _vlm_call_ollama(*, data_url: str | None, started: float) -> VisionResult:
     """Ollama 原生分支（/api/chat + images + think 开关，思考模型必经此路）。
 
     无真图字节时直接抛错走 stub（原生协议无纯文本检测意义，不浪费调用）。
@@ -473,8 +471,7 @@ def build_vision_context(inspections: list[dict[str, object]]) -> str:
         suggest = VISION_SUGGEST.get(category, "已转人工复核确认")
         flag = "（需转人工复核）" if bool(item.get("need_human")) else ""
         lines.append(
-            f"图{i}：{category}（置信 {confidence:.2f}）{flag}；"
-            f"{item.get('desc', '')}；{suggest}"
+            f"图{i}：{category}（置信 {confidence:.2f}）{flag}；{item.get('desc', '')}；{suggest}"
         )
     return "\n".join(lines)
 

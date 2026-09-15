@@ -172,9 +172,7 @@ async def rebuild_chunks(db: AsyncSession, *, tenant: str) -> dict[str, int]:
     docs = list((await db.execute(select(KbDoc).where(KbDoc.tenant == tenant))).scalars())
     total_chunks = 0
     for doc in docs:
-        old = list(
-            (await db.execute(select(KbChunk).where(KbChunk.doc_id == doc.id))).scalars()
-        )
+        old = list((await db.execute(select(KbChunk).where(KbChunk.doc_id == doc.id))).scalars())
         await vector_store.delete_by_chunk(tenant, [c.id for c in old])
         await db.execute(delete(KbChunk).where(KbChunk.doc_id == doc.id))
         total_chunks += await _write_chunks(db, doc.id, split_chunks(doc.content), tenant=tenant)
@@ -322,9 +320,7 @@ async def ingest_upload(
     )
 
 
-async def delete_doc(
-    db: AsyncSession, *, tenant: str, doc_id: str, actor: str = ""
-) -> None:
+async def delete_doc(db: AsyncSession, *, tenant: str, doc_id: str, actor: str = "") -> None:
     """删除文档（跨租户 404；分块+向量级联删；写操作记 audit）。"""
     row = (
         await db.execute(select(KbDoc).where(KbDoc.id == doc_id, KbDoc.tenant == tenant))
@@ -377,7 +373,9 @@ async def update_doc(
     if content_changed:
         clash = (
             await db.execute(
-                select(KbDoc).where(KbDoc.tenant == tenant, KbDoc.sha256 == digest, KbDoc.id != doc_id)
+                select(KbDoc).where(
+                    KbDoc.tenant == tenant, KbDoc.sha256 == digest, KbDoc.id != doc_id
+                )
             )
         ).scalar_one_or_none()
         if clash is not None:
@@ -387,7 +385,9 @@ async def update_doc(
     row.title = title.strip()[:200]
     row.content = content or ""
     if content_changed:
-        old_ids = list((await db.execute(select(KbChunk).where(KbChunk.doc_id == row.id))).scalars())
+        old_ids = list(
+            (await db.execute(select(KbChunk).where(KbChunk.doc_id == row.id))).scalars()
+        )
         await vector_store.delete_by_chunk(tenant, [c.id for c in old_ids])
         await db.execute(delete(KbChunk).where(KbChunk.doc_id == row.id))
         await _write_chunks(db, row.id, split_chunks(row.content), tenant=tenant)

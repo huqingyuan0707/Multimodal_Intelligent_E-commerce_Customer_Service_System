@@ -86,12 +86,17 @@ def test_build_history_block_drops_old_first() -> None:
     from app.db.models import Message
 
     rows = [
-        Message(session_id="s", tenant="t", role="user" if i % 2 == 0 else "agent", content=f"消息{i}")
+        Message(
+            session_id="s", tenant="t", role="user" if i % 2 == 0 else "agent", content=f"消息{i}"
+        )
         for i in range(6)
     ]
     block, stats = context_service.build_history_block(rows, "", budget=12)
     assert stats["dropped"] >= 1 and "消息5" in block and "消息0" not in block
-    assert context_service.build_history_block([], "") == ("", {"rounds": 0, "tokens": 0, "dropped": 0})
+    assert context_service.build_history_block([], "") == (
+        "",
+        {"rounds": 0, "tokens": 0, "dropped": 0},
+    )
 
 
 async def test_session_list_is_pagination_object(client: httpx.AsyncClient) -> None:

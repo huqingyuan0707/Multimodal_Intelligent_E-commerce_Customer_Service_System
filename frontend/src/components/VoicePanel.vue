@@ -19,7 +19,8 @@
       <AiButton aria-label="确认转写文本" @click="confirmText">填入</AiButton>
     </div>
     <p v-if="transcript" class="muted">
-      置信 {{ transcript.confidence.toFixed(2) }}{{ transcript.need_confirm ? '（偏低，请核对后发送）' : '' }}
+      置信 {{ transcript.confidence.toFixed(2)
+      }}{{ transcript.need_confirm ? '（偏低，请核对后发送）' : '' }}
     </p>
     <div class="row">
       <span class="muted">TTS</span>
@@ -88,8 +89,7 @@ const drawWave = () => {
   }
   const seed = lastBlob?.size ?? 7;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  const accent =
-    getComputedStyle(canvas).getPropertyValue('--reai-accent').trim() || '#22d3ee';
+  const accent = getComputedStyle(canvas).getPropertyValue('--reai-accent').trim() || '#22d3ee';
   ctx.fillStyle = accent;
   for (let x = 0; x < canvas.width; x += 6) {
     const h = 6 + ((seed * (x + 3)) % 28);

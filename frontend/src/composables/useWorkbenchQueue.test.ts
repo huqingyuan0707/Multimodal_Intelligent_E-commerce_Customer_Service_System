@@ -63,9 +63,19 @@ describe('useWorkbenchQueue', () => {
     vi.mocked(queueWorkbenchApi).mockResolvedValue(paged([]));
     const { load, setStatus, setSize } = useWorkbenchQueue();
     await load();
-    expect(queueWorkbenchApi).toHaveBeenLastCalledWith({ status: 'open', q: '', page: 1, size: 20 });
+    expect(queueWorkbenchApi).toHaveBeenLastCalledWith({
+      status: 'open',
+      q: '',
+      page: 1,
+      size: 20,
+    });
     await setSize(50);
-    expect(queueWorkbenchApi).toHaveBeenLastCalledWith({ status: 'open', q: '', page: 1, size: 50 });
+    expect(queueWorkbenchApi).toHaveBeenLastCalledWith({
+      status: 'open',
+      q: '',
+      page: 1,
+      size: 50,
+    });
     await setStatus('pending');
     expect(queueWorkbenchApi).toHaveBeenLastCalledWith({
       status: 'pending',

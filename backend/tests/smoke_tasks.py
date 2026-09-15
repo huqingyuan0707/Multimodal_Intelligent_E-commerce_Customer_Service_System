@@ -59,7 +59,9 @@ def main() -> int:
 
     created = client.post("/api/v1/tasks", headers=auth, json={"type": "reindex"}).json()
     tid = (created.get("data") or {}).get("task_id", "")
-    check("create reindex returns task_id", created.get("code") == 0 and bool(tid), str(created)[:200])
+    check(
+        "create reindex returns task_id", created.get("code") == 0 and bool(tid), str(created)[:200]
+    )
     if not tid:
         print(f"RESULT: {passed} passed, {failed} failed")
         return 1
@@ -68,7 +70,9 @@ def main() -> int:
     data = final.get("data") or {}
     check("reindex reaches done", data.get("status") == "done", str(final)[:300])
     result = data.get("result") or {}
-    check("reindex result has docs/chunks", "docs" in result and "chunks" in result, str(result)[:200])
+    check(
+        "reindex result has docs/chunks", "docs" in result and "chunks" in result, str(result)[:200]
+    )
 
     listed = client.get("/api/v1/tasks", headers=auth, params={"page": 1, "size": 20}).json()
     items = listed.get("data") or []
@@ -79,7 +83,11 @@ def main() -> int:
     check("create import returns task_id", demo.get("code") == 0 and bool(dtid), str(demo)[:200])
     if dtid:
         dfinal = wait_done(client, auth, dtid)
-        check("import reaches done", (dfinal.get("data") or {}).get("status") == "done", str(dfinal)[:300])
+        check(
+            "import reaches done",
+            (dfinal.get("data") or {}).get("status") == "done",
+            str(dfinal)[:300],
+        )
 
     print(f"RESULT: {passed} passed, {failed} failed")
     return 0 if failed == 0 else 1

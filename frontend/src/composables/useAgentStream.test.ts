@@ -50,7 +50,10 @@ describe('useAgentStream.toMessage', () => {
 
   it('重放轮无工具调用回落空数组（画板不渲染空卡）', () => {
     const { done, toMessage } = useAgentStream();
-    done.value = donePayload({ tool_calls: [], orchestration: { notes: ['重放命中应答：未重跑工具调用'] } });
+    done.value = donePayload({
+      tool_calls: [],
+      orchestration: { notes: ['重放命中应答：未重跑工具调用'] },
+    });
 
     const msg = toMessage('a-2');
     expect(msg.tool_calls).toEqual([]);

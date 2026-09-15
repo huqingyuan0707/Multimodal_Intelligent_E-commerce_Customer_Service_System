@@ -133,9 +133,7 @@ async def read_media(
     user: CurrentUser = Depends(get_current_user),
 ) -> object:
     """媒体回读（租户隔离：只搜本租户目录，跨租户同 404）。"""
-    path = await asyncio.to_thread(
-        media_store.resolve_path, tenant=user.tenant, file_id=file_id
-    )
+    path = await asyncio.to_thread(media_store.resolve_path, tenant=user.tenant, file_id=file_id)
     if path is None:
         return fail(ErrorCode.NOT_FOUND, "文件不存在或已过期", 404)
     return FileResponse(str(path))

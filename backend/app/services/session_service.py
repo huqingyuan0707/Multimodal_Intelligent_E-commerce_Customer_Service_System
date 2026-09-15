@@ -80,9 +80,7 @@ async def list_sessions(
     for row in rows:
         count = (
             await db.execute(
-                select(func.count())
-                .select_from(Message)
-                .where(Message.session_id == row.id)
+                select(func.count()).select_from(Message).where(Message.session_id == row.id)
             )
         ).scalar_one()
         items.append(session_to_dict(row, int(count)))
@@ -170,9 +168,7 @@ async def rename_session(
     return session
 
 
-async def touch_session(
-    db: AsyncSession, *, tenant: str, username: str, session_id: str
-) -> None:
+async def touch_session(db: AsyncSession, *, tenant: str, username: str, session_id: str) -> None:
     """刷新会话活跃时间（每轮落库后调，列表按最近活跃排；flush 不提交由调用方收口）。
 
     必须显式赋值：ORM onupdate 只在行有变更时触发，纯插消息行不会联动更新 sessions。

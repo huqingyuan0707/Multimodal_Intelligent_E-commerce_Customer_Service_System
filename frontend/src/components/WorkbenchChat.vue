@@ -8,12 +8,18 @@
           <div class="bubble">
             <p class="text">{{ m.content || '思考中…' }}</p>
             <VisionResultCard :inspections="m.vision ?? []" />
-            <CitationList :refs="m.references ?? []" :trace-id="m.trace_id" @open="emit('open-doc', $event)" />
+            <CitationList
+              :refs="m.references ?? []"
+              :trace-id="m.trace_id"
+              @open="emit('open-doc', $event)"
+            />
           </div>
         </template>
         <template v-else>
           <div v-if="m.modality === 'voice'" class="bubble voice">
-            <button class="play" :aria-label="`播放语音 ${m.id}`" @click="emit('play-voice', m.id)">▶</button>
+            <button class="play" :aria-label="`播放语音 ${m.id}`" @click="emit('play-voice', m.id)">
+              ▶
+            </button>
             <span class="wave"><i /></span>
             <span class="vmeta">{{ voiceText(m.id) }}</span>
           </div>
@@ -100,7 +106,8 @@ const QUICK_REPLIES = [
 // 语音演示元数据（时长·转写置信度；真语音链路接通后随消息下发）
 const VOICE_META = { 'v-1': '0:12 · 转写0.91' } as const;
 
-const voiceText = (id: string) => (id in VOICE_META ? VOICE_META[id as keyof typeof VOICE_META] : '');
+const voiceText = (id: string) =>
+  id in VOICE_META ? VOICE_META[id as keyof typeof VOICE_META] : '';
 </script>
 
 <style scoped>

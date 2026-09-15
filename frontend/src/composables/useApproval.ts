@@ -10,7 +10,7 @@ export const useApproval = (reload: () => unknown) => {
     try {
       await ElMessageBox.confirm(
         `批准「${row.action_label}｜${row.target}」并立即生效吗？`,
-        '批准确认'
+        '批准确认',
       );
     } catch {
       return false;
