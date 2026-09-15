@@ -53,7 +53,7 @@ jobs:
         run: echo "short=${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
 
       - name: Trivy 镜像扫描（HIGH/CRITICAL 只告警，适应后改 exit-code 1）
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ghcr.io/${{ github.repository_owner }}/reai-frontend:${{ steps.sha.outputs.short }}
           severity: HIGH,CRITICAL
@@ -96,7 +96,7 @@ jobs:
         run: echo "short=${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
 
       - name: Trivy 镜像扫描（HIGH/CRITICAL 只告警，适应后改 exit-code 1）
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ghcr.io/${{ github.repository_owner }}/reai-backend:${{ steps.sha.outputs.short }}
           severity: HIGH,CRITICAL

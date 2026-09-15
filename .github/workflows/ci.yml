@@ -149,7 +149,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Trivy 文件系统扫描（HIGH/CRITICAL 只告警）
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: .
