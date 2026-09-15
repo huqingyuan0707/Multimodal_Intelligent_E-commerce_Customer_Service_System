@@ -10,6 +10,8 @@
 #
 # 模型升级：把两处 openai/glm-4.5-flash 换成更高代次（如 glm-4.7-flash / glm-5.x）即可，
 #   fallback 保持同模型，避免默认回退到未配置的 OpenAI。
+# Action 升级：固定到发布 tag（当前 v0.45.0，2026-09-05）。**勿改回 @main**——本 action 会拿到
+#   仓库 Secrets（ZHIPU_API_KEY）与 GITHUB_TOKEN，浮动分支等于把评审链路交给上游任意提交。
 name: ai-review
 
 on:
@@ -34,7 +36,7 @@ jobs:
       cancel-in-progress: true
     steps:
       - id: pr_agent
-        uses: qodo-ai/pr-agent@main
+        uses: qodo-ai/pr-agent@v0.45.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # 智谱 GLM：OpenAI 兼容端点（LiteLLM openai/ 前缀 + api_base 覆盖）
