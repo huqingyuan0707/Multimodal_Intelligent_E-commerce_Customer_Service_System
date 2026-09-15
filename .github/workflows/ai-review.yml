@@ -1,0 +1,63 @@
+# AI 代码评审：PR 创建时自动跑 Qodo PR-Agent（对标云效 AI 代码评审）
+# 模型走智谱 GLM OpenAI 兼容端点；评审规则注入 AGENTS.md §3/§4 前后端红线精要。
+#
+# 前置配置（一次性）：仓库 Settings → Secrets and variables → Actions → New repository secret
+#   ZHIPU_API_KEY = 智谱开放平台 API Key（https://open.bigmodel.cn）
+#
+# 用法：
+#   - PR 打开/重开/转 ready 时自动评审（描述 + 评审 + 修改建议，评论到 PR）
+#   - PR 内评论 /review /improve /describe /ask 可手动触发对应工具
+#
+# 模型升级：把两处 openai/glm-4.5-flash 换成更高代次（如 glm-4.7-flash / glm-5.x）即可，
+#   fallback 保持同模型，避免默认回退到未配置的 OpenAI。
+name: ai-review
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review]
+  issue_comment:
+    types: [created]
+
+permissions:
+  issues: write
+  pull-requests: write
+  contents: read
+
+jobs:
+  pr_agent:
+    name: PR-Agent · AI 评审（GLM）
+    runs-on: ubuntu-latest
+    # Bot 的评论（含本 job 自己发的）不再触发，防递归
+    if: ${{ github.event.sender.type != 'Bot' }}
+    concurrency:
+      group: ai-review-${{ github.event.number || github.ref }}
+      cancel-in-progress: true
+    steps:
+      - id: pr_agent
+        uses: qodo-ai/pr-agent@main
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 智谱 GLM：OpenAI 兼容端点（LiteLLM openai/ 前缀 + api_base 覆盖）
+          openai.key: ${{ secrets.ZHIPU_API_KEY }}
+          openai.api_base: 'https://open.bigmodel.cn/api/paas/v4/'
+          config.model: 'openai/glm-4.5-flash'
+          config.fallback_models: '["openai/glm-4.5-flash"]'
+          config.response_language: 'zh-CN'
+          # ---- 评审视角：先判定红线违规，再谈风格 ----
+          pr_reviewer.extra_instructions: >-
+            评审必须对照以下项目红线，逐条判断是否违反并明确指出：
+            后端 endpoints 只做薄封装（解析参数→调 services→ok()/fail()），业务逻辑在 services 且不得 import FastAPI 对象；
+            成功一律 ok(data, 中文msg)，失败一律 fail(ErrorCode, 中文可操作msg)，禁止裸 return dict 与 raise HTTPException；
+            绝不信任请求体里的 tenant_id/user_id 做权限判断，可见范围一律由 governance.access_context() 从 Token 推导；
+            阻塞 IO（模型推理/文件解析/向量库）必须 asyncio.to_thread 或 BackgroundTasks；
+            外部依赖不可用必须走演示流或片段摘要降级，绝不返回 500。
+            前端页面禁止直写 fetch/axios，必须走 src/api/index.ts；SSE 请求必须带 Authorization 头；
+            列表页必须分页且默认页大小 20（el-pagination + page/size 服务端参数）；
+            401（HTTP 或业务码 1002）必须走中央 handle401，禁止页面自写跳转；
+            样式必须用 var(--reai-*) 设计 token，禁止硬编码色值与主色。
+            联动检查：改接口必须同 PR 改《API接口与SSE事件协议规范.md》；改 UI 视觉必须同 PR 改 design.pen 画板。
+          # ---- 建议视角：只给可执行的最小修改 ----
+          pr_code_suggestions.extra_instructions: >-
+            只对 diff 中的代码给可执行建议，按优先级聚焦：分层违规、权限越权、阻塞调用未下放线程、
+            降级缺失、硬编码密钥/URL/模型名/阈值、面向用户 msg 非中文。
+            每条建议格式：问题 → 违反了哪条红线 → 最小修改方案（给出代码片段）。
