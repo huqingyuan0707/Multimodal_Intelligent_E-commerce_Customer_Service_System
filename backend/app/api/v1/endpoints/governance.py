@@ -1,6 +1,6 @@
 """治理与可观测端点（13 步巡检，对齐 RAG 规范 §5/数据模型 §3）
 
-链路：GET /governance/status → 向量/关键词/重排/LLM/VLM/ASR 六适配层 status()。
+链路：GET /governance/status → 向量/关键词/重排/LLM/VLM/ASR/缓存 七适配层 status()。
 """
 
 from __future__ import annotations
@@ -10,6 +10,7 @@ from typing import Any
 from fastapi import APIRouter
 
 from app.config import settings
+from app.core import cache
 from app.core.responses import ok
 from app.services import llm_service, rerank_service, speech_service, vector_store, vision_service
 
@@ -18,7 +19,7 @@ router = APIRouter(prefix="/governance", tags=["governance"])
 
 @router.get("/status")
 async def status() -> dict[str, Any]:
-    """六层巡检：向量+重排+VLM+ASR 走真实 status()，关键词本地恒可用，阈值全回显。"""
+    """七层巡检：向量+重排+VLM+ASR+缓存 走真实 status()，关键词本地恒可用，阈值全回显。"""
     llm = await llm_service.probe()
     vector = vector_store.status()
     reranker = rerank_service.status()
@@ -31,6 +32,7 @@ async def status() -> dict[str, Any]:
         "reranker": reranker,
         "vlm": vlm,
         "speech": speech,
+        "cache": cache.status(),
         "thresholds": {
             "top_k": settings.TOP_K,
             "rrf_k": settings.RRF_K,

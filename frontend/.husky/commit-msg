@@ -1,1 +1,6 @@
-pnpm exec commitlint --edit "$1"
+#!/usr/bin/env sh
+# 提交信息双检：先跑内容一致性（治顶包，纯 python 无 node 依赖），再跑 commitlint
+ROOT="$(git rev-parse --show-toplevel)"
+MSG="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
+python "$ROOT/scripts/check_commit_sync.py" --msg "$MSG" || exit 1
+cd "$ROOT/frontend" && exec pnpm exec commitlint --edit "$MSG"

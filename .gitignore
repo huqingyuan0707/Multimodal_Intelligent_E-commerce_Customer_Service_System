@@ -24,6 +24,8 @@ frontend/components.d.ts
 coverage.xml
 .coverage
 .vite/
+test-results/
+playwright-report/
 
 # ---- 本地配置与密钥（绝不入库） ----
 .env

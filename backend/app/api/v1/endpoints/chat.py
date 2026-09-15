@@ -21,6 +21,8 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
+from app.core import cache
 from app.core.exceptions import ErrorCode
 from app.core.rbac import get_current_user
 from app.core.responses import fail, ok
@@ -57,6 +59,10 @@ async def chat(
     """非流式问答：落库后返回；无据 2001（前端按正常分支渲染拒答+转人工）。"""
     if not payload.query.strip() and not payload.inspections:
         return fail(ErrorCode.PARAM_INVALID, "问题不能为空", 400)
+    if not await cache.allow(
+        f"rl:chat:{user.tenant}:{user.username}", settings.CHAT_RATE_LIMIT_PER_MIN, 60
+    ):
+        return fail(ErrorCode.CONVERSATION_LIMITED, "对话过于频繁，请 1 分钟后再试", 429)
     result = await chat_service.run_text_turn(
         db,
         user=user,
@@ -76,8 +82,8 @@ async def chat_stream(
     payload: ChatRequest,
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(get_current_user),
-) -> StreamingResponse:
-    """流式问答：空问题仍 200 回单 done 帧（不断流）；事件 id 全帧可去重。"""
+) -> object:
+    """流式问答：空问题仍 200 回单 done 帧（不断流）；事件 id 全帧可去重；超限 429 信封。"""
     sid = chat_service.stream_id_for(payload.client_msg_id or None)
 
     async def _empty() -> AsyncIterator[str]:
@@ -99,6 +105,10 @@ async def chat_stream(
 
     if not payload.query.strip() and not payload.inspections:
         return StreamingResponse(_empty(), media_type="text/event-stream")
+    if not await cache.allow(
+        f"rl:chat:{user.tenant}:{user.username}", settings.CHAT_RATE_LIMIT_PER_MIN, 60
+    ):
+        return fail(ErrorCode.CONVERSATION_LIMITED, "对话过于频繁，请 1 分钟后再试", 429)
 
     async def _gen() -> AsyncIterator[str]:
         yield _frame("source", {"name": "知识库"}, f"{sid}:0")

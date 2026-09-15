@@ -51,7 +51,7 @@
 
     <el-pagination
       class="pager"
-      small
+      size="small"
       background
       layout="sizes, prev, pager, next, total"
       :current-page="page"

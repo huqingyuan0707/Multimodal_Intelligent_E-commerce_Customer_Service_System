@@ -67,7 +67,11 @@ class Settings(BaseSettings):
     RAG_CHANNEL_FILTER: bool = True  # 检索是否按 channels 过滤（渠道隔离）
     FAITHFULNESS_WARN: float = 0.6  # 引用校验低于此值记 guard.pass=False 并进 Mining
     MINING_BAD_VOTE: str = "down"  # 差评口径（进待补知识候选）
+    # 对话限流（错误码 2002 / 数据模型 §4 rl: 键）：每租户+账号每分钟窗口计数，0=关闭；
+    # 计数走 core/cache.py 适配层（Redis 可用走 Redis，不可用进程内降级）。
+    CHAT_RATE_LIMIT_PER_MIN: int = 30
     _HOT_FIELDS: tuple[str, ...] = (
+        "CHAT_RATE_LIMIT_PER_MIN",
         "TOP_K",
         "RRF_K",
         "RAG_DB_THRESHOLD",

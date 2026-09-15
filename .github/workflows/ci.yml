@@ -65,6 +65,24 @@ jobs:
         working-directory: backend
         run: pytest --cov=app --cov-report=term-missing --cov-report=xml
 
+      # 迁移链门禁：全新库 upgrade → alembic check 防「模型改了迁移没跟」→ PG 方言离线出 SQL
+      - name: alembic 迁移链（upgrade / drift check / PG 离线）
+        if: steps.guard.outputs.ok == 'true'
+        working-directory: backend
+        run: |
+          pip install psycopg2-binary
+          export DATABASE_URL="sqlite+aiosqlite:///./ci_migration.db"
+          alembic upgrade head
+          alembic check
+          DATABASE_URL="postgresql+asyncpg://u:p@localhost/db" alembic upgrade head --sql > /dev/null
+          echo "迁移链 PASS：SQLite 全量可跑、模型无漂移、PG 方言可编译"
+
+      # 检索质量门禁：黄金集 200 条 retrieval 模式（无外部依赖），阈值在 eval_golden.py 单源
+      - name: 黄金集检索评估（grounded≥0.95 / 幻觉≤0.02）
+        if: steps.guard.outputs.ok == 'true'
+        working-directory: backend
+        run: python scripts/eval_golden.py
+
       - name: 上传覆盖率
         if: steps.guard.outputs.ok == 'true'
         uses: actions/upload-artifact@v4
@@ -172,6 +190,20 @@ jobs:
             --from "${{ github.event.pull_request.base.sha }}" \
             --to "${{ github.event.pull_request.head.sha }}" \
             --verbose
+      # 信息/内容一致性（与本地 commit-msg 钩子同一脚本）：治「信息说 A 提交是 B」
+      - name: 提交信息/内容一致性检查
+        run: |
+          fail=0
+          for sha in $(git log --format=%H \
+              "${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"); do
+            git log -1 --format=%B "$sha" > /tmp/msg.txt
+            git -c core.quotepath=false show --name-only --format= "$sha" > /tmp/files.txt
+            if ! python3 scripts/check_commit_sync.py --msg /tmp/msg.txt --files /tmp/files.txt; then
+              echo "::error::提交 $sha 信息与内容不一致"
+              fail=1
+            fi
+          done
+          exit $fail
 
   # ---------------- 文档联动门禁：接口与文档必须同改（对应 AGENTS.md §5） ----------------
   docs-guard:
