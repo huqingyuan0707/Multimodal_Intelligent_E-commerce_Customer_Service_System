@@ -1,0 +1,149 @@
+# AI 失败诊断：ci 红灯后自动给出「哪里错了 + 建议怎么修复」
+#
+# 为什么是 workflow_run 而不是 ci.yml 里的一个 job：
+#   gh run view --log-failed 对**仍在进行中**的 run 取不到日志。诊断若跑在 ci 内部，它所属的
+#   run 永远处于进行中 → 拿到空日志 → 静默跳过（表现为 job 绿灯、却什么也没发）——这是旧实现
+#   的真实故障。workflow_run 在 ci 跑完之后触发，日志齐备，失败 job/步骤也能从 API 精确取到。
+#
+# 前置：仓库 Settings → Secrets → ZHIPU_API_KEY（智谱开放平台 Key）。
+#   未配置时不报错：仍会发出「失败 job/步骤」定位评论，只是没有 AI 分析。
+#
+# 输出三处，都是为了「在 GitHub 上直接看得见」：
+#   ① run Summary 完整报告  ② commit 评论（push）/ PR 评论（PR）  ③ ::error:: 注解（Actions 列表可见）
+# 红线：只诊断不改码——修复动作始终由人工执行；报告必须落到「文件 / 命令」级别，不接受泛泛而谈。
+name: ai-diagnose
+
+on:
+  workflow_run:
+    workflows: ["ci"]
+    types: [completed]
+
+permissions:
+  contents: write # 写 commit 评论（Create a commit comment 需要 contents: write）
+  actions: read # 读失败日志
+  pull-requests: write # PR 场景写评论
+
+jobs:
+  diagnose:
+    name: ai-diagnose · 失败定位与修复建议
+    if: github.event.workflow_run.conclusion == 'failure'
+    runs-on: ubuntu-latest
+    env:
+      RUN_ID: ${{ github.event.workflow_run.id }}
+      HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+      RUN_URL: ${{ github.event.workflow_run.html_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 2 # 需要父提交才能看本次改动统计
+
+      - name: 收集失败的 job 与步骤（API 精确取，不靠模型猜）
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${{ github.repository }}/actions/runs/${RUN_ID}/jobs?per_page=100" > jobs.json
+          jq -r '.jobs[]
+                 | select(.conclusion == "failure" or .conclusion == "timed_out")
+                 | "### job：\(.name)\n失败步骤："
+                   + ([.steps[] | select(.conclusion == "failure") | .name] | join("、"))
+                   + "\n该 job 日志：\(.html_url)"' jobs.json > failed-jobs.txt
+          if [ ! -s failed-jobs.txt ]; then
+            echo "(GitHub API 未标出失败 job；可能被取消，请直接看运行页面：${RUN_URL})" > failed-jobs.txt
+          fi
+          echo "失败 job 条数：$(grep -c '^### job' failed-jobs.txt || true)"
+
+      - name: 收集失败日志（run 已结束，日志齐备）
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run view "${RUN_ID}" --log-failed > failed.log 2>/dev/null || true
+          if [ -s failed.log ]; then
+            tail -c 40000 failed.log > failed-trim.log
+          else
+            echo "(日志未取到，可能被取消或权限不足；请按上面各 job 的链接自查)" > failed-trim.log
+          fi
+          echo "日志字节数：$(wc -c < failed-trim.log)"
+
+      - name: 收集本次提交与改动清单（供定位到文件）
+        run: |
+          git log -1 --format='%h %s%n%b' > commit.txt
+          git show --stat --format='' HEAD > changed.txt 2>/dev/null || true
+          head -c 4000 changed.txt > changed-trim.txt
+
+      - name: 调 GLM 出「定位 + 修复建议」报告
+        env:
+          ZHIPU_API_KEY: ${{ secrets.ZHIPU_API_KEY }}
+        run: |
+          if [ -z "$ZHIPU_API_KEY" ]; then
+            echo "::notice::未配置 ZHIPU_API_KEY，跳过 AI 分析（仍会发出失败 job/步骤定位评论）"
+            exit 0
+          fi
+          SYSTEM_PROMPT='你是资深 DevOps 工程师，为中文团队写 CI 失败诊断报告。必须落到位、可执行，禁止泛泛而谈。严格用以下结构：
+
+          ## 结论
+          一句话：哪个 job 的哪一步失败、什么性质（代码错 / 格式化或工具版本漂移 / 依赖 / 基础设施）。
+
+          ## 哪里错了
+          逐条列出，每条格式：`<job> / <步骤>` → 现象（引用日志原文片段）→ 涉及文件（能定位到文件就给文件名，能给行号更好）。
+          若根因是「工具版本或规则不一致」，必须点明两处各自的版本/配置值是什么。
+
+          ## 建议怎么修复
+          按优先级给可执行修复，每条写全三件事：① 改哪个文件 / 执行什么命令（命令要完整、可复制粘贴）；② 为什么这样修；③ 修完怎么验证（验证命令）。
+          涉及多文件批量修改时给一条命令，不要逐文件罗列。
+
+          ## 证据与不确定性
+          只依据给定的失败步骤、日志与改动清单；信息不足就明确说「还需要什么信息」，不要臆测。'
+          USER_CONTENT="$(printf '### 触发提交\n%s\n\n### 失败的 job 与步骤（GitHub API）\n%s\n\n### 本次提交改动文件\n%s\n\n### 失败日志（末 40KB）\n```\n%s\n```\n\n### ci workflow 定义\n```yaml\n%s\n```\n' \
+            "$(cat commit.txt)" "$(cat failed-jobs.txt)" "$(cat changed-trim.txt)" "$(cat failed-trim.log)" "$(cat .github/workflows/ci.yml)")"
+          REQ=$(jq -n --arg sys "$SYSTEM_PROMPT" --arg user "$USER_CONTENT" \
+            '{model:"glm-4.5-flash", messages:[{role:"system",content:$sys},{role:"user",content:$user}], temperature:0.2, max_tokens:4096}')
+          RESP=$(curl -sS --max-time 300 https://open.bigmodel.cn/api/paas/v4/chat/completions \
+            -H "Authorization: Bearer $ZHIPU_API_KEY" -H "Content-Type: application/json" -d "$REQ")
+          CONTENT=$(printf '%s' "$RESP" | jq -r '.choices[0].message.content // empty')
+          if [ -z "$CONTENT" ]; then
+            echo "::warning::GLM 未返回内容，原始响应（前 1500 字符）："
+            printf '%s\n' "$RESP" | head -c 1500
+            exit 0
+          fi
+          {
+            echo "## CI 红灯诊断（glm-4.5-flash 自动生成）"
+            echo ""
+            echo "- 失败运行：${RUN_URL}"
+            echo "- 提交：\`${HEAD_SHA:0:7}\` $(git log -1 --format='%s')"
+            echo ""
+            echo "> 只诊断不改码：修复动作由人工执行。"
+            echo ""
+            printf '%s\n' "$CONTENT"
+          } > diagnosis.md
+
+      - name: 发布（Summary + 评论 + 注解）
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # 关联 PR 反查（push 场景为空；workflow_run 事件的 pull_requests 数组常为空，故走 API）
+          PR_NUMBER=$(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}/pulls" \
+            --jq '.[0].number // empty' 2>/dev/null || true)
+          if [ -f diagnosis.md ]; then
+            cat diagnosis.md >> "$GITHUB_STEP_SUMMARY"
+            gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}/comments" -F body=@diagnosis.md > /dev/null
+            if [ -n "${PR_NUMBER}" ]; then
+              gh pr comment "${PR_NUMBER}" --body-file diagnosis.md
+            fi
+            LINE=$(awk '/^## 结论/{getline; while ($0 == "") getline; print; exit}' diagnosis.md | head -c 350)
+            if [ -n "$LINE" ]; then
+              echo "::error title=CI 红灯诊断（详情见 Summary 与提交评论）::${LINE}"
+            fi
+          else
+            # 没有 AI 报告时也要让人看见「哪里错了」：发失败 job/步骤定位评论
+            { echo "## CI 红灯定位（未生成 AI 报告）"; echo ""; echo "- 失败运行：${RUN_URL}"; echo "";
+              echo "> 未配置 ZHIPU_API_KEY，或 GLM 未返回内容；下面是 GitHub API 给出的失败 job 与步骤。"; echo "";
+              cat failed-jobs.txt; } > fallback.md
+            cat fallback.md >> "$GITHUB_STEP_SUMMARY"
+            gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}/comments" -F body=@fallback.md > /dev/null
+            if [ -n "${PR_NUMBER}" ]; then
+              gh pr comment "${PR_NUMBER}" --body-file fallback.md
+            fi
+            echo "::error title=CI 红灯（未生成 AI 报告）::失败 job：$(grep -c '^### job' failed-jobs.txt || true) 个，详见提交评论"
+          fi

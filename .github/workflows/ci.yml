@@ -227,78 +227,10 @@ jobs:
           fi
           python scripts/check_design.py --range "$BASE..$HEAD"
 
-  # ---------------- 失败自动诊断：红灯时 AI 分析日志并给出修复建议（只诊断不改码） ----------------
-  # 输出：run Summary + commit/PR 评论。修复动作始终由人工执行，AI 不直接改代码。
-  ai-diagnose:
-    name: ai-diagnose · 失败日志 AI 诊断
-    needs: [backend, frontend, security, commitlint, docs-guard, design-guard]
-    if: failure()
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      actions: read
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: 收集失败 job 日志
-        id: collect
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh run view "${{ github.run_id }}" --log-failed > failed.log 2>/dev/null || true
-          if [ ! -s failed.log ]; then
-            echo "::notice::未取到失败日志（可能被取消或无失败步骤），跳过诊断"
-            echo "has_log=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          tail -c 30000 failed.log > failed-trim.log
-          echo "has_log=true" >> "$GITHUB_OUTPUT"
-
-      - name: 调 GLM 生成诊断报告
-        if: steps.collect.outputs.has_log == 'true'
-        env:
-          ZHIPU_API_KEY: ${{ secrets.ZHIPU_API_KEY }}
-        run: |
-          SYSTEM_PROMPT='你是资深 DevOps 工程师。基于下面的 GitHub Actions 失败日志与 workflow 定义，用中文输出诊断报告，严格遵循以下结构：
-          ## 结论
-          （一句话：哪个 job 的哪一步、什么性质的失败）
-          ## 根因
-          （技术细节；区分属于 代码问题 / 依赖或版本问题 / 基础设施问题）
-          ## 修复建议
-          （给出具体可执行的修改：文件、命令或代码片段；若日志信息不足，说明还需要什么信息）
-          要求：只依据日志与 workflow 内容，不要臆测；若日志被截断看不到根因，明确指出。'
-          COMMIT=$(git log -1 --format='%h %s' 2>/dev/null || true)
-          USER_CONTENT="$(printf '### 触发提交\n%s\n\n### 失败日志（最后 30KB）\n\n```\n%s\n```\n\n### workflow 定义（.github/workflows/ci.yml）\n\n```yaml\n%s\n```\n' \
-            "$COMMIT" "$(cat failed-trim.log)" "$(cat .github/workflows/ci.yml)")"
-          REQ=$(jq -n --arg sys "$SYSTEM_PROMPT" --arg user "$USER_CONTENT" \
-            '{model:"glm-4.5-flash", messages:[{role:"system",content:$sys},{role:"user",content:$user}], temperature:0.2, max_tokens:4096}')
-          RESP=$(curl -sS --max-time 300 https://open.bigmodel.cn/api/paas/v4/chat/completions \
-            -H "Authorization: Bearer $ZHIPU_API_KEY" -H "Content-Type: application/json" -d "$REQ")
-          CONTENT=$(printf '%s' "$RESP" | jq -r '.choices[0].message.content // empty')
-          if [ -z "$CONTENT" ]; then
-            echo "::warning::GLM 未返回内容，原始响应（前 2000 字符）："
-            printf '%s\n' "$RESP" | head -c 2000
-            exit 0
-          fi
-          {
-            echo "> AI 诊断（glm-4.5-flash 自动生成，仅供参考；修复以人工执行为准）"
-            echo ""
-            printf '%s\n' "$CONTENT"
-          } > diagnosis.md
-
-      - name: 写入 run Summary 并发评论
-        if: steps.collect.outputs.has_log == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          [ -f diagnosis.md ] || { echo "::notice::无诊断报告可发布"; exit 0; }
-          DIAG=$(cat diagnosis.md)
-          cat diagnosis.md >> "$GITHUB_STEP_SUMMARY"
-          if [ -n "${{ github.event.pull_request.number }}" ]; then
-            gh pr comment "${{ github.event.pull_request.number }}" --body "$DIAG"
-          else
-            gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" -f body="$DIAG" > /dev/null
-          fi
+  # ---------------- 失败自动诊断已迁出：见 .github/workflows/ai-diagnose.yml ----------------
+  # 为什么不在本文件里做：诊断需要读「失败日志」，而 gh run view --log-failed 对**仍在进行中**
+  # 的 run 取不到日志（本 job 属于该 run，永远处于进行中）→ 旧实现拿到空文件后静默跳过，
+  # 表现为 job 绿灯但没有任何输出。改为 workflow_run 触发（等 ci 跑完再诊断）日志才取得到。
 
 # 已落地（对应 ADR-0002 / 部署工程化.md §五/§十二/§十三）：
 #   - security job：Trivy fs 扫描只告警（exit-code 0），适应后改 1 即转硬门禁
@@ -306,4 +238,4 @@ jobs:
 #   - cd-update.yml：package 成功后把短 sha 写进部署仓库（应用仓只提交代码，不直接部署）
 #   - deploy/argocd/：dev 自动同步，prod 手动同步（生产发布必须人工审批）
 #   - 回滚 = 部署仓库 image tag 切回上一版本（ArgoCD 自动同步，<5min）
-#   - ai-diagnose：CI 红灯时 AI 分析失败日志，报告发 run Summary + commit/PR 评论（只诊断不改码）
+#   - ai-diagnose：CI 红灯时由 ai-diagnose.yml 诊断（workflow_run 触发，见该文件头注释）

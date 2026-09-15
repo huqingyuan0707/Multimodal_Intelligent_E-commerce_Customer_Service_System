@@ -77,7 +77,7 @@ pnpm lint ; pnpm typecheck ; pnpm build
 pnpm test
 ```
 
-CI（`.github/workflows/ci.yml`）与本地 `lint-staged + husky` 任一红灯不合并；`docs-guard` 检查接口与文档是否同改，`design-guard` 检查 UI 代码与 `design.pen` 画板是否同改（`python scripts/check_design.py`）。
+CI（`.github/workflows/ci.yml`）与本地 `lint-staged + husky` 任一红灯不合并；`docs-guard` 检查接口与文档是否同改，`design-guard` 检查 UI 代码与 `design.pen` 画板是否同改（`python scripts/check_design.py`）。CI 红灯时 `ai-diagnose.yml`（workflow_run 触发）自动出「哪里错了 + 修复建议」报告到 run Summary 与提交/PR 评论。**格式化版本必须钉住**：`.pre-commit-config.yaml` 的 ruff rev 与 `ci.yml` 安装的 `ruff==` 必须同版本（当前 0.16.7），漂移即「本地绿、CI 红」。
 
 ## 7. UI 设计规则
 
