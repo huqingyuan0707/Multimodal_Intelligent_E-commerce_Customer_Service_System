@@ -4,6 +4,8 @@
 端点只做「解析入参 + 调服务 + 组装信封」，业务判断全在服务层（分层红线）。
 """
 
+# temporary: e2e verify ai-diagnose trigger on docs-guard failure
+
 from __future__ import annotations
 
 from typing import Any
