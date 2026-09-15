@@ -127,6 +127,13 @@ def main() -> int:
         isinstance(orch.get("notes"), list),
         str(orch)[:200],
     )
+    handoff_obj = done_obj.get("handoff") or {}
+    check(
+        "done.handoff carries rule decision",
+        isinstance(handoff_obj, dict)
+        and {"hit", "code", "reason", "applied", "handoff_status"} <= set(handoff_obj),
+        str(handoff_obj)[:200],
+    )
 
     session_id = ""
     try:
@@ -152,6 +159,34 @@ def main() -> int:
             len(detail2.get("data", {}).get("messages", [])) == 2,
             str(detail2)[:200],
         )
+
+    # C 步规则表真链路：买家喊人工 → done.handoff 命中 explicit_request 且真把会话挂进待接队列
+    with client.stream(
+        "POST",
+        "/api/v1/agent/chat/stream",
+        json={"query": "我要转人工", "client_msg_id": "smoke-e2e-handoff"},
+        headers=headers,
+    ) as s:
+        hand_lines = list(s.iter_lines())
+    hand_done = ""
+    for i, line in enumerate(hand_lines):
+        if line.startswith("event: done") and i + 1 < len(hand_lines):
+            hand_done = hand_lines[i + 1].replace("data: ", "", 1)
+            break
+    try:
+        hit_obj = json.loads(hand_done).get("handoff") or {}
+    except ValueError:
+        hit_obj = {}
+    check(
+        "handoff rule hit explicit_request",
+        hit_obj.get("hit") is True and hit_obj.get("code") == "explicit_request",
+        str(hit_obj)[:200],
+    )
+    check(
+        "handoff applied -> pending",
+        hit_obj.get("applied") is True and hit_obj.get("handoff_status") == "pending",
+        str(hit_obj)[:200],
+    )
 
     print(f"RESULT: {passed} passed, {failed} failed")
     return 1 if failed else 0

@@ -1,7 +1,8 @@
 """坐席工作台服务（C 步转人工：待接队列 + 认领/转接/解决 + 内部备注 + 代回 + Trace，对齐 FRD FR-7）
 
-链路：endpoints/workbench 薄封装 → 本模块 → sessions/session_notes/messages 表；
-chat 自动挂起经 mark_pending_if_idle 回调（need_human/拒答→pending，不抢已认领会话）。
+链路：endpoints/workbench 薄封装 → 本模块 → sessions/session_notes/messages 表。
+边界：本模块只做坐席侧流转动作与查询；自动挂起与触发判据不在本模块
+（见 handoff_service.auto_handoff + handoff_rules 规则表），二者不得互抄一份。
 红线：队列/详情/备注只看本租户（tenant 过滤）；买家转人工走 handoff 的 owner 口径，
 其余动作仅坐席（endpoint 用 require_any_perm("cs", "admin") 拦截，本模块再验一遍）。
 """
@@ -221,23 +222,6 @@ async def resolve(
     row.resolution = (conclusion or "").strip()[:500]
     await db.commit()
     return row
-
-
-async def mark_pending_if_idle(
-    db: AsyncSession, *, tenant: str, session_id: str, reason: str
-) -> None:
-    """chat 自动挂起钩子（need_human/拒答→pending；handling/resolved/pending 不抢）。
-
-    只 flush 不提交，由调用方（_persist_*）统一 commit，保证落库原子。
-    """
-    row = (
-        await db.execute(select(Session).where(Session.id == session_id, Session.tenant == tenant))
-    ).scalar_one_or_none()
-    if row is None or (row.handoff_status or "none") != "none":
-        return
-    row.handoff_status = "pending"
-    row.handoff_reason = (reason or "").strip()[:200]
-    await db.flush()
 
 
 # ---------------- 坐席代回 ----------------

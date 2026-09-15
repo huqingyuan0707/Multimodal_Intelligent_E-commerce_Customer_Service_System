@@ -69,14 +69,15 @@ api_router.include_router(chat.router, dependencies=[Depends(get_current_user)])
 - 开发默认账号：**租户 `demo-tenant` / 用户名 `admin` / 密码 `admin123` / 角色 `cs,kb`**（`.env` 的 `SEED_*` 可覆盖）。种子幂等且**不覆盖已存在账号**，改 `SEED_PASSWORD` 只对新建账号生效。
 
 ### 4.2 对话（非流式，调试/短问答）
-- `POST /agent/chat {query, thread_id?, security_level?, client_msg_id?, image_ids[]?, inspections[]?}` → `ok({answer, references[], guard:{pass,degraded}, faithfulness, model, degraded, trace_id, session_id, vision[], need_human, context{rounds,tokens,dropped,summarized}, tool_calls[], orchestration{notes[]}})`（规范路径；`/chat` 为兼容别名，行为一致）。
+- `POST /agent/chat {query, thread_id?, security_level?, client_msg_id?, image_ids[]?, inspections[]?}` → `ok({answer, references[], guard:{pass,degraded,empty,rejected}, faithfulness, model, degraded, trace_id, session_id, vision[], need_human, context{rounds,tokens,dropped,summarized}, tool_calls[], orchestration{notes[],empty,approval}, handoff{hit,enabled,code,label,reason,priority,matched[],matched_rules[],applied,handoff_status,session_id}})`（规范路径；`/chat` 为兼容别名，行为一致）。
 - 入参 `thread_id` 命中本人会话则复用，否则新建（标题取问题前 20 字，他人/异租户 id 视为未传）；`client_msg_id` 为前端每次发送生成的幂等键，同（会话，键）重调只落一行，重放不再调模型。
 - 用户消息与助手回复（含引用/guard/忠实度/trace）双双落 `messages` 表，刷新后 `GET /sessions/{id}` 可回放。
 - 生成走适配层 `llm_service`（本地 Ollama `qwen2.5`，ADR-0001）；模型不可用**不 500**：降级片段摘要，`degraded=true`、`model="template"`。
 - `faithfulness`：回答内 `[n]` 引用越界按比例扣分（无引用记 0.9），低分前端可提示核对来源。
 - `tool_calls[]`：本轮检索段经 Agent 编排真调的工具记录（形状同 `POST /agent/tools/{name}/invoke` 出参，含 `scope/attempts/latency_ms/trace_id`，前端 `ToolCallCard` 直接渲染）；走回落直调时为空数组，帧形不随分支变化。
 - `orchestration{notes[]}`：编排说明（中文可读，空数组 = 规划按预期命中）。固定文案：`命中「退款」但缺少必填参数（如订单号/SKU），已回落知识库检索` / `当前身份无权调用 X，已回落知识库检索` / `X 未返回可用结果，已转人工跟进` / `该动作需人工审批，已生成审批单（账目未变动）` / `编排不可用，已回落直连检索`。
-- `2001` 表示无据拒答，前端渲染拒答话术 + 转人工按钮，不当错误抛异常（拒答同样落库，`rejected` 标记）。
+- `2001` 表示无据拒答，前端渲染拒答话术 + 转人工按钮，不当错误抛异常（拒答同样落库，`guard.rejected=true`）。
+- `handoff`：本轮转人工规则表判定结果（C 步）。`hit=true` 表示命中某条规则（`code/label/reason` 是坐席可读依据，`matched[]` 列出所有命中规则，取 `priority` 最小者挂起）；`applied=true` 表示确实把会话挂进了待接队列（已 `handling/resolved` 或已 `pending` 时为 `false`，`handoff_status` 回当前状态）。`guard.empty`（工具空手）与 `guard.degraded` 是「连续未解决 / 连续降级」的计数依据，坐席代回（`guard.by="agent"`）即清零。
 
 ### 4.3 会话与记忆（三层：Session→Message→Context，对齐 FR-1.4）
 - `GET /sessions?page=1&size=20` → 分页对象 `{items[{id,title,summary,message_count,created_at,updated_at}], total, page, size}`（按 `tenant+username` 隔离、最近活跃倒序；空数据 `items=[]` 不报错）。
@@ -149,7 +150,8 @@ api_router.include_router(chat.router, dependencies=[Depends(get_current_user)])
 > 状态机：`none`（AI 接待）→ `pending`（待接）→ `handling`（已认领）→ `resolved`（已解决，可被买家再次 `handoff` 重开）。
 > 权限：`handoff` 是买家自助口（`get_current_user`，owner 校验）；队列/认领/转接/解决/代回/备注/Trace 一律 `require_any_perm("cs","admin")`。可见范围由 Token 推导（`governance.access_context()`），**不读请求体 tenant/user**。
 - `GET /workbench/queue?status=&q=&page=1&size=20` → 分页对象 `{items[{id,title,username,created_at,updated_at,message_count,handoff_status,handoff_label,assignee,handoff_reason,resolution,last_message}], total, page, size}`。`status` 空/`open` = 待接+处理中；`pending/handling/resolved/none` 精确过滤（其他值 `1001`「队列状态非法」）；`q` 模糊匹配标题/买家名（≤64 字）；`last_message` 为最新一条预览（截 40 字）；按 `updated_at desc` 排序，空结果 `items=[]` 不报错。
-- `POST /workbench/sessions/{id}/handoff {reason?}` → `ok(队列行)`，`none|resolved → pending`（买家侧「转人工」入口，二次点击幂等）；聊天链路 `need_human`/拒答也会自动挂起为 `pending`（`mark_pending_if_idle`，不抢 `handling/resolved`）。
+- `GET /workbench/handoff-rules` → `ok({enabled, miss_streak_threshold, degrade_streak_threshold, rules[{code,label,reason,priority,signal,threshold,enabled}]})`。转人工触发规则表**只读**口径：阈值取自 `Settings.HANDOFF_*`（`HANDOFF_ENABLED/HANDOFF_MISS_STREAK_THRESHOLD/HANDOFF_DEGRADE_STREAK_THRESHOLD` 可热更），规则表本体在 `services/handoff_rules.py`；供坐席核对「这个会话为什么进了队列」，`require_any_perm("cs","admin")`。
+- `POST /workbench/sessions/{id}/handoff {reason?}` → `ok(队列行)`，`none|resolved → pending`（买家侧「转人工」入口，二次点击幂等）；聊天链路与 Agent 编排的**自动挂起一律经规则表** `handoff_rules` 判定（挂载点 `services/handoff_service.py::auto_handoff`）：喊人工 / 情绪激烈 / 敏感操作送审 / 图检低置信 / 无据拒答 / 编排空手 / 连续 3 次未解决 / 模型连续 3 次降级（命中多条取优先级最高者，其余落 `matched` 审计），命中才挂起（`mark_pending_if_idle`，不抢 `handling/resolved`）；坐席代回即把「连续未解决」计数清零。
 - `POST /workbench/sessions/{id}/claim` → `ok(队列行)`，`pending|none → handling` + `assignee=Token 用户名`；已被他人认领 → `1001`「已被 XX 接管，转为只读围观」（前端据此切只读态，不弹系统错误）。
 - `POST /workbench/sessions/{id}/transfer {assignee}` → `ok(队列行)`，`assignee` 必填且限本租户坐席名；`pending` 顺手升为 `handling`；已解决 `1001`。
 - `POST /workbench/sessions/{id}/resolve {conclusion?}` → `ok(队列行)`，`handling|pending → resolved` + `conclusion`（≤500 字，落 `sessions.resolution`）；重复解决 `1001`。
@@ -158,7 +160,7 @@ api_router.include_router(chat.router, dependencies=[Depends(get_current_user)])
 - `POST /workbench/sessions/{id}/notes {content}` → `ok(备注行)`，`author` 取 Token 用户名，内容 1..500 字（空/超长 `1001`）；写操作带 `Idempotency-Key`。
 - `GET /workbench/sessions/{id}/trace?size=50` → `ok({session, messages[], context{summary,rounds,tokens,dropped,budget,window_rounds}})`。与买家侧 `get_session_detail` **完全同源**（同 `message_to_dict`、同 `context_service.load_window/build_history_block`），坐席所见即买家所得；`size` 1..200。
 - 跨租户 / 不存在的会话一律 `404`「会话不存在或已过期」（不泄露存在性）。
-- openapi 自查说明：本轮以 `app.openapi()` 导出核对，新增 8 条 `/workbench/*` path，总 **72** paths，其余端点未变。
+- openapi 自查说明：本轮以 `app.openapi()` 导出核对，新增 9 条 `/workbench/*` path（含 `GET /workbench/handoff-rules`），总 **79** paths，其余端点未变。
 
 ### 4.12 Agent Runtime 与工具注册中心（对齐 FRD-3/FR-5 + 附录 A，同基座 JWT/租户隔离/审批/审计）
 > 状态机：`IDLE → PLANNING → ACTING → OBSERVING → REFLECTING → DONE`，分支 `WAITING_APPROVAL / WAITING_HUMAN / FAILED`；非法流转 `4009`「状态流转非法：X → Y」（白名单见 `modules/agent/contracts.py::TRANSITIONS`）。
@@ -167,7 +169,7 @@ api_router.include_router(chat.router, dependencies=[Depends(get_current_user)])
 - `GET /agent/tools` → `ok({total, items[{name, scope, description, params(JSON Schema), idempotent, requires_approval, approval_action, timeout_seconds, max_retries, breaker{failures, open, last_error, recent_latency_ms}}]})`。登录即可读（Agent Studio 工具页直接渲染）；注册中心为空时 `msg` 提示且不报错。**出参绝不含 handler**（可调用对象不下发）。
 - `GET /agent/tools/{name}` → `ok(同上单项)`；未注册 → `4005`「工具不存在：X，可用：A/B/C」。
 - `POST /agent/tools/{name}/invoke {args, session_id?, trace_id?}` → `ok({tool, status:"ok", scope, idempotent, requires_approval, approval_required, approval_id, args, result, attempts, latency_ms, timeout_seconds, trace_id})`。受控试调（ToolCallCard 透明展示）：Scope 不命中 → `4006` + HTTP 403；入参不全 → `1001`（附中文逐条原因）；熔断中 → `4007` + HTTP 503。敏感工具调用后 `approval_required=true` 且返回 `approval_id`，**账不动**（`msg` 明示「已提交审批，待人工确认后生效」）。
-- `POST /agent/run {query, session_id?, tool_args?, trace_id?}` → `ok({task_id, state, state_label, query, session_id, cursor, steps[{tool,args,reason}], results[], notes[], answer, approval_id, error, trace_id, updated_at})`。规则规划（可解释，命中即用；缺必填参数**不硬调**，回落 `kb.retrieve` 并在 `notes` 说明）。每步落 `tasks.checkpoint` 并提交，崩溃可续跑；命中敏感工具即挂 `WAITING_APPROVAL`；检索零召回挂 `WAITING_HUMAN` 并同步 `mark_pending_if_idle` 进坐席待接队列（不抢已认领）。
+- `POST /agent/run {query, session_id?, tool_args?, trace_id?}` → `ok({task_id, state, state_label, query, session_id, cursor, steps[{tool,args,reason}], results[], notes[], answer, approval_id, error, trace_id, updated_at})`。规则规划（可解释，命中即用；缺必填参数**不硬调**，回落 `kb.retrieve` 并在 `notes` 说明）。每步落 `tasks.checkpoint` 并提交，崩溃可续跑；命中敏感工具即挂 `WAITING_APPROVAL`；检索零召回挂 `WAITING_HUMAN` 并同步经规则表 `auto_handoff` 进坐席待接队列（不抢已认领）。
 - `GET /agent/runtime/{task_id}` → `ok(快照同形)`；跨租户 / 无检查点 → `4001`「任务不存在或已过期」/「该任务不是 Agent 编排任务，无检查点」（不泄露存在性）。
 - `POST /agent/runtime/{task_id}/resume` → `ok(快照)`，从 `cursor` 续跑剩余步骤，**不重放已完成步**。审批未决 → `4003`「该轮已提交审批，请等审批通过后再继续推进」（HTTP 409），绝不放行绕过人工；已驳回 → 收敛 `FAILED`。
 - 任务态映射：`DONE → tasks.status=done`，其余挂起/失败态留 `running/error`，`tasks.output` 落 `{state, answer, steps}`（`GET /tasks/{id}` 可轮询）。
@@ -178,7 +180,7 @@ api_router.include_router(chat.router, dependencies=[Depends(get_current_user)])
 
 ## 5. SSE 流式协议（项目实际形态）
 
-后端事件名固定：`source / phase(retrieving[/inspecting]/generating/validating) / message / done`（任务类另有 `progress/complete/error`；图文轮多一帧 `inspecting`，纯文本轮无此帧）。`done` 载荷必含 `references + guard + faithfulness + trace_id + session_id + tool_calls[] + orchestration{notes[]}`，图文轮加带 `vision[] + need_human`（前端渲染检测卡 + 低置信转人工按钮），多轮加带 `context{rounds,tokens,dropped,summarized}`（前端气泡小字透出用量）。每帧必带 `id:` 行（`{stream_id}:{seq}`，`stream_id` 由 `client_msg_id` 确定性派生，重放帧 id 相同），前端同流内按 id 去重，断线重连不重复拼接。`message` 负载为模型 token 级增量（在线时首字不等全文拼完）；降级模板/重放命中时为整段按 `SSE_CHUNK_CHARS` 切片，帧形与幂等语义一致。`validating` 帧在全文到齐后发出（流式下位于末尾 `message` 之后、`done` 之前）。
+后端事件名固定：`source / phase(retrieving[/inspecting]/generating/validating) / message / done`（任务类另有 `progress/complete/error`；图文轮多一帧 `inspecting`，纯文本轮无此帧）。`done` 载荷必含 `references + guard + faithfulness + trace_id + session_id + tool_calls[] + orchestration{notes[]} + handoff{hit,code,reason,applied,handoff_status}`（`handoff` 是转人工规则表判定结果，加法，老前端忽略即可），图文轮加带 `vision[] + need_human`（前端渲染检测卡 + 低置信转人工按钮），多轮加带 `context{rounds,tokens,dropped,summarized}`（前端气泡小字透出用量）。每帧必带 `id:` 行（`{stream_id}:{seq}`，`stream_id` 由 `client_msg_id` 确定性派生，重放帧 id 相同），前端同流内按 id 去重，断线重连不重复拼接。`message` 负载为模型 token 级增量（在线时首字不等全文拼完）；降级模板/重放命中时为整段按 `SSE_CHUNK_CHARS` 切片，帧形与幂等语义一致。`validating` 帧在全文到齐后发出（流式下位于末尾 `message` 之后、`done` 之前）。
 
 ```python
 """聊天流 endpoint（对齐 API 规范 §5）"""

@@ -1,6 +1,7 @@
 """坐席工作台端点（C 步转人工联调，对齐 API 规范 §4.11 + 页面设计 §3.2）
 
-链路：WorkbenchView → 本模块薄封装（解析→调 workbench_service→ok()）→ sessions/session_notes。
+链路：WorkbenchView → 本模块薄封装（解析→调 service→ok()）→ sessions/session_notes。
+      流转动作与查询走 workbench_service，转人工规则表只读视图走 handoff_service（判据本体）。
 权限：handoff 买家自助（owner 口）/坐席代标；其余仅 cs/admin（require_any_perm）。
 """
 
@@ -16,7 +17,7 @@ from app.core.rbac import get_current_user, require_any_perm
 from app.core.responses import ok
 from app.core.user_context import CurrentUser
 from app.db.session import get_db
-from app.services import workbench_service
+from app.services import handoff_service, workbench_service
 
 router = APIRouter(prefix="/workbench", tags=["workbench"])
 
@@ -69,6 +70,12 @@ async def get_queue(
         ),
         "获取成功",
     )
+
+
+@router.get("/handoff-rules")
+async def get_handoff_rules(user: CurrentUser = Depends(CS)) -> dict[str, Any]:
+    """转人工触发规则表（只读）：规则清单 + 阈值 + 总开关，核对「会话为什么进了队列」。"""
+    return ok(handoff_service.handoff_rules_view(), "获取成功")
 
 
 @router.post("/sessions/{session_id}/handoff")

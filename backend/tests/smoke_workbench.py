@@ -47,6 +47,23 @@ def main() -> int:
     # 无 token 访问队列必须 401（路由级鉴权生效）
     check("queue rejects anonymous", client.get("/api/v1/workbench/queue").status_code == 401)
 
+    # 转人工触发规则表（C 步）：坐席可读规则清单 + 阈值，匿名 401（判据口径唯一出口在服务端）
+    rules = client.get("/api/v1/workbench/handoff-rules", headers=auth).json()
+    rules_data = rules.get("data") or {}
+    codes = {row.get("code") for row in rules_data.get("rules") or []}
+    check(
+        "handoff rules listed for agent",
+        rules.get("code") == 0
+        and rules_data.get("enabled") is True
+        and {"explicit_request", "negative_sentiment", "no_evidence", "miss_streak"} <= codes
+        and int(rules_data.get("miss_streak_threshold") or 0) >= 1,
+        str(rules)[:240],
+    )
+    check(
+        "handoff rules reject anonymous",
+        client.get("/api/v1/workbench/handoff-rules").status_code == 401,
+    )
+
     created = client.post("/api/v1/sessions", headers=auth, json={"title": "联调冒烟-工作台"})
     sid = ((created.json().get("data") or {}) if created.status_code == 200 else {}).get("id", "")
     check("create session returns id", bool(sid), created.text[:200])
@@ -90,11 +107,16 @@ def main() -> int:
     note = client.post(
         f"/api/v1/workbench/sessions/{sid}/notes", headers=auth, json={"content": "联调冒烟备注"}
     ).json()
-    check("add note ok", note.get("code") == 0 and (note.get("data") or {}).get("author") == USERNAME, str(note)[:200])
+    check(
+        "add note ok",
+        note.get("code") == 0 and (note.get("data") or {}).get("author") == USERNAME,
+        str(note)[:200],
+    )
     notes = client.get(f"/api/v1/workbench/sessions/{sid}/notes", headers=auth).json()
     check(
         "list notes contains new one",
-        notes.get("code") == 0 and any(n.get("content") == "联调冒烟备注" for n in notes.get("data") or []),
+        notes.get("code") == 0
+        and any(n.get("content") == "联调冒烟备注" for n in notes.get("data") or []),
         str(notes)[:200],
     )
 
@@ -147,7 +169,9 @@ def main() -> int:
         and any(x.get("id") == sid for x in (done_queue.get("data") or {}).get("items") or []),
         str(done_queue)[:240],
     )
-    open_queue = client.get("/api/v1/workbench/queue", headers=auth, params={"status": "open"}).json()
+    open_queue = client.get(
+        "/api/v1/workbench/queue", headers=auth, params={"status": "open"}
+    ).json()
     check(
         "open filter excludes it",
         open_queue.get("code") == 0

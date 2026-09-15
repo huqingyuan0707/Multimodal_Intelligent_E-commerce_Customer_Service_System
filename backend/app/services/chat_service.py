@@ -21,11 +21,11 @@ from app.core.user_context import CurrentUser, access_context
 from app.modules.agent import runtime as agent_runtime
 from app.services import (
     context_service,
+    handoff_service,
     knowledge_service,
     llm_service,
     rag_governance,
     session_service,
-    workbench_service,
 )
 from app.services.chat_prompt import (
     build_messages,
@@ -92,9 +92,7 @@ async def _assemble_generation(
     tool_calls: list[dict[str, object]] = []
     notes: list[str] = []
     tool_block = ""
-    orch = await _orchestrate(
-        db, user=user, query=query, session_id=session_id, trace_id=trace_id
-    )
+    orch = await _orchestrate(db, user=user, query=query, session_id=session_id, trace_id=trace_id)
     if orch is None:
         notes = ["编排不可用，已回落直连检索"]
         refs = await knowledge_service.retrieve(
@@ -124,6 +122,9 @@ async def _assemble_generation(
         "vision_block": vision_block,
         "tool_calls": tool_calls,
         "notes": notes,
+        # 转人工规则表信号（C 步）：工具空手而归 / 敏感动作已送审 —— 落库时交给 handoff_rules 判定
+        "empty": bool(orch["empty"]) if orch is not None else False,
+        "approval": bool(orch["approval"]) if orch is not None else False,
     }
 
 
@@ -168,10 +169,13 @@ def _finalize_turn(
     started: float,
     tool_calls: list[dict[str, object]] | None = None,
     notes: list[str] | None = None,
+    empty: bool = False,
+    approval: bool = False,
 ) -> dict[str, object]:
     """生成后半（answer 与 stream_text_turn 共用）：引用校验 → guard/faith → 结果字典。
 
     不落库（落库归 _persist_agent_turn）；started 为 answer 起始 perf_counter。
+    empty/approval 是转人工规则表信号（工具空手 / 敏感送审），随 orchestration 透到落库段。
     """
     ctx = access_context()
     checked = validate_references(text, refs)
@@ -194,7 +198,11 @@ def _finalize_turn(
         "need_human": need_human,
         "context": dict(context or {"rounds": 0, "tokens": 0, "dropped": 0}),
         "tool_calls": list(tool_calls or []),
-        "orchestration": {"notes": list(notes or [])},
+        "orchestration": {
+            "notes": list(notes or []),
+            "empty": bool(empty),
+            "approval": bool(approval),
+        },
     }
     if not guard["pass"]:
         rag_governance.trace_step(
@@ -337,6 +345,7 @@ async def _begin_turn(
                 "session_id": session.id,
                 "tool_calls": [],
                 "orchestration": {"notes": ["重放命中：未重跑工具调用，可按 trace_id 回查审计"]},
+                "handoff": handoff_service.blank_handoff(session),
                 "replayed": True,
                 "rejected": False,
             }
@@ -400,33 +409,46 @@ async def _persist_agent_turn(
     need_human: bool,
     tool_calls: list[dict[str, object]] | None = None,
     notes: list[str] | None = None,
+    empty: bool = False,
+    approval: bool = False,
 ) -> dict[str, object]:
-    """agent 行落库 + 成本审计 + 会话刷新 + commit，返回 run_text_turn 同形 result。
+    """agent 行落库 + 规则表挂起判定 + 成本审计 + 会话刷新 + commit，返回 run_text_turn 同形 result。
 
     tool_calls/orchestration 原样透出（本步不新落库：逐步审计已由 executor 写 tool_calls 表，
     同一 trace_id 可回查），前端 ToolCallCard 与非流式响应共用同一形状。
+    落库 guard 额外带 degraded/empty 标记（规则表据此算「连续降级 / 连续未解决」）。
     """
+    stored_guard = {**dict(guard), "degraded": bool(degraded), "empty": bool(empty)}
     await session_service.save_agent_message(
         db,
         tenant=user.tenant,
         session_id=session.id,
         content=text,
         citations=[dict(r) for r in refs],
-        guard=dict(guard),
+        guard=stored_guard,
         faithfulness=faith,
         trace_id=trace_id,
         client_msg_id=key,
         attachments=vision,
     )
-    if need_human:
-        # C 步自动挂起：VLM 低置信不硬答，会话进待接队列（已认领/已解决不抢）
-        await workbench_service.mark_pending_if_idle(
-            db, tenant=user.tenant, session_id=session.id, reason="VLM 低置信，需人工复核"
-        )
+    # C 步自动挂起：判据逐条定义在 handoff_rules 规则表，已认领/已解决不抢
+    handoff = await handoff_service.auto_handoff(
+        db,
+        tenant=user.tenant,
+        session_id=session.id,
+        current_guard=stored_guard,
+        exclude_client_msg_id=key,
+        signals={
+            "query": query,
+            "vision_need_human": need_human,
+            "tool_empty": bool(empty),
+            "approval_pending": bool(approval),
+        },
+    )
     result: dict[str, object] = {
         "answer": text,
         "references": refs,
-        "guard": guard,
+        "guard": stored_guard,
         "faithfulness": faith,
         "model": model,
         "degraded": degraded,
@@ -437,6 +459,7 @@ async def _persist_agent_turn(
         "context": history_ctx,
         "tool_calls": list(tool_calls or []),
         "orchestration": {"notes": list(notes or [])},
+        "handoff": handoff,
     }
     await _record_cost_and_audit(db, user=user, session_id=session.id, result=result, query=query)
     await session_service.touch_session(
@@ -455,24 +478,34 @@ async def _persist_reject(
     key: str,
     history_ctx: dict[str, int],
     reason: str,
+    query: str = "",
 ) -> dict[str, object]:
-    """无据拒答落库（run/stream 共用）：拒答话术同样落 agent 行、可回放。"""
+    """无据拒答落库（run/stream 共用）：拒答话术同样落 agent 行、可回放。
+
+    guard 落 rejected 标记（规则表据此累计「连续未解决」）；挂起同样交规则表判定。
+    """
     trace = uuid.uuid4().hex[:16]
+    stored_guard: dict[str, object] = {"pass": True, "rejected": True}
     await session_service.save_agent_message(
         db,
         tenant=user.tenant,
         session_id=session.id,
         content=reason,
         citations=[],
-        guard={"pass": True},
+        guard=stored_guard,
         faithfulness=0.0,
         trace_id=trace,
         client_msg_id=key,
         attachments=vision,
     )
-    # C 步自动挂起：无据拒答同样进待接队列（已认领/已解决不抢）
-    await workbench_service.mark_pending_if_idle(
-        db, tenant=user.tenant, session_id=session.id, reason="无据拒答，需人工确认"
+    # C 步自动挂起：规则表判定（无据拒答 + 喊人工/情绪/连续不懂可能叠加）
+    handoff = await handoff_service.auto_handoff(
+        db,
+        tenant=user.tenant,
+        session_id=session.id,
+        current_guard=stored_guard,
+        exclude_client_msg_id=key,
+        signals={"query": query, "no_evidence": True},
     )
     await session_service.touch_session(
         db, tenant=user.tenant, username=user.username, session_id=session.id
@@ -481,7 +514,7 @@ async def _persist_reject(
     return {
         "answer": reason,
         "references": [],
-        "guard": {"pass": True},
+        "guard": stored_guard,
         "faithfulness": 0.0,
         "model": "template",
         "degraded": False,
@@ -492,6 +525,7 @@ async def _persist_reject(
         "session_id": session.id,
         "tool_calls": [],
         "orchestration": {"notes": ["无据拒答：未产出可引用资料，已转人工"]},
+        "handoff": handoff,
         "replayed": False,
         "rejected": True,
     }
@@ -551,12 +585,14 @@ async def run_text_turn(
             key=key,
             history_ctx=history_ctx,
             reason=str(exc),
+            query=query,
         )
     refs_raw = result["references"]
     guard_raw = result["guard"]
     usage_raw = result.get("usage")
     calls_raw = result.get("tool_calls")
     orch_raw = result.get("orchestration")
+    orch_map = orch_raw if isinstance(orch_raw, dict) else {}
     return await _persist_agent_turn(
         db,
         user=user,
@@ -577,9 +613,9 @@ async def run_text_turn(
         trace_id=str(result["trace_id"]),
         need_human=bool(result.get("need_human", False)),
         tool_calls=[dict(c) for c in calls_raw] if isinstance(calls_raw, list) else [],
-        notes=list(orch_raw.get("notes") or [])
-        if isinstance(orch_raw, dict) and isinstance(orch_raw.get("notes"), list)
-        else [],
+        notes=list(orch_map.get("notes") or []) if isinstance(orch_map.get("notes"), list) else [],
+        empty=bool(orch_map.get("empty")),
+        approval=bool(orch_map.get("approval")),
     )
 
 
@@ -642,6 +678,7 @@ async def stream_text_turn(
             key=key,
             history_ctx=history_ctx,
             reason=str(exc),
+            query=query,
         )
         yield str(exc)
         yield result
@@ -695,6 +732,8 @@ async def stream_text_turn(
         started=started,
         tool_calls=asm["tool_calls"],
         notes=asm["notes"],
+        empty=bool(asm["empty"]),
+        approval=bool(asm["approval"]),
     )
     result = await _persist_agent_turn(
         db,

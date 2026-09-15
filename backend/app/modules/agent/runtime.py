@@ -31,7 +31,7 @@ from app.modules.agent.contracts import (
     state_label,
     validate_args,
 )
-from app.services import approval_service, task_service, workbench_service
+from app.services import approval_service, handoff_service, task_service
 
 RUN_TASK_TYPE = "agent.run"
 # 规划规则（规则版先行：可解释、可测、无模型依赖；命中即用第一个）
@@ -249,11 +249,12 @@ async def _settle(
     _advance(checkpoint, state)
     await _persist(db, tenant=user.tenant, task_id=checkpoint["task_id"], checkpoint=checkpoint)
     if state == AgentState.WAITING_HUMAN and checkpoint.get("session_id"):
-        await workbench_service.mark_pending_if_idle(
+        # 转人工判据统一走规则表（C 步）：编排空手只是其中一条，可与喊人工/情绪/连续不懂叠加
+        await handoff_service.auto_handoff(
             db,
             tenant=user.tenant,
             session_id=str(checkpoint["session_id"]),
-            reason="Agent 未拿到可用结果，转人工确认",
+            signals={"query": str(checkpoint.get("query") or ""), "agent_no_result": True},
         )
         await db.commit()
     await task_service.mark_task(

@@ -26,7 +26,7 @@ from app.core.rbac import get_current_user
 from app.core.responses import fail, ok
 from app.core.user_context import CurrentUser
 from app.db.session import get_db
-from app.services import chat_service
+from app.services import chat_service, handoff_service
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -91,6 +91,7 @@ async def chat_stream(
                 "context": {"rounds": 0, "tokens": 0, "dropped": 0, "summarized": False},
                 "tool_calls": [],
                 "orchestration": {"notes": []},
+                "handoff": handoff_service.blank_handoff(),
             },
             f"{sid}:0",
         )
@@ -143,6 +144,9 @@ async def chat_stream(
                 ),
                 "tool_calls": result.get("tool_calls", []),
                 "orchestration": result.get("orchestration", {"notes": []}),
+                # 转人工规则表判定（C 步）：帧形不随分支变化（重放/降级同样带此字段）
+                "handoff": result.get("handoff")
+                or handoff_service.blank_handoff(session_id=str(result.get("session_id") or "")),
             },
             f"{sid}:{seq}",
         )

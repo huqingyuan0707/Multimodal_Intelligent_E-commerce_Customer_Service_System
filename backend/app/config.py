@@ -83,6 +83,9 @@ class Settings(BaseSettings):
         "AGENT_TOOL_CIRCUIT_THRESHOLD",
         "AGENT_TOOL_CIRCUIT_COOLDOWN_SECONDS",
         "AGENT_CHAT_ORCHESTRATE",
+        "HANDOFF_ENABLED",
+        "HANDOFF_MISS_STREAK_THRESHOLD",
+        "HANDOFF_DEGRADE_STREAK_THRESHOLD",
     )
 
     # 大模型：本地 Ollama（OpenAI 兼容协议 /v1），见 ADR-0001。业务代码只调 llm_service，禁止写地址/模型名。
@@ -151,7 +154,32 @@ class Settings(BaseSettings):
     AGENT_TOOL_CIRCUIT_COOLDOWN_SECONDS: int = 60  # 开闸后冷却秒数，到点半开试探
     AGENT_TOOL_RETRY_BACKOFF_SECONDS: float = 0.2  # 重试间隔（按第 n 次线性放大）
     AGENT_MAX_STEPS: int = 4  # 单轮规划最多执行步数（防编排空转）
-    AGENT_CHAT_ORCHESTRATE: bool = True  # /chat 检索段走 Agent 编排；false 一键回退直调 knowledge_service
+    AGENT_CHAT_ORCHESTRATE: bool = (
+        True  # /chat 检索段走 Agent 编排；false 一键回退直调 knowledge_service
+    )
+
+    # 转人工触发规则表（FRD FR-7，执行步骤 C）：「什么时候该转人工」的唯一口径在
+    # services/handoff_rules.py 的规则表里，词表与阈值放这里（禁止散落硬编码），
+    # 挂载点只有 handoff_service.auto_handoff() 一个（对话落库 / Agent 编排共用）。
+    HANDOFF_ENABLED: bool = (
+        True  # 总开关：false 时规则表不判命，仅显式动作（买家点转人工/坐席认领）改流转态
+    )
+    HANDOFF_HUMAN_KEYWORDS: list[str] = ["人工", "真人", "转客服", "找客服", "客服电话"]
+    HANDOFF_ANGRY_KEYWORDS: list[str] = [
+        "投诉",
+        "差评",
+        "曝光",
+        "举报",
+        "315",
+        "骗人",
+        "垃圾",
+        "气死",
+        "太差",
+    ]
+    HANDOFF_MISS_STREAK_THRESHOLD: int = (
+        3  # 「3 次不懂」：连续未解决轮次达此值即转人工（0/负数=关闭该规则）
+    )
+    HANDOFF_DEGRADE_STREAK_THRESHOLD: int = 3  # 模型连续降级达此值即转人工（0/负数=关闭该规则）
 
     # B 端业务阈值（数据模型文档 §2.1 / API 规范 §4.7）：金额一律整数「分」，禁浮点。
     B2B_SEED_DEMO: bool = True  # 演示数据（商品/仓库/库存/订单），生产置 false
