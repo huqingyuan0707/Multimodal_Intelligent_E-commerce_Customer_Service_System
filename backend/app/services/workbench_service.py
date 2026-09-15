@@ -12,7 +12,8 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -182,15 +183,41 @@ async def handoff(
 
 
 async def claim(db: AsyncSession, *, tenant: str, user: CurrentUser, session_id: str) -> Session:
-    """抢接（pending/none→handling + assignee=本人；已被他人认领 1001 明示只读围观）。"""
+    """抢接（pending/none→handling + assignee=本人；已被他人认领 1001 明示只读围观）。
+
+    并发安全：认领用「条件 UPDATE + rowcount」做原子比较交换，两个坐席同抢同一会话时
+    只有一个 UPDATE 命中（另一人 rowcount=0 → 重读后拿到「已被 XX 接管」），不会互相覆盖。
+    自己已认领的会话重复点认领 = 幂等刷新（updated_at 前移），不报错。
+    """
     row = await _tenant_session(db, tenant=tenant, session_id=session_id)
     if row.handoff_status == "resolved":
         raise BusinessError(ErrorCode.PARAM_INVALID, "会话已解决，不可认领", 400)
-    if row.handoff_status == "handling" and row.assignee and row.assignee != user.username:
-        raise BusinessError(ErrorCode.PARAM_INVALID, f"已被 {row.assignee} 认领，转为只读围观", 400)
-    row.handoff_status = "handling"
-    row.assignee = user.username
+    result: CursorResult = await db.execute(  # type: ignore[assignment]
+        update(Session)
+        .where(
+            Session.id == session_id,
+            Session.tenant == tenant,
+            or_(
+                Session.handoff_status.in_(("pending", "none")),
+                (Session.handoff_status == "handling")
+                & (Session.assignee.in_(("", user.username))),
+            ),
+        )
+        .values(handoff_status="handling", assignee=user.username, updated_at=_now())
+    )
+    if result.rowcount == 0:
+        # 抢接失败：会话已被他人接管（或状态在读取后被改），重读拿真实归属再报错
+        await db.rollback()
+        current = await _tenant_session(db, tenant=tenant, session_id=session_id)
+        if current.handoff_status == "resolved":
+            raise BusinessError(ErrorCode.PARAM_INVALID, "会话已解决，不可认领", 400)
+        raise BusinessError(
+            ErrorCode.PARAM_INVALID,
+            f"已被 {current.assignee or '其他坐席'} 接管，转为只读围观",
+            400,
+        )
     await db.commit()
+    await db.refresh(row)
     return row
 
 

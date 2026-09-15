@@ -13,11 +13,14 @@ from typing import Any
 
 import httpx
 import pytest
+from sqlalchemy import select
 
 from app.config import settings
+from app.core.exceptions import BusinessError, ErrorCode
 from app.core.rbac import get_current_user
 from app.core.user_context import CurrentUser, set_current_user
 from app.db import session as session_mod
+from app.db.models import Session
 from app.db.seed import seed_on_startup
 from app.db.session import init_models
 from app.main import app
@@ -246,6 +249,42 @@ async def test_mark_pending_never_steals_claimed(
         )
         assert row.handoff_status == "resolved"
     finally:
+        await gen.aclose()
+
+
+async def test_claim_race_only_one_winner(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """抢接竞态：两个坐席各自会话同抢一条 pending——条件 UPDATE 保证只有一人赢，
+    输家拿 1001「已被 X 接管」（旧实现读-改-写会互相覆盖 assignee）。"""
+    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'race.db'}")
+    monkeypatch.setattr(session_mod, "_engine", None)
+    monkeypatch.setattr(session_mod, "_SessionFactory", None)
+    await init_models()
+    gen = session_mod.get_db()
+    db = await gen.__anext__()
+    row = await session_service.create_session(
+        db, tenant=TENANT, username="buyer1", title="抢接竞态"
+    )
+    await handoff_service.mark_pending_if_idle(db, tenant=TENANT, session_id=row.id, reason="排队")
+    await db.commit()
+    gen2 = session_mod.get_db()
+    db2 = await gen2.__anext__()
+    try:
+        # 双方都先读到 pending（模拟并发窗口），再各自发起认领
+        assert row.handoff_status == "pending"
+        winner = await workbench_service.claim(db, tenant=TENANT, user=TESTER, session_id=row.id)
+        assert (winner.handoff_status, winner.assignee) == ("handling", "tester")
+        with pytest.raises(BusinessError) as lost:
+            await workbench_service.claim(db2, tenant=TENANT, user=CS2, session_id=row.id)
+        assert lost.value.code == ErrorCode.PARAM_INVALID
+        assert "tester" in lost.value.msg
+        # 输家重读：归属仍是赢家，没被覆盖
+        check = (await db2.execute(select(Session).where(Session.id == row.id))).scalar_one()
+        assert (check.handoff_status, check.assignee) == ("handling", "tester")
+        # 赢家重复认领 = 幂等（不报错、归属不变）
+        again = await workbench_service.claim(db, tenant=TENANT, user=TESTER, session_id=row.id)
+        assert again.assignee == "tester" and again.handoff_status == "handling"
+    finally:
+        await gen2.aclose()
         await gen.aclose()
 
 
