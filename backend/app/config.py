@@ -86,6 +86,8 @@ class Settings(BaseSettings):
         "HANDOFF_ENABLED",
         "HANDOFF_MISS_STREAK_THRESHOLD",
         "HANDOFF_DEGRADE_STREAK_THRESHOLD",
+        "OBSERVABILITY_ENABLED",
+        "OBSERVABILITY_ANSWER_TARGET_SECONDS",
     )
 
     # 大模型：本地 Ollama（OpenAI 兼容协议 /v1），见 ADR-0001。业务代码只调 llm_service，禁止写地址/模型名。
@@ -180,6 +182,12 @@ class Settings(BaseSettings):
         3  # 「3 次不懂」：连续未解决轮次达此值即转人工（0/负数=关闭该规则）
     )
     HANDOFF_DEGRADE_STREAK_THRESHOLD: int = 3  # 模型连续降级达此值即转人工（0/负数=关闭该规则）
+
+    # 可观测（FRD FR-9 / 执行步骤 E 步）：关键链路事件 → core/observability.py
+    # 内存计数器 + JSONL 落盘（Prometheus/Langfuse 网关后置替换只改该模块）。
+    OBSERVABILITY_ENABLED: bool = True  # false=只留内存态不落盘（record 仍即时计数）
+    OBSERVABILITY_DIR: str = "./data/observability"  # 本地事件目录；接网关后此口径退役
+    OBSERVABILITY_ANSWER_TARGET_SECONDS: int = 30  # 接起率目标（FR-7 验收「30s 内接起」）
 
     # B 端业务阈值（数据模型文档 §2.1 / API 规范 §4.7）：金额一律整数「分」，禁浮点。
     B2B_SEED_DEMO: bool = True  # 演示数据（商品/仓库/库存/订单），生产置 false

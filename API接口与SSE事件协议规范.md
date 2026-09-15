@@ -159,8 +159,9 @@ api_router.include_router(chat.router, dependencies=[Depends(get_current_user)])
 - `GET /workbench/sessions/{id}/notes` → `ok([{id,session_id,author,content,created_at}])`（创建时间正序；买家无查询口，天生不可见）。
 - `POST /workbench/sessions/{id}/notes {content}` → `ok(备注行)`，`author` 取 Token 用户名，内容 1..500 字（空/超长 `1001`）；写操作带 `Idempotency-Key`。
 - `GET /workbench/sessions/{id}/trace?size=50` → `ok({session, messages[], context{summary,rounds,tokens,dropped,budget,window_rounds}})`。与买家侧 `get_session_detail` **完全同源**（同 `message_to_dict`、同 `context_service.load_window/build_history_block`），坐席所见即买家所得；`size` 1..200。
+- `GET /workbench/metrics` → `ok({observability:{enabled,dir,counters{},flags{},handoff{hits,applied,pending_now,claims,answer_measured,answer_within_target,answer_rate,answer_avg_seconds,answer_p95_seconds,target_seconds},llm_ok_rate,tool_ok_rate,reject_count}, queue{none,pending,handling,resolved}})`。坐席运营指标（E 步可观测，FR-7「30s 内接起率 ≥95%」度量口）：`observability` 取进程内滑窗（`core/observability.py::snapshot()`，重启清零、JSONL 留历史），`answer_rate` = `handoff.claim` 距该会话挂起 ≤ `target_seconds`（`Settings.OBSERVABILITY_ANSWER_TARGET_SECONDS`，默认 30，可热更）的占比，无认领时为 `null`；`queue` 为本租户各流转态存量（DB 实况）。仅 `require_any_perm("cs","admin")`。
 - 跨租户 / 不存在的会话一律 `404`「会话不存在或已过期」（不泄露存在性）。
-- openapi 自查说明：本轮以 `app.openapi()` 导出核对，新增 9 条 `/workbench/*` path（含 `GET /workbench/handoff-rules`），总 **79** paths，其余端点未变。
+- openapi 自查说明：本轮以 `app.openapi()` 导出核对，新增 10 条 `/workbench/*` path（含 `GET /workbench/handoff-rules`、`GET /workbench/metrics`），总 **80** paths，其余端点未变。
 
 ### 4.12 Agent Runtime 与工具注册中心（对齐 FRD-3/FR-5 + 附录 A，同基座 JWT/租户隔离/审批/审计）
 > 状态机：`IDLE → PLANNING → ACTING → OBSERVING → REFLECTING → DONE`，分支 `WAITING_APPROVAL / WAITING_HUMAN / FAILED`；非法流转 `4009`「状态流转非法：X → Y」（白名单见 `modules/agent/contracts.py::TRANSITIONS`）。

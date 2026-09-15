@@ -104,6 +104,22 @@ def main() -> int:
         str(claimed)[:240],
     )
 
+    # 运营指标（E 步可观测）：认领后 claims 即时反映，队列存量含 handling
+    metrics = client.get("/api/v1/workbench/metrics", headers=auth).json()
+    mdata = metrics.get("data") or {}
+    obs = mdata.get("observability") or {}
+    check(
+        "metrics reflects claim",
+        metrics.get("code") == 0
+        and int((obs.get("handoff") or {}).get("claims") or 0) >= 1
+        and int((mdata.get("queue") or {}).get("handling") or 0) >= 1,
+        str(metrics)[:240],
+    )
+    check(
+        "metrics reject anonymous",
+        client.get("/api/v1/workbench/metrics").status_code == 401,
+    )
+
     note = client.post(
         f"/api/v1/workbench/sessions/{sid}/notes", headers=auth, json={"content": "联调冒烟备注"}
     ).json()

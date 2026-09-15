@@ -1,6 +1,6 @@
 # 多模态智能电商客服系统
 
-> 版本：v0.3.0 | 日期：2026-09-15 | 状态：**P0/P1 代码已落地，CI/CD 与容器化部署已跑通**（文档基线 → 可运行系统）
+> 版本：v0.3.1 | 日期：2026-09-15 | 状态：**P0/P1 代码已落地，CI/CD 与容器化部署已跑通**（文档基线 → 可运行系统）
 
 **多模态交互（文本/图片/语音）+ Agent Runtime 状态机 + 场景化 RAG 与业务连接器 + 人机协同审批与坐席工作台 + 多租户与模型网关 + 全链路可观测与评估 + K8s 云原生交付 + 成本与 ROI 闭环 = 生产可用、可治理、可评估、成本可控的智能客服平台。**
 
@@ -390,4 +390,4 @@ Smoke 脚本（`backend/tests/smoke_*.py`）强制风格：头 docstring 写覆�
 | 容器化部署                                                                        | ✅ 已跑通：compose + GHCR 镜像（CI 自动发布）+ `deploy.ps1` 端到端 4 项验证全绿；v0.1.0 已发布                                                                                        |
 | GitOps / K8s                                                                      | 🔶 ArgoCD 清单就绪（`deploy/argocd/`，dev 自动同步 / prod 手动审批），集群侧待接入                                                                                                    |
 | Agent Runtime 状态机（`modules/agent/`）                                          | ✅ 已落地（v0.2.6/v0.2.7）：状态机白名单 + checkpoint 断点续跑、工具注册中心、Scope 策略、超时重试熔断执行器、6 连接器、6 条 `/agent/*` 端点；对话主链检索段走 `runtime.orchestrate()`（可一键回退），`refund.create` 恒送审。缺口：编排层「规则机器人」降级话术（FR-5 三级容错第三级） |
-| 黄金集（≥ 500 条）与评估流水线                                                    | ⬜ 待建                                                                                                                                                                               |
+| 黄金集（≥ 500 条）与评估流水线                                                    | 🔶 可观测地基已落（v0.3.1）：`observability.record()` 真留痕（内存计数 + JSONL `data/observability/`），`GET /workbench/metrics` 出 30s 接起率/LLM·工具成功率；余：黄金集、LLM-as-judge、Prometheus/Langfuse 网关 |

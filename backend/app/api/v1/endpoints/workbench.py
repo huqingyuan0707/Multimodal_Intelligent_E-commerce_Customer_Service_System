@@ -78,6 +78,15 @@ async def get_handoff_rules(user: CurrentUser = Depends(CS)) -> dict[str, Any]:
     return ok(handoff_service.handoff_rules_view(), "获取成功")
 
 
+@router.get("/metrics")
+async def get_metrics(
+    db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(CS),
+) -> dict[str, Any]:
+    """坐席运营指标（E 步可观测）：30s 接起率/工具成功率/降级率 + 本租户队列存量。"""
+    return ok(await workbench_service.metrics_view(db, tenant=user.tenant), "获取成功")
+
+
 @router.post("/sessions/{session_id}/handoff")
 async def handoff_session(
     session_id: str,

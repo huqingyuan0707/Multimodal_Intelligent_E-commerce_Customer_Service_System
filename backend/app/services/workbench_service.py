@@ -18,6 +18,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.core.exceptions import BusinessError, ErrorCode
+from app.core.observability import record
+from app.core.observability import snapshot as obs_snapshot
 from app.core.user_context import CurrentUser
 from app.db.base import _now
 from app.db.models import Message, Session, SessionNote
@@ -218,6 +220,11 @@ async def claim(db: AsyncSession, *, tenant: str, user: CurrentUser, session_id:
         )
     await db.commit()
     await db.refresh(row)
+    # 接起事件（E 步可观测）：observability 据此算「挂起→接起」耗时 = 30s 接起率分母/分子
+    record(
+        "handoff.claim",
+        {"tenant": tenant, "session_id": session_id, "assignee": user.username},
+    )
     return row
 
 
@@ -249,6 +256,29 @@ async def resolve(
     row.resolution = (conclusion or "").strip()[:500]
     await db.commit()
     return row
+
+
+# ---------------- 运营指标（E 步可观测：GET /workbench/metrics） ----------------
+
+
+async def metrics_view(db: AsyncSession, *, tenant: str) -> dict[str, Any]:
+    """坐席运营指标：可观测内存聚合（接起率/工具成功率/降级率）+ 本租户队列存量。
+
+    口径：进程内滑窗（observability 重启清零，JSONL 留历史）；队列存量走 DB 实况。
+    30s 接起率 = handoff.claim 距挂起 ≤ 目标秒数 / 认领总数（目标见 Settings）。
+    """
+    counts: dict[str, int] = {}
+    for status in HANDOFF_STATUSES:
+        counts[status] = int(
+            (
+                await db.execute(
+                    select(func.count())
+                    .select_from(Session)
+                    .where(Session.tenant == tenant, Session.handoff_status == status)
+                )
+            ).scalar_one()
+        )
+    return {"observability": obs_snapshot(), "queue": counts}
 
 
 # ---------------- 坐席代回 ----------------

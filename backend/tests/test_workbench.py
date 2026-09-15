@@ -288,6 +288,27 @@ async def test_claim_race_only_one_winner(tmp_path: Path, monkeypatch: pytest.Mo
         await gen.aclose()
 
 
+async def test_metrics_endpoint(client: httpx.AsyncClient) -> None:
+    """运营指标口：坐席可读（接起率形状 + 队列存量实况）；买家 1003。"""
+    login_as(TESTER)
+    data = await _ok(await client.get("/api/v1/workbench/metrics"))
+    obs = data["observability"]
+    handoff = obs["handoff"]
+    assert {"hits", "applied", "claims", "answer_rate", "target_seconds"} <= set(handoff)
+    assert handoff["target_seconds"] == settings.OBSERVABILITY_ANSWER_TARGET_SECONDS
+    assert set(data["queue"]) == {"none", "pending", "handling", "resolved"}
+    # 认领一次 → 进程内计数即时反映（handoff.claim ≥1）
+    created = await _ok(await client.post("/api/v1/sessions", json={"title": "指标用例"}))
+    sid = created["id"]
+    await _ok(await client.post(f"/api/v1/workbench/sessions/{sid}/handoff", json={}))
+    await _ok(await client.post(f"/api/v1/workbench/sessions/{sid}/claim"))
+    after = await _ok(await client.get("/api/v1/workbench/metrics"))
+    assert after["observability"]["handoff"]["claims"] >= 1
+    assert after["queue"]["handling"] >= 1
+    login_as(BUYER)
+    assert (await _code(await client.get("/api/v1/workbench/metrics")))["code"] == 1003
+
+
 async def test_handoff_rules_endpoint(client: httpx.AsyncClient) -> None:
     """规则表端点：坐席可读规则清单 + 阈值；买家 1003（口径与 Settings 一致）。"""
     login_as(TESTER)
