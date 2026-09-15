@@ -1,30 +1,37 @@
-/* 设计 tokens（深色科技风；色值只许出现在此文件，.vue 里一律 var()，对齐页面设计 §2）
- * 字体系统（本轮重设计：截图里浅气泡套深卡深字糊、11px 以下微文案发虚、顶栏 75% 白发灰）：
- * 正文 14px/1.6 起跳，微文案最小 11px 且深底用提亮色，浅气泡内一律深字 + 浅底语义卡。 */
+/* 设计 tokens（浅色默认 + 深色可切；色值只许出现在此文件，.vue 里一律 var()，对齐页面设计 §2 + DESIGN.md §Colors）
+ * 主题架构：:root = 浅色值（默认）；html.dark = 深色覆盖（useTheme 切换，EP 靠同名 .dark 类联动）。
+ * /screen 数据大屏例外：scoped 内局部覆写锁深色（挂墙显示，浅色压不住）。
+ * 浅色取向：冷灰底 + 纯白卡 + 墨色字（千牛/京麦系坐席台观感，长时间盯屏不累）；
+ * 语义色在浅色下统一加深一档保对比（青 #0891b2 / 绿 #0e9f6e / 金 #b07c1f / 橙 #d97706 ≥3:1 图形、正文用 deep）。
+ * 字体系统：正文 14px/1.6 起跳，微文案最小 11px；普惠体 3.0 本地字面优先（fonts.css），未装回退苹方/雅黑。 */
 :root {
   --reai-primary: #4f6bff;
-  --reai-accent: #22d3ee;
-  --reai-gold: #e8a33d;
-  --reai-online: #34d399;
-  --reai-notice: #fb9236;
-  /* 浅底警告正文（AI 白泡内 .human 用，深底仍用 --reai-notice；#b45309 在 #f2f5fc 上约 4.6:1） */
+  --reai-accent: #0891b2;
+  --reai-gold: #b07c1f;
+  --reai-online: #0e9f6e;
+  --reai-notice: #d97706;
+  /* 浅底警告正文（AI 泡内 .human 用；#b45309 在 #f2f5fc 上约 4.6:1） */
   --reai-notice-deep: #b45309;
-  /* 浅气泡内嵌白卡（商品卡等，替代深色 --reai-card 套浅泡的糊块） */
+  /* 浅泡内嵌白卡（商品卡等） */
   --reai-surface-light: #ffffff;
-  --reai-bg: #0b1124;
-  --reai-card: #161d33;
-  --reai-card-2: #1e2742;
-  --reai-text-main: #eef1f8;
-  --reai-text-muted: #8b94ad;
-  /* 微文案深底提亮色（11-12px 时间/条数/占位用，比 muted 高一档，#a9b1c7 在 #0b1124 上约 7:1） */
-  --reai-text-soft: #a9b1c7;
-  --reai-border: rgb(255 255 255 / 8%);
-  --reai-shadow-card: 0 2px 12px rgb(0 0 0 / 40%);
+  --reai-bg: #f5f7fb;
+  --reai-card: #ffffff;
+  --reai-card-2: #eef1f8;
+  --reai-text-main: #1f2430;
+  --reai-text-muted: #5d6880;
+  /* 微文案次要色（11-12px 时间/条数/占位用；#6b7690 在白底约 5.5:1） */
+  --reai-text-soft: #6b7690;
+  --reai-border: rgb(31 36 48 / 8%);
+  --reai-chip: rgb(31 36 48 / 12%);
+  --reai-shadow-card: 0 2px 12px rgb(31 36 48 / 8%);
   --reai-gradient: linear-gradient(90deg, #4f6bff 0%, #8b5cf6 100%);
-  /* 顶栏导航白（75%→88%，截图里坐席在线/租户发灰看不清） */
-  --reai-nav-text: rgb(255 255 255 / 88%);
-  --reai-nav-active: #fff;
-  --reai-nav-hover: rgb(255 255 255 / 12%);
+  /* 品牌色（蓝渐变）上的前景：白恒成立，不随主题翻转（用户气泡/主按钮/头像/波形高光） */
+  --reai-text-on-brand: #ffffff;
+  /* 顶栏：浅色=白底深字墨 hover（顶栏文字只吃 nav-* 三枚）；深色=品牌渐变白字 */
+  --reai-topbar-bg: #ffffff;
+  --reai-nav-text: #1f2430;
+  --reai-nav-active: #4f6bff;
+  --reai-nav-hover: rgb(31 36 48 / 6%);
   --reai-bubble-user: #4f6bff;
   --reai-bubble-agent: #f2f5fc;
   --reai-text-on-light: #1f2430;
@@ -32,13 +39,13 @@
   --reai-text-on-light-muted: #4c5670;
   --reai-text-on-light-faint: #5f6b87;
   --reai-purple: #8b5cf6;
-  --reai-glass-bg: rgb(22 29 51 / 60%);
-  --reai-glass-border: rgb(255 255 255 / 12%);
-  --reai-glow: 0 0 24px rgb(79 107 255 / 25%);
-  /* 字体栈（中文优先苹方/微软雅黑，mono 给 trace/语音时长） */
+  --reai-glass-bg: rgb(255 255 255 / 60%);
+  --reai-glass-border: rgb(31 36 48 / 12%);
+  --reai-glow: 0 0 24px rgb(79 107 255 / 14%);
+  /* 字体栈（品牌统一：普惠体 3.0 本地字面优先（fonts.css 注册），未装回退苹方/雅黑；mono 给 trace/语音时长） */
   --reai-font-sans:
-    'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans SC', system-ui, -apple-system,
-    'Segoe UI', Roboto, Arial, sans-serif;
+    'Alibaba PuHuiTi 3.0', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans SC',
+    system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
   --reai-font-mono:
     ui-monospace, 'SF Mono', 'JetBrains Mono', Consolas, 'Noto Sans Mono', monospace;
   /* 字阶（正文 14 起跳，微文案最小 11；行高正文 1.6、标题 1.4） */
@@ -57,11 +64,70 @@
   --reai-fw-bold: 700;
   /* 语义卡底：12% 语义色叠在卡片上（VLM 检测卡 / 引用溯源卡 / 预警卡） */
   --reai-primary-soft: rgb(79 107 255 / 12%);
+  --reai-gold-soft: rgb(176 124 31 / 12%);
+  --reai-notice-soft: rgb(217 119 6 / 12%);
+  --reai-page-gradient:
+    radial-gradient(1000px 500px at 15% 10%, rgb(79 107 255 / 7%), transparent 60%),
+    radial-gradient(800px 500px at 85% 90%, rgb(139 92 246 / 6%), transparent 60%), #f5f7fb;
+}
+
+/* 深色主题覆盖（useTheme 给 <html> 挂 .dark；Element Plus dark css-vars 同用该类，天然联动）。
+ * /screen 挂墙大屏锁深色：由 AppLayout 的 route watcher 在进 /screen 时临时挂 .dark、离开还原
+ * （不能在组件内局部挂类——EP popper 传送到 body，局部类够不着）。 */
+html.dark {
+  --reai-accent: #22d3ee;
+  --reai-gold: #e8a33d;
+  --reai-online: #34d399;
+  --reai-notice: #fb9236;
+  --reai-bg: #0b1124;
+  --reai-card: #161d33;
+  --reai-card-2: #1e2742;
+  --reai-text-main: #eef1f8;
+  --reai-text-muted: #8b94ad;
+  --reai-text-soft: #a9b1c7;
+  --reai-border: rgb(255 255 255 / 8%);
+  --reai-chip: rgb(255 255 255 / 12%);
+  --reai-shadow-card: 0 2px 12px rgb(0 0 0 / 40%);
+  --reai-topbar-bg: linear-gradient(90deg, #4f6bff 0%, #8b5cf6 100%);
+  --reai-nav-text: rgb(255 255 255 / 88%);
+  --reai-nav-active: #fff;
+  --reai-nav-hover: rgb(255 255 255 / 12%);
+  --reai-glass-bg: rgb(22 29 51 / 60%);
+  --reai-glass-border: rgb(255 255 255 / 12%);
+  --reai-glow: 0 0 24px rgb(79 107 255 / 25%);
   --reai-gold-soft: rgb(232 163 61 / 12%);
   --reai-notice-soft: rgb(251 146 54 / 12%);
   --reai-page-gradient:
     radial-gradient(1000px 500px at 15% 10%, rgb(79 107 255 / 25%), transparent 60%),
     radial-gradient(800px 500px at 85% 90%, rgb(139 92 246 / 22%), transparent 60%), #0b1124;
+}
+
+/* Element Plus 字体归一：EP 默认栈是 Helvetica 优先（与本项目中文优先栈打架），
+ * 字号梯度与 --reai-fs-* 对齐；组件内部 font-family:inherit 已保证继承，
+ * 这里覆写变量是为了 popper 挂到 body 外的浮层等不走继承的边角 */
+:root {
+  --el-font-family: var(--reai-font-sans);
+  --el-font-size-extra-large: var(--reai-fs-display);
+  --el-font-size-large: var(--reai-fs-title);
+  --el-font-size-medium: var(--reai-fs-h3);
+  --el-font-size-base: var(--reai-fs-body);
+  --el-font-size-small: var(--reai-fs-body-sm);
+  --el-font-size-extra-small: var(--reai-fs-caption);
+}
+
+/* Element Plus 主色/语义色归一：EP 默认 #409eff/#67c23a/#e6a23c 与品牌蓝/在线绿/预警橙打架，
+ * hover/active 梯度用 color-mix 由品牌蓝派生，随主题切换自动跟随。
+ * 选择器用 :root:root 提权：EP dark 包在 html.dark（0,1,1）上重设同名变量，(0,2,0) 才压得住 */
+:root:root {
+  --el-color-primary: var(--reai-primary);
+  --el-color-primary-light-3: color-mix(in srgb, var(--reai-primary) 70%, var(--reai-bg));
+  --el-color-primary-light-5: color-mix(in srgb, var(--reai-primary) 50%, var(--reai-bg));
+  --el-color-primary-light-7: color-mix(in srgb, var(--reai-primary) 30%, var(--reai-bg));
+  --el-color-primary-light-8: color-mix(in srgb, var(--reai-primary) 20%, var(--reai-bg));
+  --el-color-primary-light-9: color-mix(in srgb, var(--reai-primary) 10%, var(--reai-bg));
+  --el-color-primary-dark-2: color-mix(in srgb, var(--reai-primary) 80%, var(--reai-text-main));
+  --el-color-success: var(--reai-online);
+  --el-color-warning: var(--reai-notice);
 }
 
 body {
@@ -73,6 +139,12 @@ body {
   background: var(--reai-bg);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizelegibility;
+  /* 数字等宽对齐（订单号/金额/队列条数不跳动；普惠体与苹方/雅黑均支持 tnum） */
+  font-variant-numeric: tabular-nums;
+  /* 主题切换只变色不变动画，避免整站过渡卡顿 */
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
 }
 
 /* 表单与按钮继承全局字体（Element Plus 默认苹方缺失时回退西文，中文发虚） */
@@ -90,7 +162,7 @@ pre,
   font-family: var(--reai-font-mono);
 }
 
-/* 占位符提亮（原 muted 在深底输入框里发灰） */
+/* 占位符（浅色下 muted 即可读；深色靠下面提亮档） */
 ::placeholder {
   color: var(--reai-text-soft);
   opacity: 1;

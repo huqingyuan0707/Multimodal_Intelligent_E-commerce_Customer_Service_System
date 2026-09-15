@@ -1,44 +1,44 @@
 ---
 name: 多模态智能电商客服系统
-description: 深色科技风客服工作台——买家看结果，坐席看过程，运营看效果
+description: 浅色默认（深色可切）客服工作台——买家看结果，坐席看过程，运营看效果
 colors:
   primary: "#4f6bff"
-  accent: "#22d3ee"
-  gold: "#e8a33d"
-  online: "#34d399"
-  notice: "#fb9236"
-  bg: "#0b1124"
-  card: "#161d33"
-  card-2: "#1e2742"
-  text-main: "#eef1f8"
-  text-muted: "#8b94ad"
+  accent: "#0891b2"
+  gold: "#b07c1f"
+  online: "#0e9f6e"
+  notice: "#d97706"
+  bg: "#f5f7fb"
+  card: "#ffffff"
+  card-2: "#eef1f8"
+  text-main: "#1f2430"
+  text-muted: "#5d6880"
   bubble-user: "#4f6bff"
   bubble-agent: "#f2f5fc"
   text-on-light: "#1f2430"
   purple: "#8b5cf6"
 typography:
   display:
-    fontFamily: "system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"
+    fontFamily: "var(--reai-font-sans)"
     fontSize: "64px"
     fontWeight: 800
     lineHeight: 1
   title:
-    fontFamily: "system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"
-    fontSize: "18px"
+    fontFamily: "var(--reai-font-sans)"
+    fontSize: "16px"
     fontWeight: 600
     lineHeight: 1.4
   body:
-    fontFamily: "system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"
-    fontSize: "13px"
+    fontFamily: "var(--reai-font-sans)"
+    fontSize: "14px"
     fontWeight: 400
-    lineHeight: 1.5
+    lineHeight: 1.6
   label:
-    fontFamily: "system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"
+    fontFamily: "var(--reai-font-sans)"
     fontSize: "12px"
     fontWeight: 400
     lineHeight: 1.5
   mono:
-    fontFamily: "monospace"
+    fontFamily: "var(--reai-font-mono)"
     fontSize: "12px"
     fontWeight: 400
     lineHeight: 1.5
@@ -69,59 +69,64 @@ components:
 
 ## Overview
 
-**Creative North Star: "深空调度台"**
+**Creative North Star: "冷白光控台"**
 
-深空蓝底加蓝紫弥散渐变，玻璃拟态卡片承载三类视图：买家端只给结果（对话泡加引用角标），坐席端展开过程（Trace 加工具卡加检测卡），运营端看效果（指标加归因表）。品牌表达收敛在顶栏渐变、主按钮蓝和引用金三处，其余一律克制。拒绝渐变文字、Inter 字体、紫粉套路。
+浅色默认（冷灰底 #f5f7fb + 纯白卡 + 墨字），深色作可切换档（html.dark 一套覆盖 token）；弥散蓝紫渐变收敛为顶栏（深色态）与登录页点缀，玻璃拟态卡承载三类视图：买家端只给结果（对话泡加引用角标），坐席端展开过程（Trace 加工具卡加检测卡），运营端看效果（指标加归因表）。品牌表达收敛在主按钮蓝、顶栏和引用金三处，其余一律克制。经营大屏 `/screen` 例外锁深色（挂墙压场）。拒绝渐变文字、Inter 字体、紫粉套路。
 
 **Key Characteristics:**
 
-- 深色优先，所有文字 token 化，`.vue` 内零硬编码色值
+- 双主题（浅色默认 / 深色可切），所有文字与颜色 token 化，`.vue` 内零硬编码色值
 - 气泡语义固定：用户品牌蓝右置，智能体白底左置
 - 语义卡三色：VLM 蓝框、引用金框、预警橙底
 
 ## Colors
 
-深空底加三强调色，语义不混用。
+浅色默认、深色可切的双主题体系（顶栏 ☾/☀ 切换，localStorage 记忆）。冷灰底 + 纯白卡 + 墨色字，语义色随主题各取一档（浅色加深保对比、深色提亮），不混用语义。
 
 ### Primary
 
-- **调度蓝** (#4f6bff)：主按钮、用户气泡、选中态、发送键。任何一屏占比最低但最先被看到。
-- **信号青** (#22d3ee)：波形、描边、次级强调、播放态。
-- **在线绿** (#34d399)：在线态、成功态、召回通过原因。
+- **调度蓝** (#4f6bff，两主题同值)：主按钮、用户气泡、选中态、发送键。任何一屏占比最低但最先被看到。
+- **信号青** (浅 #0891b2 / 深 #22d3ee)：波形、描边、次级强调、播放态。
+- **在线绿** (浅 #0e9f6e / 深 #34d399)：在线态、成功态、召回通过原因。
 
 ### Secondary
 
-- **引用金** (#e8a33d)：RAG 引用角标与溯源卡描边，专属引用语义。
-- **预警橙** (#fb9236)：待发货、金额、徽标、预警。画板与代码统一用此橙，不另起 `#ff5a36/#ff8400`。
+- **引用金** (浅 #b07c1f / 深 #e8a33d)：RAG 引用角标与溯源卡描边，专属引用语义。
+- **预警橙** (浅 #d97706 / 深 #fb9236)：待发货、金额、徽标、预警。画板与代码统一用此橙，不另起 `#ff5a36/#ff8400`。
 
 ### Neutral
 
-- **深空底** (#0b1124)：页面底。
-- **卡片** (#161d33)：一级卡。**卡片次级** (#1e2742)：悬浮、输入底、波形底。
-- **正文** (#eef1f8)：主文字。**次要文字** (#8b94ad)：摘要、时间、口径注释。
-- **智能体泡** (#f2f5fc，配字 #1f2430)：左置白泡。**玻璃浮层** (rgb(22 29 51 / 60%) + 边框 rgb(255 255 255 / 12%))：弹窗与错误页卡片。
+- **页面底** (浅 #f5f7fb / 深 #0b1124)。**卡片** (浅 #ffffff / 深 #161d33)：一级卡。**卡片次级** (浅 #eef1f8 / 深 #1e2742)：悬浮、输入底、波形底。
+- **正文** (浅 #1f2430 / 深 #eef1f8)：主文字。**次要文字** (浅 #5d6880 / 深 #8b94ad)：摘要、时间、口径注释。**微文案** (浅 #6b7690 / 深 #a9b1c7)：11-12px 提亮档。
+- **智能体泡** (#f2f5fc，配字 #1f2430，两主题同值)：左置白泡。泡内嵌卡一律浅底深字（不再深卡套浅泡）。**玻璃浮层** (浅 rgb(255 255 255 / 60%) + 边框 rgb(31 36 48 / 12%)；深 rgb(22 29 51 / 60%) + 边框 rgb(255 255 255 / 12%))：弹窗与错误页卡片。
+- **顶栏**：浅色=白底深字蓝激活；深色=品牌蓝紫渐变白字。品牌渐变上的前景用 `--reai-text-on-brand`（恒白，不随主题翻转）。
+
+### Theme
+
+**The Two-Theme Rule.** 一个 token 文件、两种取值：`:root` 浅色为默认，`html.dark` 覆盖为深色；Element Plus 靠同名 `.dark` 类与 `--el-*` 变量天然联动（主色/语义色经 color-mix 归一到品牌色，选择器 `:root:root` 提权压过 EP dark 包）。**经营大屏 `/screen` 例外锁深色**（挂墙显示，浅色压不住），由 AppLayout 路由 watcher 进入时临时强挂 `.dark`、离开还原——popper 传送到 body，组件内局部挂类够不着，故必须挂 html。`/screen` 画板色值保留深色系即此口径。
 
 ### Named Rules
 
-**The Token-Only Rule.** 色值只许出现在 `tokens.css`，`.vue`/canvas 一律 `var(--reai-*)`（canvas 运行时读 token，见 `VoicePanel.vue`）。
+**The Token-Only Rule.** 色值只许出现在 `tokens.css`，`.vue`/canvas 一律 `var(--reai-*)`（canvas 运行时读 token，见 `VoicePanel.vue`）；主题切换只翻 token 取值，组件代码不写主题分支。
 
-**The One-Orange Rule.** 橙只用 `--reai-notice` (#fb9236) 及其 12% 柔底，禁止再发明相近橙红。
+**The One-Orange Rule.** 橙只用 `--reai-notice`（浅 #d97706 / 深 #fb9236）及其 12% 柔底，禁止再发明相近橙红。
 
 ## Typography
 
-**Display Font:** system-ui（含 PingFang SC / Microsoft YaHei 回退）
-**Body Font:** system-ui（含 PingFang SC / Microsoft YaHei 回退）
-**Label/Mono Font:** monospace（仅 trace_id、单号、波形元数据）
+**Display Font:** Alibaba PuHuiTi 3.0（本地字面优先，fonts.css 注册；回退 PingFang SC / Microsoft YaHei / Noto Sans SC / system-ui）
+**Body Font:** 同 Display（`--reai-font-sans` 单一字体栈，body 全局 `tabular-nums` 让单号/金额不跳动）
+**Label/Mono Font:** `--reai-font-mono`（ui-monospace / SF Mono / JetBrains Mono / Consolas，仅 trace_id、单号、波形元数据；禁止硬编码 `monospace`）
 
-**Character:** 无定制字体，靠字号字重拉开层级；中文文案真实业务口径，不写示例文本。
+**Character:** 无定制字面下载（CJK 全量 webfont 5-10MB，本地客服台不值当），普惠体装了即品牌统一、没装走系统中文栈；Element Plus 通过 `--el-font-family` / `--el-font-size-*` 覆写归一到同一 token 体系。靠字号字重拉开层级；中文文案真实业务口径，不写示例文本。
 
 ### Hierarchy
 
 - **Display** (800, 64px, 1)：403/500 错误码数字，实色 `--reai-text-main`，禁用渐变裁字。
-- **Title** (600, 18px, 1.4)：页头、卡片标题。
-- **Body** (400, 13px, 1.5)：消息泡、表单、表格主体，最大行宽不限但气泡限 70-85%。
-- **Label** (400, 12px, 1.5)：摘要、时间、口径、空态引导。
-- **Mono** (400, 12px, 1.5)：trace_id、运单、上下文用量。
+- **Title** (600, 16px `--reai-fs-title`, 1.4)：页头、卡片标题。
+- **Body** (400, 14px / 1.6 `--reai-fs-body`+`--reai-lh-body`)：消息泡、表单、表格主体，最大行宽不限但气泡限 70-85%。
+- **Body-sm** (400, 13px `--reai-fs-body-sm`)：次级正文。
+- **Label** (400, 12px `--reai-fs-caption`)：摘要、时间、口径、空态引导；深底微文案最小 11px `--reai-fs-micro` 且用提亮色。
+- **Mono** (400, 12px)：trace_id、运单、上下文用量。
 
 ### Named Rules
 

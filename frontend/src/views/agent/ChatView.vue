@@ -411,7 +411,7 @@ onMounted(() => {
   line-height: 18px;
   text-align: center;
   cursor: pointer;
-  color: var(--reai-nav-active);
+  color: var(--reai-text-on-brand);
   background: var(--reai-primary);
   border: none;
   border-radius: 50%;

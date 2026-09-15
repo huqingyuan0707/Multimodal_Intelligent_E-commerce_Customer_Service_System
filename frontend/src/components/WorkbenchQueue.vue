@@ -100,8 +100,13 @@ onBeforeUnmount(() => window.clearTimeout(timer));
 <style scoped>
 .queue {
   display: flex;
+  box-sizing: border-box;
+
+  /* 全局无 border-box 重置，padding/border 会计入 300px 栏宽之外 */
+  flex: 0 0 300px;
   flex-direction: column;
   gap: 10px;
+  min-width: 0;
   min-height: 0;
   padding: 12px;
   background: var(--reai-card);
@@ -206,7 +211,17 @@ onBeforeUnmount(() => window.clearTimeout(timer));
 .pager {
   flex-wrap: wrap;
   justify-content: center;
+
   /* 300px 窄栏下 layout 四项会溢出，允许换行而非裁切 */
   row-gap: 6px;
+}
+
+/* 窄屏纵向堆叠时 flex-basis 会变成高度约束，回退为内容高度 */
+@media (width <= 1024px) {
+  .queue {
+    flex: none;
+    width: 100%;
+    min-height: 320px;
+  }
 }
 </style>

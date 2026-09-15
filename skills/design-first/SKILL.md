@@ -1,6 +1,6 @@
 ---
 name: design-first
-description: 设计先行工作流（.pen 出图 → 按图写代码）。改 frontend/src 下任何 UI 代码、或在 design.pen 新建/修改画板前加载，含输入清单、.pen 字段速查、深色 token 映射表、状态完整性清单与 MCP 降级操作。
+description: 设计先行工作流（.pen 出图 → 按图写代码）。改 frontend/src 下任何 UI 代码、或在 design.pen 新建/修改画板前加载，含输入清单、.pen 字段速查、双主题 token 映射表、状态完整性清单与 MCP 降级操作。
 ---
 
 # 设计先行（`design.pen` → 代码 · 本项目强制流程）
@@ -16,7 +16,7 @@ description: 设计先行工作流（.pen 出图 → 按图写代码）。改 fr
 |---|---|
 | 这一页解决什么 | `多模态智能电商客服系统需求文档-FRDv2.md` 对应角色/场景章节 |
 | 路由 / 页面详设 / 组件清单 | `页面设计.md` §1 路由表、§3 页面详设、§7 组件清单 |
-| 视觉语言与布局壳 | `页面设计.md` §2（深色科技风 + 玻璃拟态） |
+| 视觉语言与布局壳 | `页面设计.md` §2（浅色默认 + 深色可切 + 玻璃拟态；/screen 锁深） |
 | 可用色 / 圆角 / 阴影 | `frontend/src/shared/styles/tokens.css`（唯一事实源） |
 | 可复用组件 | `frontend/src/{components,entities,shared/components}` |
 | 真实数据形状 | `src/types/*.ts`、`API接口与SSE事件协议规范.md` |
@@ -42,27 +42,30 @@ description: 设计先行工作流（.pen 出图 → 按图写代码）。改 fr
 | `text` | `content` + `fontSize` + `fontWeight` + `lineHeight` + `fill`；长文本加 `"textGrowth": "fixed-width"` + `width` |
 | `icon` | `library: "lucide"` + `icon: "<name>"` |
 
-## 5. 深色 token 映射（画板色值一律从此表取）
-| 用途 | 画板值 | 代码 |
-|---|---|---|
-| 页面底 | `#0b1124` | `var(--reai-bg)` |
-| 卡片 | `#161d33` | `var(--reai-card)` |
-| 卡片次级/悬浮 | `#1e2742` | `var(--reai-card-2)` |
-| 主色/主按钮 | `#4f6bff` | `var(--reai-primary)` |
-| 强调/描边 | `#22d3ee` | `var(--reai-accent)` |
-| 成功/在线 | `#34d399` | `var(--reai-online)` |
-| 警告 | `#fb9236` | `var(--reai-notice)` |
-| 金/引用角标 | `#e8a33d` | `var(--reai-gold)` |
-| 正文 | `#eef1f8` | `var(--reai-text-main)` |
-| 次要文字 | `#8b94ad` | `var(--reai-text-muted)` |
-| 边框 | `rgb(255 255 255 / 8%)` | `var(--reai-border)` |
-| 用户气泡 | `#4f6bff` | `var(--reai-bubble-user)` |
-| AI/客服气泡 | `#f2f5fc`（文字 `#1f2430`） | `var(--reai-bubble-agent)`（`--reai-text-on-light`） |
-| 玻璃态浮层 | `rgb(22 29 51 / 60%)` + `rgb(255 255 255 / 12%)` | `var(--reai-glass-bg)` / `var(--reai-glass-border)` |
-| 语义卡底（VLM / 引用溯源 / 预警） | `#4f6bff1f` / `#e8a33d1f` / `#fb92361f` | `var(--reai-primary-soft)` / `--reai-gold-soft` / `--reai-notice-soft` |
-| 卡片阴影 / 页背景 | — | `var(--reai-shadow-card)` / `var(--reai-page-gradient)` |
+## 5. 双主题 token 映射（画板色值一律从此表取；默认画浅色列，仅 /screen 用深色列）
+| 用途 | 画板值（浅，默认） | 画板值（深，仅 /screen） | 代码 |
+|---|---|---|---|
+| 页面底 | `#f5f7fb` | `#0b1124` | `var(--reai-bg)` |
+| 卡片 | `#ffffff` | `#161d33` | `var(--reai-card)` |
+| 卡片次级/悬浮 | `#eef1f8` | `#1e2742` | `var(--reai-card-2)` |
+| 主色/主按钮 | `#4f6bff`（两主题同值） | `#4f6bff` | `var(--reai-primary)` |
+| 强调/描边 | `#0891b2` | `#22d3ee` | `var(--reai-accent)` |
+| 成功/在线 | `#0e9f6e` | `#34d399` | `var(--reai-online)` |
+| 警告 | `#d97706` | `#fb9236` | `var(--reai-notice)` |
+| 金/引用角标 | `#b07c1f` | `#e8a33d` | `var(--reai-gold)` |
+| 正文 | `#1f2430` | `#eef1f8` | `var(--reai-text-main)` |
+| 次要文字 | `#5d6880` | `#8b94ad` | `var(--reai-text-muted)` |
+| 微文案提亮 | `#6b7690` | `#a9b1c7` | `var(--reai-text-soft)` |
+| 边框 | `rgb(31 36 48 / 8%)` | `rgb(255 255 255 / 8%)` | `var(--reai-border)` |
+| 用户气泡 | `#4f6bff`（文字恒白 `--reai-text-on-brand`，两主题同值） | 同左 | `var(--reai-bubble-user)` |
+| AI/客服气泡 | `#f2f5fc`（文字 `#1f2430`，两主题同值） | 同左 | `var(--reai-bubble-agent)`（`--reai-text-on-light`） |
+| 玻璃态浮层 | `rgb(255 255 255 / 60%)` + `rgb(31 36 48 / 12%)` | `rgb(22 29 51 / 60%)` + `rgb(255 255 255 / 12%)` | `var(--reai-glass-bg)` / `var(--reai-glass-border)` |
+| 语义卡底（VLM / 引用溯源 / 预警） | `#4f6bff1f` / `#b07c1f1f` / `#d977061f` | `#4f6bff1f` / `#e8a33d1f` / `#fb92361f` | `var(--reai-primary-soft)` / `--reai-gold-soft` / `--reai-notice-soft` |
+| 卡片阴影 / 页背景 | — | — | `var(--reai-shadow-card)` / `var(--reai-page-gradient)` |
 
-**新增色值顺序**：`tokens.css` 加变量 → 画板用它的值 → 代码用 `var()`。不能反。
+**主题口径**：`:root` 浅色默认、`html.dark` 覆盖（useTheme 切换 + localStorage 记忆）；新画板一律画**浅色列**，只有 /screen 挂墙大屏用深色列。品牌渐变上的文字/图形恒白（`--reai-text-on-brand`），画板里就是 `#FFFFFF`，不随主题翻。
+
+**新增色值顺序**：`tokens.css` 加变量（浅深两处都给值）→ 画板用它的值 → 代码用 `var()`。不能反。
 
 ## 6. 画板必须体现的状态（否则代码里一定缺）
 - **三态**：加载中（骨架/`v-loading`）、空态（`el-empty` + 中文引导）、错误态（可重试 + 降级到 `@/mock`）。

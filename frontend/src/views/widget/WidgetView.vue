@@ -98,7 +98,7 @@ const send = async () => {
 
 .bubble.user {
   align-self: flex-end;
-  color: var(--reai-nav-active);
+  color: var(--reai-text-on-brand);
   background: var(--reai-bubble-user);
 }
 

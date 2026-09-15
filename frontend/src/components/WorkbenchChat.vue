@@ -141,7 +141,7 @@ const voiceText = (id: string) =>
   width: 32px;
   height: 32px;
   font-size: 14px;
-  color: var(--reai-nav-active);
+  color: var(--reai-text-on-brand);
   background: var(--reai-primary);
   border-radius: 50%;
 }
@@ -162,7 +162,7 @@ const voiceText = (id: string) =>
 }
 .msg.user .bubble {
   font-weight: var(--reai-fw-medium);
-  color: var(--reai-nav-active);
+  color: var(--reai-text-on-brand);
   background: var(--reai-bubble-user);
 }
 .text {
@@ -175,12 +175,12 @@ const voiceText = (id: string) =>
   display: flex;
   gap: 8px;
   align-items: center;
-  color: var(--reai-nav-active);
+  color: var(--reai-text-on-brand);
 }
 .play {
   width: 24px;
   height: 24px;
-  color: var(--reai-nav-active);
+  color: var(--reai-text-on-brand);
   cursor: pointer;
   background: none;
   border: 1px solid currentcolor;
@@ -198,7 +198,7 @@ const voiceText = (id: string) =>
   display: block;
   width: 40%;
   height: 100%;
-  background: var(--reai-nav-active);
+  background: var(--reai-text-on-brand);
   border-radius: 6px;
   opacity: 0.6;
 }
@@ -223,7 +223,7 @@ const voiceText = (id: string) =>
 }
 .quick:hover:not(:disabled),
 .quick:focus-visible:not(:disabled) {
-  color: var(--reai-nav-active);
+  color: var(--reai-text-on-brand);
   background: var(--reai-primary);
 }
 .quick:disabled {

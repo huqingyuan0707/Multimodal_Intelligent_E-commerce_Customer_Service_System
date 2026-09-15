@@ -8,6 +8,16 @@
         </el-menu-item>
       </el-menu>
       <div class="status">
+        <el-button
+          link
+          size="small"
+          class="top-link"
+          :title="themeTip"
+          :disabled="isScreen"
+          @click="toggleTheme"
+        >
+          {{ theme === 'dark' ? '☀ 浅色' : '☾ 深色' }}
+        </el-button>
         <el-tag v-if="env !== 'production'" type="warning" size="small">{{ env }}</el-tag>
         <span class="online"><i class="dot online-dot" />坐席在线</span>
         <el-button link size="small" class="top-link" @click="showNotice">
@@ -60,9 +70,10 @@ import {
   ElMessageBox,
   ElTag,
 } from 'element-plus';
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import UserSwitchDialog from '@/components/UserSwitchDialog.vue';
+import { theme, toggleTheme } from '@/composables/useTheme';
 import { useUserStore } from '@/stores/user';
 
 type MenuItem = {
@@ -150,6 +161,21 @@ onMounted(() => {
     userStore.loadMe();
   }
 });
+
+// 挂墙大屏 /screen 锁深色（对齐 DESIGN.md §Colors）：EP popper 传送到 body，
+// 组件内挂类够不着，只能在进 /screen 时临时给 <html> 强挂 .dark、离开还原用户偏好
+const isScreen = computed(() => route.path.startsWith('/screen'));
+const syncTheme = () =>
+  document.documentElement.classList.toggle('dark', isScreen.value || theme.value === 'dark');
+watch([() => route.path, theme], syncTheme, { immediate: true });
+
+const themeTip = computed(() =>
+  isScreen.value
+    ? '经营大屏固定深色'
+    : theme.value === 'dark'
+      ? '切换到浅色主题'
+      : '切换到深色主题',
+);
 </script>
 
 <style scoped>
@@ -163,7 +189,8 @@ onMounted(() => {
   gap: 24px;
   align-items: center;
   min-width: 0;
-  background: var(--reai-gradient);
+  background: var(--reai-topbar-bg);
+  border-bottom: 1px solid var(--reai-border);
 }
 
 .brand {
@@ -197,7 +224,7 @@ onMounted(() => {
   font-size: var(--reai-fs-body-sm);
   font-weight: var(--reai-fw-medium);
   line-height: var(--reai-lh-tight);
-  color: var(--reai-nav-active);
+  color: var(--reai-nav-text);
   white-space: nowrap;
 }
 

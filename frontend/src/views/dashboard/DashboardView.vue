@@ -295,8 +295,8 @@ onMounted(() => {
 }
 
 .mono {
-  font-family: monospace;
-  font-size: 12px;
+  font-family: var(--reai-font-mono);
+  font-size: var(--reai-fs-caption);
 }
 
 .pager {

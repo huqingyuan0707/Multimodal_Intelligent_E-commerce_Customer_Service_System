@@ -300,7 +300,7 @@ onMounted(() => {
   width: 32px;
   height: 32px;
   font-size: 14px;
-  color: var(--reai-nav-active);
+  color: var(--reai-text-on-brand);
   background: var(--reai-primary);
   border-radius: 50%;
 }

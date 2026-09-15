@@ -103,7 +103,7 @@
           width="44"
           height="7"
           rx="3.5"
-          fill="var(--reai-nav-active)"
+          fill="var(--reai-text-on-brand)"
           opacity="0.85"
         />
         <rect
@@ -112,7 +112,7 @@
           width="30"
           height="7"
           rx="3.5"
-          fill="var(--reai-nav-active)"
+          fill="var(--reai-text-on-brand)"
           opacity="0.6"
         />
         <rect
@@ -319,7 +319,7 @@ const submit = async () => {
   background: var(--reai-gradient);
   border: none;
   border-radius: 12px;
-  color: var(--reai-nav-active);
+  color: var(--reai-text-on-brand);
 }
 
 .foot {

@@ -72,7 +72,7 @@ const goHome = () => {
 
 .trace {
   margin: 0;
-  font-family: monospace;
+  font-family: var(--reai-font-mono);
   font-size: 12px;
   color: var(--reai-text-muted);
 }
