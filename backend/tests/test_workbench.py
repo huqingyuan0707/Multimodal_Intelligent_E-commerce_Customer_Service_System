@@ -589,9 +589,7 @@ async def test_quality_score_rule_manual_performance(
         "code"
     ] == 1004
     login_as(TESTER)
-    assert (await _code(await client.get("/api/v1/workbench/sessions/nope/score")))[
-        "code"
-    ] == 1004
+    assert (await _code(await client.get("/api/v1/workbench/sessions/nope/score")))["code"] == 1004
 
 
 async def test_quality_judge_paths(
@@ -624,7 +622,9 @@ async def test_quality_judge_paths(
 
     monkeypatch.setattr(llm_service, "complete", _fake_ok)
     await _ok(
-        await client.post(f"/api/v1/workbench/sessions/{sid}/resolve", json={"conclusion": "已换货"})
+        await client.post(
+            f"/api/v1/workbench/sessions/{sid}/resolve", json={"conclusion": "已换货"}
+        )
     )
     judged = await _ok(await client.get(f"/api/v1/workbench/sessions/{sid}/score"))
     assert judged["source"] == "judge" and judged["score"] == 5
@@ -642,7 +642,9 @@ async def test_quality_judge_paths(
 
     monkeypatch.setattr(llm_service, "complete", _fake_down)
     await _ok(
-        await client.post(f"/api/v1/workbench/sessions/{sid2}/resolve", json={"conclusion": "已开票"})
+        await client.post(
+            f"/api/v1/workbench/sessions/{sid2}/resolve", json={"conclusion": "已开票"}
+        )
     )
     ruled = await _ok(await client.get(f"/api/v1/workbench/sessions/{sid2}/score"))
     assert ruled["source"] == "rule" and 1 <= ruled["score"] <= 5

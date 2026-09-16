@@ -78,11 +78,12 @@ Out（v1 不做，预留接口）：实时电话外呼、视频客服、跨境�
 **FR-1.1 文本客服**
 - 多轮对话，意图识别：咨询 / 导购 / 投诉 / 售后；情绪识别：正常 / 不满 / 愤怒。
 - RAG 检索后生成，System Prompt 强制“仅基于引用回答”。
-- SSE 流式（项目实际形态，详见 API 规范 §5）：事件名固定 `source / phase / message / done`（任务类另有 `progress/complete/error`），`done` 载荷必含 `references + guard + faithfulness + trace_id`；前端按 `event: / data:` 分帧解析，`done` 的 `JSON.parse` 必须 try/catch；请求必须带 `Authorization: Bearer reai_token`。
+- SSE 流式，统一事件协议（前后端契约，**唯一权威源：《API接口与SSE事件协议规范.md》§5**，此处仅为摘要，不得偏离）：
+  事件名固定 `source / phase(retrieving[/inspecting]/generating/validating) / message / done`（任务类另有 `progress/complete/error`；图文轮多一帧 `inspecting`）；`done` 载荷必含 `references + guard + faithfulness + trace_id`（另有 `session_id/tool_calls[]/orchestration/handoff/context` 等加法字段，老前端忽略即可）。前端按 `event: / data:` 正则分帧解析，`done` 的 `JSON.parse` 必须 try/catch，请求必带 `Authorization: Bearer <reai_token>`。注意与旧设计差异：**工具调用不是独立事件类型**（经 `done.tool_calls[]` 透出），**审批不是事件**（走 `WAITING_APPROVAL` 状态机 + `/approvals` 接口，FR-7），错误不单独占事件（信封 `fail` + 错误码号段 §2）。
 - 断线重连 + 事件 ID 幂等，前端增量渲染 + 虚拟列表（长会话），乐观更新；新会话本地先建 `t-${Date.now()}`，成功后以后端为准；后端不可用回退 `@/mock` 演示，模型不可用走演示降级绝不 500。
 
 **FR-1.2 图文客服（VLM 瑕疵检测）**
-- 限制：≤9 张 / 单张 ≤10M / JPG-PNG-WEBP；超限前端压缩 + 后端拒收码 `IMAGE_TOO_LARGE`。
+- 限制：≤9 张 / 单张 ≤10M / JPG-PNG-WEBP；超限前端压缩 + 后端拒收码 `2004 IMAGE_TOO_LARGE`（号段口径见 API 规范 §2）。
 - 预处理：BGR→RGB，Base64/S3 URL 双入参；必经 NSFW / 黄赌毒 / 人脸检测，人脸打码后存。
 - VLM 输出结构化：`{category: 污渍/破洞/脱线/色差/开线/尺寸不符/吊牌异常/无瑕疵, confidence:0-1, bbox?, desc}`。
 - 置信度 `<0.6` 或 `无瑕疵但用户坚持` → 自动转人工复核，不硬答。
@@ -341,7 +342,7 @@ Out（v1 不做，预留接口）：实时电话外呼、视频客服、跨境�
 
 ## 附录 A：业务连接器 API 契约（v1 必实现 7 个）
 
-通用：鉴权 `Bearer JWT(tenant/user/roles)`；幂等头 `Idempotency-Key`；超时 30s 重试 3 次（仅幂等安全方法自动重试）；错误码 `OK / PARAM_INVALID / AUTH_DENIED / TENANT_ISOLATION / QUOTA_EXCEEDED / TOOL_TIMEOUT / UPSTREAM_FAILED / APPROVAL_REQUIRED / IMAGE_TOO_LARGE / UNSAFE_CONTENT / NOT_FOUND`。
+通用：鉴权 `Bearer JWT(tenant/user/roles)`；幂等头 `Idempotency-Key`；超时 30s 重试 3 次（仅幂等安全方法自动重试）；错误码：**数字号段制（1xxx~5xxx），唯一权威源《API接口与SSE事件协议规范.md》§2（`core/exceptions.py::ErrorCode`，新增必须落号段）**；下述旧英文枚举（OK/PARAM_INVALID/AUTH_DENIED/TENANT_ISOLATION/QUOTA_EXCEEDED/TOOL_TIMEOUT/UPSTREAM_FAILED/APPROVAL_REQUIRED/IMAGE_TOO_LARGE/UNSAFE_CONTENT/NOT_FOUND）已废弃，语义对照以 §2 错误码表为准（例：超限 `2004 IMAGE_TOO_LARGE`、送审 `4003 APPROVAL_REQUIRED`）。
 
 | 工具 | Scope | 入参 | 出参 | 备注 |
 |---|---|---|---|---|

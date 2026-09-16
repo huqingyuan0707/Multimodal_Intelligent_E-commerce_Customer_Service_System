@@ -1,0 +1,4 @@
+# Git 属性：大二进制走 LFS，文本保持原样（职责：拦历史体积只增不减 + 链路：commit→clean 过滤→LFS 对象，对齐部署工程化不可变产物口径）
+# design.pen 是加密二进制（~490KB/版，无增量压缩空间）：直接入库则每次 UI 提交永久 +500KB；LFS 下仓库只存指针（~130B），画板文件照常落盘，check_design.py 与 MCP 工作流无感。
+# 新增大二进制一律先 `git lfs track` 同类 pattern；硬门禁见 scripts/check_large_files.py（本地 pre-commit + CI large-files job）。
+*.pen filter=lfs diff=lfs merge=lfs -text

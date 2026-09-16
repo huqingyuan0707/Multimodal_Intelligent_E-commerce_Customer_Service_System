@@ -149,7 +149,7 @@
     </div>
     <div class="card">
       <h2 class="card-title">账号登录</h2>
-      <AiInput v-model="username" placeholder="账号（演示 demo）" />
+      <AiInput v-model="username" placeholder="账号" />
       <AiInput v-model="password" type="password" placeholder="密码" show-password />
       <AiInput v-model="tenant" placeholder="租户 ID（仅本地记住）" />
       <div class="row">
@@ -171,7 +171,7 @@ import { loginApi } from '@/api';
 import AiButton from '@/shared/components/AiButton.vue';
 import AiInput from '@/shared/components/AiInput.vue';
 
-const username = ref('admin');
+const username = ref('');
 const password = ref('');
 const tenant = ref('');
 const loading = ref(false);

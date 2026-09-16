@@ -66,7 +66,7 @@ api_router.include_router(chat.router, dependencies=[Depends(get_current_user)])
 - `POST /auth/switch {username}` → `ok({token, user})`（顶栏“切换用户”免密代入，msg「已切换到用户X」）。仅 `admin` Scope 可调（`has_scope` 与 `require_perm` 同源），目标须与操作人同租户；非 admin → `403` + `1003`（「仅管理员可切换用户」），目标不存在/跨租户 → `404` + `1004`。成功记 `auth.switch` 审计（actor=操作人，target=目标，detail 含 from/to）；新 token 与 login 同结构，后续租户隔离自动按目标口径生效。普通用户切号走退出后登录页重登（`?redirect=` 回跳）。
 - 本项目「角色即权限」：`perms` 与 `roles` 同值 —— `roles` 供菜单/路由 `meta.roles` 过滤，`perms` 供按钮级判断；服务端 `require_perm()` 才是真拦截。
 - 种子账号由后端启动时幂等灌入（`SEED_*` 走 `Settings`，生产置 `SEED_ON_START=false`），无账号可登录不再是「清库即失联」。
-- 开发默认账号：**租户 `demo-tenant` / 用户名 `admin` / 密码 `admin123` / 角色 `cs,kb`**（`.env` 的 `SEED_*` 可覆盖）。种子幂等且**不覆盖已存在账号**，改 `SEED_PASSWORD` 只对新建账号生效。
+- 本地演示账号：租户/用户名/角色走 `Settings.SEED_*`（默认值见 `backend/.env.example`，本机演示专用，禁止用于生产）。种子幂等且**不覆盖已存在账号**，改 `SEED_PASSWORD` 只对新建账号生效。生产分家：`ENV=prod` 时 `SEED_ON_START/B2B_SEED_DEMO/KB_SEED_DEMO` 必须全 `false`（`Settings._guard_prod` 缺一即启动报错），首个管理员走 `backend/scripts/create_admin.py` 创建，不经过演示通道。
 
 ### 4.2 对话（非流式，调试/短问答）
 - `POST /agent/chat {query, thread_id?, security_level?, client_msg_id?, image_ids[]?, inspections[]?}` → `ok({answer, references[], guard:{pass,degraded,empty,rejected}, faithfulness, model, degraded, trace_id, session_id, vision[], need_human, context{rounds,tokens,dropped,summarized}, tool_calls[], orchestration{notes[],empty,approval}, handoff{hit,enabled,code,label,reason,priority,matched[],matched_rules[],applied,handoff_status,session_id}})`（规范路径；`/chat` 为兼容别名，行为一致）。

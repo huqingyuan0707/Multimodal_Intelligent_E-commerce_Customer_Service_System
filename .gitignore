@@ -52,5 +52,8 @@ Thumbs.db
 *.pen.bak
 pencil-shadcn.pen
 
+# ---- AI 工作记忆（本机复用，不进共享历史：每日重写，进 git 则历史只增不减；如需留档请转记对应规范文档）----
+.codebuddy/memory/
+
 # ---- 根目录一次性探针脚本（用完即删，禁止入库）----
 /_*.py

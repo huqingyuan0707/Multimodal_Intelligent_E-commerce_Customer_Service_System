@@ -53,14 +53,18 @@ for ($i = 0; $i -lt 60; $i++) {
 Check '后端容器运行中' $backendOk '(reai-backend-1)'
 Check '前端首页' $frontOk '(8080)'
 if ($frontOk) {
+  # 本地演示栈的登录验证：账号走环境变量 REAI_USER/REAI_PASS（默认与后端 SEED_* 演示值一致）；
+  # 生产不用本脚本灌种子口令，首个管理员走 backend/scripts/create_admin.py 创建。
+  $loginUser = if ($env:REAI_USER) { $env:REAI_USER } else { 'admin' }
+  $loginPass = if ($env:REAI_PASS) { $env:REAI_PASS } else { 'admin123' }
   $token = ''
   try {
-    $body = @{ username = 'admin'; password = 'admin123' } | ConvertTo-Json
+    $body = @{ username = $loginUser; password = $loginPass } | ConvertTo-Json
     $r = Invoke-WebRequest -Uri 'http://127.0.0.1:8080/api/v1/auth/login' -Method POST -Body $body -ContentType 'application/json' -TimeoutSec 10 -UseBasicParsing
     $loginBody = $r.Content | ConvertFrom-Json
     $loginOk = ($r.StatusCode -eq 200) -and ($loginBody.code -eq 0)
     if ($loginOk) { $token = $loginBody.data.token }
-    Check '登录拿 token' $loginOk '(admin/admin123)'
+    Check '登录拿 token' $loginOk '(种子账号链路）'
   } catch { Check '登录拿 token' $false $_.Exception.Message }
   if ($token) {
     try {
@@ -71,5 +75,5 @@ if ($frontOk) {
 }
 Write-Output "RESULT: $passed passed, $failed failed"
 if ($failed -gt 0) { exit 1 }
-Write-Output '前端地址：http://127.0.0.1:8080（默认账号 admin / admin123，首次启动自动灌种子）'
+Write-Output '前端地址：http://127.0.0.1:8080（本地演示账号见 backend/.env.example 的 SEED_*；生产用 docker-compose.prod.yml + ENV=prod 关种子，首个管理员走 backend/scripts/create_admin.py 创建）'
 exit 0

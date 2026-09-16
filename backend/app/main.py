@@ -18,7 +18,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.v1.router import api_router
-from app.config import settings
+from app.config import is_default_seed_password, settings
 from app.core.exceptions import BusinessError, ErrorCode
 from app.core.middleware import TraceMiddleware
 from app.core.responses import fail
@@ -35,6 +35,10 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     + Agent 内核工具注册（FR-5：6 个连接器进注册中心，幂等且失败不阻断启动）。"""
     await init_models()
     if settings.SEED_ON_START:
+        if is_default_seed_password(settings.SEED_PASSWORD.get_secret_value()):
+            logger.warning(
+                "种子账号仍用本地默认口令，仅限本机演示，禁止暴露到公网；生产用 ENV=prod 关种子并走 scripts/create_admin.py 建号"
+            )
         await seed_on_startup()
     await startup_agent_kernel()
     yield

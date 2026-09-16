@@ -111,11 +111,13 @@ jobs:
       - uses: pnpm/action-setup@v4
         if: steps.guard.outputs.ok == 'true'
         with:
-          version: 9
+          # 唯一源头是 frontend/package.json 的 packageManager（当前 9.12.0），此处钉同值，禁止 floating major
+          version: 9.12.0
 
       - uses: actions/setup-node@v4
         if: steps.guard.outputs.ok == 'true'
         with:
+          # 与 frontend/.nvmrc 同值（改版本时两处同步改，门禁 scripts/check_toolchain.py 硬拦漂移）
           node-version: 22.18.0
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
@@ -240,6 +242,7 @@ jobs:
 
   # ---------------- 设计先行门禁：UI 代码与 design.pen 画板必须同改（对应 AGENTS.md §5） ----------------
   # 检查项与规则正文在 scripts/check_design.py（单一实现，不在此处重复逻辑）
+  # design.pen 走 Git LFS：checkout 必须 lfs:true，否则落盘的是指针文本、结构检查无意义
   design-guard:
     name: design-guard · 设计稿与代码同改检查
     runs-on: ubuntu-latest
@@ -247,6 +250,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          lfs: true
       - name: 画板结构 / 命名 / 路由覆盖 / 色值一致性
         run: python scripts/check_design.py
       - name: UI 改动与 design.pen 同改
@@ -258,6 +262,25 @@ jobs:
             exit 0
           fi
           python scripts/check_design.py --range "$BASE..$HEAD"
+
+  # ---------------- 体积门禁：新增大二进制必须走 LFS（治历史只增不减，对应 .gitattributes） ----------------
+  # 本地同规则在 pre-commit large-files-guard；此处是硬门禁（任一红灯不合并）
+  large-files:
+    name: large-files · 新增大二进制拦截
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: 拦截新增超 100KB 二进制直入库
+        run: |
+          BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
+          HEAD="${{ github.event.pull_request.head.sha || github.sha }}"
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE" 2>/dev/null; then
+            echo "::notice::取不到有效基线，跳过大文件检查"
+            exit 0
+          fi
+          python scripts/check_large_files.py --range "$BASE..$HEAD"
 
   # ---------------- 失败自动诊断已迁出：见 .github/workflows/ai-diagnose.yml ----------------
   # 为什么不在本文件里做：诊断需要读「失败日志」，而 gh run view --log-failed 对**仍在进行中**

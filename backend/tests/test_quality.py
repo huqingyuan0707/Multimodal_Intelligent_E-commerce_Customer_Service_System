@@ -13,7 +13,6 @@ import pytest
 
 from app.config import settings
 from app.core.exceptions import BusinessError
-from app.core.user_context import CurrentUser
 from app.db import session as session_mod
 from app.db.session import init_models
 from app.services import llm_service, quality_service, session_service
@@ -45,7 +44,10 @@ def test_build_transcript_roles_and_truncation() -> None:
     assert text.startswith("买家：退货\n客服：已登记")
     assert "解决小结：已按 15 天换货处理" in text
     many = [{"role": "user", "content": f"m{i}"} for i in range(60)]
-    assert len(quality_service.build_transcript(many, "").splitlines()) == settings.QUALITY_MAX_MESSAGES
+    assert (
+        len(quality_service.build_transcript(many, "").splitlines())
+        == settings.QUALITY_MAX_MESSAGES
+    )
 
 
 def test_rule_fallback_scoring() -> None:
@@ -62,7 +64,9 @@ def test_rule_fallback_scoring() -> None:
     assert low["score"] == 2 and low["resolution_ok"] is False
 
 
-async def test_score_session_judge_and_manual(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_score_session_judge_and_manual(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """评分落库：judge 成功 source=judge；人工改评 source=manual+reviewer；越界 1001。"""
     monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'q.db'}")
     monkeypatch.setattr(session_mod, "_engine", None)
@@ -85,7 +89,9 @@ async def test_score_session_judge_and_manual(tmp_path: Path, monkeypatch: pytes
         )
         await db.commit()
 
-        async def fake_complete(messages: list[dict[str, str]], **kw: object) -> llm_service.LlmReply:
+        async def fake_complete(
+            messages: list[dict[str, str]], **kw: object
+        ) -> llm_service.LlmReply:
             return llm_service.LlmReply(
                 text='{"score": 4, "resolution_ok": true, "reason": "答复准确"}',
                 model="stub",
@@ -163,8 +169,12 @@ async def test_auto_score_skips_manual_and_switch(
 
         monkeypatch.setattr(settings, "QUALITY_AUTO_SCORE", True)
 
-        async def fake_complete(messages: list[dict[str, str]], **kw: object) -> llm_service.LlmReply:
-            return llm_service.LlmReply(text='{"score": 3, "resolution_ok": false}', model="s", latency_ms=1)
+        async def fake_complete(
+            messages: list[dict[str, str]], **kw: object
+        ) -> llm_service.LlmReply:
+            return llm_service.LlmReply(
+                text='{"score": 3, "resolution_ok": false}', model="s", latency_ms=1
+            )
 
         monkeypatch.setattr(llm_service, "complete", fake_complete)
         await quality_service.auto_score_session(tenant="t2", session_id=row.id)

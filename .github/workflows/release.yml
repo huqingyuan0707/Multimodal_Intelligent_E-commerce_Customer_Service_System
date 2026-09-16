@@ -20,10 +20,12 @@ jobs:
 
       - uses: pnpm/action-setup@v4
         with:
-          version: 9
+          # 唯一源头是 frontend/package.json 的 packageManager（当前 9.12.0），此处钉同值，禁止 floating major
+          version: 9.12.0
 
       - uses: actions/setup-node@v4
         with:
+          # 与 frontend/.nvmrc 同值（改版本时两处同步改，门禁 scripts/check_toolchain.py 硬拦漂移）
           node-version: 22.18.0
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml

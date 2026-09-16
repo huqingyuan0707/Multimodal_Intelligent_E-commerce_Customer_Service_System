@@ -1,0 +1,33 @@
+# 前端镜像 Nginx 启动模板：静态托管 + /api 同源反代（职责）+ 链路：浏览器 → 本容器 80 → proxy_pass 到 BACKEND_UPSTREAM（对齐部署工程化.md §八/§十）
+# 用法：构建进镜像后由 nginx 官方入口自动 envsubst 渲染（/etc/nginx/templates/*.template → /etc/nginx/conf.d/），
+# 后端地址只走环境变量 BACKEND_UPSTREAM（默认 backend:8000，供 compose 组网；单容器改 -e BACKEND_UPSTREAM=host.docker.internal:8000 或任意 host:port），镜像内不再写死容器回环地址。
+# 注意：模板里 Nginx 原生变量（$host/$remote_addr/$uri）保持原样，官方入口只替换已定义的环境变量名，不会误伤它们。
+server {
+    listen 80;
+    server_name _;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # 后端 API 反代（SSE 关闭缓冲、超时 1h；与 deploy/nginx.conf 历史行为一致，唯一变量即 BACKEND_UPSTREAM）
+    location /api/ {
+        proxy_pass http://${BACKEND_UPSTREAM};
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header Connection '';
+        chunked_transfer_encoding off;
+    }
+
+    location /assets/ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}

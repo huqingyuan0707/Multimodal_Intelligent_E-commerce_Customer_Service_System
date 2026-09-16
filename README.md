@@ -130,22 +130,22 @@ Agent 平台层：Runtime 状态机 | 多模态路由 | 工具注册 | RAG | 记
 │   │   ├── shared/                # v-permission 指令等
 │   │   └── mock/                  # 后端不可用时的降级演示数据
 │   ├── eslint.config.js / .prettierrc / commitlint.config.cjs / .husky/
-│   └── Dockerfile                 # 多阶段：node 构建 → nginx 托管 + /api 同源反代
+│   └── Dockerfile                 # 多阶段：node 构建 → nginx 模板渲染托管 + /api 同源反代（BACKEND_UPSTREAM，默认 backend:8000）
 │
 ├── docker-compose.yml             # 一键部署：GHCR 镜像 + 命名卷 + 健康检查
 ├── deploy/
 │   ├── deploy.ps1                 # 拉取 + 起栈 + 4 项端到端验证（容器/首页/反代/登录）
-│   ├── nginx.conf                 # SPA + SSE 不缓冲（proxy_buffering off）
+│   ├── nginx.conf                 # LEGACY 手工覆盖示例（SPA + SSE 不缓冲）；canonical 口径在 frontend/nginx.conf.template，compose 不再挂载本文件
 │   └── argocd/                    # reai-dev.yaml（自动同步）/ reai-prod.yaml（手动审批）
 │
 ├── .github/workflows/
-│   ├── ci.yml                     # backend / frontend / security / commitlint / docs-guard
+│   ├── ci.yml                     # backend / frontend / security / commitlint / docs-guard / design-guard / large-files
 │   ├── package.yml                # push main 构建前后端镜像推 GHCR（latest + 短 sha + tag）
 │   ├── cd-update.yml              # package 成功后把镜像版本写回部署仓库（GitOps）
 │   └── release.yml                # 版本发布
 │
 ├── scripts/
-├── .codebuddy/{rules,skills,memory}/   # AI 约束与工作记忆（随仓库提交）
+├── .codebuddy/{rules,skills}/      # AI 约束（随仓库提交）；memory/ 仅本机复用不入库（见 .gitignore）
 └── skills/                        # 技能源文件（与 .codebuddy/skills 同步）
 ```
 
@@ -171,9 +171,10 @@ backend/app/modules/agent/         # Agent Runtime 状态机（IDLE→PLANNING�
 
 | 组件    | 版本                            |
 | ------- | ------------------------------- |
-| Node.js | 20.11.0（见 `frontend/.nvmrc`） |
-| pnpm    | ≥ 9                             |
+| Node.js | 22.18.0（唯一源头 `frontend/.nvmrc`，镜像/CI/发版钉同值） |
+| pnpm    | 9.12.0（唯一源头 `packageManager`，CI/发版钉同值；本地 corepack 自动跟随） |
 | Python  | 3.11+                           |
+| Git LFS | 必装（`design.pen` 走 LFS，见 `.gitattributes`；装后跑一次 `git lfs install`，存量克隆再 `git lfs pull`） |
 
 ### 一键部署（Docker Compose，推荐）
 
@@ -181,7 +182,7 @@ backend/app/modules/agent/         # Agent Runtime 状态机（IDLE→PLANNING�
 powershell -File deploy/deploy.ps1
 # 拉取 GHCR 镜像 → 起栈 → 4 项端到端验证：
 #   后端容器健康 / 前端首页(:8080) / Nginx 反代 /api / 登录签发 token
-# 访问 http://127.0.0.1:8080   默认账号 admin / admin123
+# 访问 http://127.0.0.1:8080（本地演示账号见 backend/.env.example 的 SEED_*，本机专用，禁止用于生产）
 ```
 
 镜像由 CI 自动发布（push main 触发 `package.yml`），无需本地构建或 GHCR 凭据。
@@ -207,7 +208,7 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000             # 端口 8000，与 vite proxy 口径一致
 ```
 
-开发默认账号 `admin / admin123`（租户 `demo-tenant`，全走 `Settings.SEED_*`，`.env` 可覆盖；启动时自动建 SQLite 并写种子数据）。大模型默认接本地 Ollama `qwen2.5:0.5b`（ADR-0001），不可用时自动降级为模板摘要（仍 200，不返回 500）。
+本地演示账号（租户/用户名/密码全走 `Settings.SEED_*`，默认值见 `backend/.env.example`，`.env` 可覆盖；启动时自动建 SQLite 并写种子数据，仅限本机演示）。生产分家：`ENV=prod` + `SEED_ON_START/B2B_SEED_DEMO/KB_SEED_DEMO` 全关（缺一即启动报错）+ 强 `JWT_SECRET`（≥32 位），首个管理员走 `backend/scripts/create_admin.py` 创建（`ADMIN_PASSWORD` 传口令）；生产覆盖见 `docker-compose.prod.yml`。大模型默认接本地 Ollama `qwen2.5:0.5b`（ADR-0001），不可用时自动降级为模板摘要（仍 200，不返回 500）。
 
 ### 常用验证命令
 

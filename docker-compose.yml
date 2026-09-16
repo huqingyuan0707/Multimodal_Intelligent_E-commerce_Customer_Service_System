@@ -7,7 +7,9 @@ services:
   backend:
     image: ghcr.io/huqingyuan0707/reai-backend:${REAI_TAG:-latest}
     environment:
-      # 演示口径：SQLite 落 volume；生产换 PG 连接串并置 SEED_ON_START=false
+      # 本地演示栈：SQLite 落 volume，种子默认开（账号见 backend/.env.example 的 SEED_*，本机专用）。
+      # 生产分家：改用 docker-compose.prod.yml 覆盖（ENV=prod + 三种子开关全关 + JWT_SECRET 必填），
+      # 首个管理员用 backend/scripts/create_admin.py 创建，绝不把演示口令带上生产。
       DATABASE_URL: sqlite+aiosqlite:///./data/dev.db
       SEED_ON_START: 'true'
       # 本地 Vite 联调（5173）跨域放行；经 8080 Nginx 同源访问则不受影响
@@ -29,9 +31,9 @@ services:
 
   frontend:
     image: ghcr.io/huqingyuan0707/reai-frontend:${REAI_TAG:-latest}
-    volumes:
-      # 同源反代配置（/api → backend:8000），覆盖镜像内默认的 127.0.0.1 直连
-      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    environment:
+      # 同源反代目标（/api → 后端）：默认即镜像内置值，显式声明便于改地址（如外置后端改 host:port 后重起，无需卷挂载覆盖配置）
+      BACKEND_UPSTREAM: 'backend:8000'
     ports:
       - '8080:80'
     depends_on:

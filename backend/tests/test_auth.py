@@ -230,8 +230,22 @@ def test_prod_env_rejects_seed_on_start() -> None:
         Settings(ENV="prod", JWT_SECRET="x" * 40, SEED_ON_START=True)
 
 
+def test_prod_env_rejects_demo_data_switches() -> None:
+    """生产护栏：ENV=prod 禁止演示商品/知识进生产库（种子账号关了不代表分家彻底）。"""
+    with pytest.raises(ValidationError, match="B2B_SEED_DEMO"):
+        Settings(ENV="prod", JWT_SECRET="x" * 40, SEED_ON_START=False, B2B_SEED_DEMO=True)
+    with pytest.raises(ValidationError, match="KB_SEED_DEMO"):
+        Settings(ENV="prod", JWT_SECRET="x" * 40, SEED_ON_START=False, KB_SEED_DEMO=True)
+
+
 def test_prod_env_accepts_hardened_config() -> None:
-    """合规的生产配置应正常构造。"""
-    cfg = Settings(ENV="prod", JWT_SECRET="y" * 40, SEED_ON_START=False)
+    """合规的生产配置应正常构造（三种子开关全关）。"""
+    cfg = Settings(
+        ENV="prod",
+        JWT_SECRET="y" * 40,
+        SEED_ON_START=False,
+        B2B_SEED_DEMO=False,
+        KB_SEED_DEMO=False,
+    )
     assert cfg.ENV == "prod"
     assert cfg.SEED_ON_START is False

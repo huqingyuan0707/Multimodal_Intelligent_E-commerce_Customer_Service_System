@@ -1,0 +1,16 @@
+# 生产覆盖层（对齐部署工程化.md §二/§五）：只关演示口径，不碰镜像与端口。
+# 用法（仓库根目录）：
+#   $env:JWT_SECRET='<至少 32 位强随机>'; docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# 生产首个管理员（种子已关，无账号可登录时）：
+#   $env:ADMIN_PASSWORD='<强口令>'; python backend/scripts/create_admin.py --tenant <租户> --username <名> --roles admin
+name: reai
+
+services:
+  backend:
+    environment:
+      ENV: prod
+      SEED_ON_START: 'false'
+      B2B_SEED_DEMO: 'false'
+      KB_SEED_DEMO: 'false'
+      # 必填：缺失或短于 32 位时后端 _guard_prod 启动即报错（fail-fast，宁可起不来也不带演示密钥上线）
+      JWT_SECRET: ${JWT_SECRET:?生产必须设置 JWT_SECRET（至少 32 位强随机），禁止用默认值}

@@ -22,9 +22,10 @@ repos:
         pass_filenames: false
         files: ^backend/
       # 后端改接口必须自查 openapi（无 openapi.json 时跳过，只提醒）
+      # 注：entry 整行须为 YAML 单引号标量（内层单引号双写转义）：python 文案里的 `SKIP: ` 冒号会让裸标量解析失败
       - id: openapi-guard
         name: openapi自查提醒
-        entry: python -c "import pathlib,sys; p=pathlib.Path('backend/openapi.json'); print('openapi.json exists' if p.exists() else 'SKIP: backend/openapi.json 不存在，接口改动请补自查')"
+        entry: 'python -c "import pathlib,sys; p=pathlib.Path(''backend/openapi.json''); print(''openapi.json exists'' if p.exists() else ''SKIP: backend/openapi.json 不存在，接口改动请补自查'')"'
         language: system
         pass_filenames: false
         files: ^backend/app/api/
@@ -42,3 +43,9 @@ repos:
         language: system
         pass_filenames: false
         stages: [pre-push]
+      # 大文件门禁：新增超 100KB 二进制直入库即拦（治历史只增不减；二进制走 LFS，强拦在 CI large-files）
+      - id: large-files-guard
+        name: 大文件门禁（100KB 二进制）
+        entry: python scripts/check_large_files.py
+        language: system
+        pass_filenames: false

@@ -9,6 +9,13 @@ from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _DEFAULT_JWT_SECRET = "dev-only-change-me-and-rotate-in-prod"
+# 本地演示种子口令（仅开发用；生产禁用，见 _guard_prod 与 is_default_seed_password）。
+_DEFAULT_SEED_PASSWORD = "admin123"
+
+
+def is_default_seed_password(password: str) -> bool:
+    """是否为本地演示默认口令（种子警告与建号拒绝两处共用，禁止生产使用）"""
+    return password == _DEFAULT_SEED_PASSWORD
 
 
 class Settings(BaseSettings):
@@ -35,7 +42,7 @@ class Settings(BaseSettings):
     SEED_ON_START: bool = True
     SEED_TENANT: str = "demo-tenant"
     SEED_USERNAME: str = "admin"
-    SEED_PASSWORD: SecretStr = SecretStr("admin123")
+    SEED_PASSWORD: SecretStr = SecretStr(_DEFAULT_SEED_PASSWORD)
     SEED_ROLES: str = (
         "cs,kb,shop,stock,ops,admin,"
         "goods:read,goods:write,stock:read,stock:write,order:read,order:fulfill,"
@@ -305,9 +312,10 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _guard_prod(self) -> Settings:
-        """生产护栏：ENV=prod 时禁默认密钥、禁自动灌种子，配置错就启动即失败（fail-fast）。
+        """生产护栏：ENV=prod 时禁默认密钥、禁一切演示种子，配置错就启动即失败（fail-fast）。
 
-        宁可起不来，也不要带着 demo 密钥/账号上生产（对齐 AGENTS.md §3 安全红线）。
+        宁可起不来，也不要带着 demo 密钥/账号/演示数据上生产（对齐 AGENTS.md §3 安全红线）。
+        生产首个管理员走 scripts/create_admin.py 创建，不经过 SEED_* 演示通道。
         """
         if self.ENV != "prod":
             return self
@@ -316,6 +324,10 @@ class Settings(BaseSettings):
             raise ValueError("生产环境必须显式设置 JWT_SECRET 且不少于 32 字符")
         if self.SEED_ON_START:
             raise ValueError("生产环境必须设 SEED_ON_START=false，种子账号仅用于开发演示")
+        if self.B2B_SEED_DEMO:
+            raise ValueError("生产环境必须设 B2B_SEED_DEMO=false，演示商品/订单不得进生产库")
+        if self.KB_SEED_DEMO:
+            raise ValueError("生产环境必须设 KB_SEED_DEMO=false，演示知识不得进生产库")
         return self
 
 
