@@ -26,10 +26,11 @@ from app.services import handoff_rules
 
 
 async def mark_pending_if_idle(
-    db: AsyncSession, *, tenant: str, session_id: str, reason: str
+    db: AsyncSession, *, tenant: str, session_id: str, reason: str, skill: str = ""
 ) -> None:
     """自动挂起（会话仍空闲 none 才置 pending；pending/handling/resolved 一律不抢）。
 
+    skill 非空时一并写路由技能组（队列筛选/认领门禁/智能分配按它走）。
     只 flush 不提交，由调用方（chat_service._persist_* / runtime._settle）统一 commit。
     """
     row = (
@@ -39,6 +40,8 @@ async def mark_pending_if_idle(
         return
     row.handoff_status = "pending"
     row.handoff_reason = (reason or "").strip()[:200]
+    if skill:
+        row.handoff_skill = skill[:32]
     await db.flush()
 
 
@@ -112,7 +115,11 @@ async def auto_handoff(
         status = (row.handoff_status or "none") if row is not None else ""
         if row is not None and status == "none":
             await mark_pending_if_idle(
-                db, tenant=tenant, session_id=session_id, reason=decision["reason"]
+                db,
+                tenant=tenant,
+                session_id=session_id,
+                reason=decision["reason"],
+                skill=str(decision.get("skill") or ""),
             )
             status = "pending"
             applied = True

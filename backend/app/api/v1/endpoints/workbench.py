@@ -17,7 +17,7 @@ from app.core.rbac import get_current_user, require_any_perm
 from app.core.responses import ok
 from app.core.user_context import CurrentUser
 from app.db.session import get_db
-from app.services import handoff_service, workbench_service
+from app.services import handoff_routing, handoff_service, workbench_service
 
 router = APIRouter(prefix="/workbench", tags=["workbench"])
 
@@ -60,13 +60,14 @@ async def get_queue(
     user: CurrentUser = Depends(CS),
     status: str = Query(default="", max_length=16),
     q: str = Query(default="", max_length=64),
+    skill: str = Query(default="", max_length=32),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1, le=100),
 ) -> dict[str, Any]:
-    """待接队列（租户级分页对象；status 空/open=待接+处理中；q 搜标题/买家）。"""
+    """待接队列（租户级分页对象；status 空/open=待接+处理中；q 搜标题/买家；skill 技能组过滤）。"""
     return ok(
         await workbench_service.queue(
-            db, tenant=user.tenant, status=status, keyword=q, page=page, size=size
+            db, tenant=user.tenant, status=status, keyword=q, skill=skill, page=page, size=size
         ),
         "获取成功",
     )
@@ -111,8 +112,8 @@ async def claim_session(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(CS),
 ) -> dict[str, Any]:
-    """抢接（pending→handling + 认领到本人；被他人认领 1001 明示围观）。"""
-    row = await workbench_service.claim(db, tenant=user.tenant, user=user, session_id=session_id)
+    """抢接（pending→handling + 认领到本人；被他人认领 1001 明示围观；技能门禁）。"""
+    row = await handoff_routing.claim(db, tenant=user.tenant, user=user, session_id=session_id)
     return ok(workbench_service.handoff_to_dict(row), "认领成功，已接管会话")
 
 
@@ -123,11 +124,31 @@ async def transfer_session(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(CS),
 ) -> dict[str, Any]:
-    """转接（换认领人；已解决不可转）。"""
-    row = await workbench_service.transfer(
+    """转接（换认领人；已解决不可转；目标坐席技能组须覆盖会话组）。"""
+    row = await handoff_routing.transfer(
         db, tenant=user.tenant, user=user, session_id=session_id, assignee=payload.assignee
     )
     return ok(workbench_service.handoff_to_dict(row), "转接成功")
+
+
+@router.post("/sessions/{session_id}/assign")
+async def assign_session(
+    session_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(CS),
+) -> dict[str, Any]:
+    """智能分配（按技能匹配 + 在手最少挑坐席直接接管；无候选 1001 明示原因）。"""
+    row = await handoff_routing.assign(db, tenant=user.tenant, user=user, session_id=session_id)
+    return ok(workbench_service.handoff_to_dict(row), f"已分配给 {row.assignee}")
+
+
+@router.get("/load")
+async def get_load(
+    db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(CS),
+) -> dict[str, Any]:
+    """坐席负载面板：各坐席在手数/上限/技能组 + 各技能组待接数（负载均衡核对口）。"""
+    return ok(await handoff_routing.load_view(db, tenant=user.tenant), "获取成功")
 
 
 @router.post("/sessions/{session_id}/resolve")

@@ -12,18 +12,16 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from sqlalchemy import func, or_, select, update
-from sqlalchemy.engine import CursorResult
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.core.exceptions import BusinessError, ErrorCode
-from app.core.observability import record
 from app.core.observability import snapshot as obs_snapshot
 from app.core.user_context import CurrentUser
 from app.db.base import _now
 from app.db.models import Message, Session, SessionNote
-from app.services import context_service, session_service
+from app.services import context_service, handoff_routing, handoff_rules, session_service
 
 # ---------------- 状态口径 ----------------
 
@@ -51,8 +49,13 @@ def _dt_text(value: Any) -> str:
     return value.isoformat(sep=" ", timespec="seconds") if value else ""
 
 
-def handoff_to_dict(row: Session, message_count: int = 0, last_message: str = "") -> dict[str, Any]:
-    """队列/详情行（含流转态 + 中文标签；last_message 为最新一条预览 40 字）。"""
+def handoff_to_dict(
+    row: Session,
+    message_count: int = 0,
+    last_message: str = "",
+    queue_position: int = 0,
+) -> dict[str, Any]:
+    """队列/详情行（含流转态 + 中文标签 + 技能组；last_message 为最新一条预览 40 字）。"""
     base = session_service.session_to_dict(row, message_count)
     base.update(
         {
@@ -61,6 +64,9 @@ def handoff_to_dict(row: Session, message_count: int = 0, last_message: str = ""
             "handoff_label": HANDOFF_LABELS.get(row.handoff_status or "none", "未转人工"),
             "assignee": row.assignee or "",
             "handoff_reason": row.handoff_reason or "",
+            "handoff_skill": row.handoff_skill or "general",
+            "skill_label": handoff_rules.skill_label(row.handoff_skill or "general"),
+            "queue_position": queue_position,
             "resolution": row.resolution or "",
             "last_message": (last_message or "")[:40],
         }
@@ -119,6 +125,7 @@ async def queue(
     tenant: str,
     status: str = "",
     keyword: str = "",
+    skill: str = "",
     page: int = 1,
     size: int = 20,
 ) -> dict[str, Any]:
@@ -126,6 +133,7 @@ async def queue(
 
     status："" / "open" → 待接+处理中；pending/handling/resolved 精确过滤，其余 1001。
     keyword：标题/买家用户名模糊匹配（订单号搜索走订单页，前端队列内再筛）。
+    skill：按技能组过滤（FR-7 技能组；空=全部）；每行带 queue_position（pending 排队位）。
     """
     wanted: tuple[str, ...] = OPEN_STATUSES
     if status in ("", "open"):
@@ -139,6 +147,9 @@ async def queue(
     if key:
         like = f"%{key}%"
         stmt = stmt.where(or_(Session.title.ilike(like), Session.username.ilike(like)))
+    group = (skill or "").strip()
+    if group:
+        stmt = stmt.where(Session.handoff_skill == group)
     total = int((await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one())
     rows = list(
         (
@@ -149,6 +160,7 @@ async def queue(
             )
         ).scalars()
     )
+    positions = await handoff_routing.pending_positions(db, tenant=tenant, skill=group)
     items = []
     for row in rows:
         items.append(
@@ -156,6 +168,7 @@ async def queue(
                 row,
                 await _message_count(db, row.id),
                 await _last_message(db, row.id),
+                queue_position=positions.get(row.id, 0),
             )
         )
     return {"items": items, "total": total, "page": page, "size": size}
@@ -184,65 +197,7 @@ async def handoff(
     return row
 
 
-async def claim(db: AsyncSession, *, tenant: str, user: CurrentUser, session_id: str) -> Session:
-    """抢接（pending/none→handling + assignee=本人；已被他人认领 1001 明示只读围观）。
-
-    并发安全：认领用「条件 UPDATE + rowcount」做原子比较交换，两个坐席同抢同一会话时
-    只有一个 UPDATE 命中（另一人 rowcount=0 → 重读后拿到「已被 XX 接管」），不会互相覆盖。
-    自己已认领的会话重复点认领 = 幂等刷新（updated_at 前移），不报错。
-    """
-    row = await _tenant_session(db, tenant=tenant, session_id=session_id)
-    if row.handoff_status == "resolved":
-        raise BusinessError(ErrorCode.PARAM_INVALID, "会话已解决，不可认领", 400)
-    result: CursorResult = await db.execute(  # type: ignore[assignment]
-        update(Session)
-        .where(
-            Session.id == session_id,
-            Session.tenant == tenant,
-            or_(
-                Session.handoff_status.in_(("pending", "none")),
-                (Session.handoff_status == "handling")
-                & (Session.assignee.in_(("", user.username))),
-            ),
-        )
-        .values(handoff_status="handling", assignee=user.username, updated_at=_now())
-    )
-    if result.rowcount == 0:
-        # 抢接失败：会话已被他人接管（或状态在读取后被改），重读拿真实归属再报错
-        await db.rollback()
-        current = await _tenant_session(db, tenant=tenant, session_id=session_id)
-        if current.handoff_status == "resolved":
-            raise BusinessError(ErrorCode.PARAM_INVALID, "会话已解决，不可认领", 400)
-        raise BusinessError(
-            ErrorCode.PARAM_INVALID,
-            f"已被 {current.assignee or '其他坐席'} 接管，转为只读围观",
-            400,
-        )
-    await db.commit()
-    await db.refresh(row)
-    # 接起事件（E 步可观测）：observability 据此算「挂起→接起」耗时 = 30s 接起率分母/分子
-    record(
-        "handoff.claim",
-        {"tenant": tenant, "session_id": session_id, "assignee": user.username},
-    )
-    return row
-
-
-async def transfer(
-    db: AsyncSession, *, tenant: str, user: CurrentUser, session_id: str, assignee: str
-) -> Session:
-    """转接（assignee 必填；pending 顺手进入 handling；已解决不可转）。"""
-    target = (assignee or "").strip()
-    if not target:
-        raise BusinessError(ErrorCode.PARAM_INVALID, "转接坐席不能为空", 400)
-    row = await _tenant_session(db, tenant=tenant, session_id=session_id)
-    if row.handoff_status == "resolved":
-        raise BusinessError(ErrorCode.PARAM_INVALID, "会话已解决，不可转接", 400)
-    row.assignee = target
-    if row.handoff_status == "pending":
-        row.handoff_status = "handling"
-    await db.commit()
-    return row
+# 抢接/转接已收口到路由模块（技能门禁 + 原子比较交换单一实现，此处薄转发保持导入口径）
 
 
 async def resolve(

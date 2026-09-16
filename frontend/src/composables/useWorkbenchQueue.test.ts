@@ -1,12 +1,17 @@
 // useWorkbenchQueue 单测（真实队列映射 + 服务端筛选/分页透传 + 失败回退演示挂标 + 认领后重拉保当前）
 // queueWorkbenchApi/claimWorkbenchApi 打桩；ElMessage/ElMessageBox 弹 DOM，node 环境桩掉（对齐前端 Skill §8）
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { claimWorkbenchApi, queueWorkbenchApi, type WorkbenchRow } from '@/api';
+import { assignWorkbenchApi, claimWorkbenchApi, queueWorkbenchApi, type WorkbenchRow } from '@/api';
 import { useWorkbenchQueue } from './useWorkbenchQueue';
 
 vi.mock('@/api', async importOriginal => {
   const mod = await importOriginal<typeof import('@/api')>();
-  return { ...mod, queueWorkbenchApi: vi.fn(), claimWorkbenchApi: vi.fn() };
+  return {
+    ...mod,
+    queueWorkbenchApi: vi.fn(),
+    claimWorkbenchApi: vi.fn(),
+    assignWorkbenchApi: vi.fn(),
+  };
 });
 
 vi.mock('element-plus', () => ({
@@ -25,6 +30,9 @@ const row = (id: string, status: string, assignee = ''): WorkbenchRow => ({
   handoff_label: '待接',
   assignee,
   handoff_reason: '买家主动请求人工',
+  handoff_skill: 'refund',
+  skill_label: '退款售后',
+  queue_position: 1,
   resolution: '',
   last_message: '袖口脱线约2cm可换货处理',
 });
@@ -50,6 +58,9 @@ describe('useWorkbenchQueue', () => {
       statusLabel: '待接',
       assignee: '',
       reason: '买家主动请求人工',
+      skill: 'refund',
+      skillLabel: '退款售后',
+      queuePosition: 1,
       lastMessage: '袖口脱线约2cm可换货处理',
       updatedAt: '2026-09-14T10:30:00',
       vip: false,
@@ -66,6 +77,7 @@ describe('useWorkbenchQueue', () => {
     expect(queueWorkbenchApi).toHaveBeenLastCalledWith({
       status: 'open',
       q: '',
+      skill: '',
       page: 1,
       size: 20,
     });
@@ -73,6 +85,7 @@ describe('useWorkbenchQueue', () => {
     expect(queueWorkbenchApi).toHaveBeenLastCalledWith({
       status: 'open',
       q: '',
+      skill: '',
       page: 1,
       size: 50,
     });
@@ -80,6 +93,7 @@ describe('useWorkbenchQueue', () => {
     expect(queueWorkbenchApi).toHaveBeenLastCalledWith({
       status: 'pending',
       q: '',
+      skill: '',
       page: 1,
       size: 50,
     });
@@ -125,5 +139,33 @@ describe('useWorkbenchQueue', () => {
     await load();
     expect(await claim()).toBe(false);
     expect(queueWorkbenchApi).toHaveBeenCalledTimes(1);
+  });
+
+  it('技能组筛选透传 skill 参数并回页首', async () => {
+    vi.mocked(queueWorkbenchApi).mockResolvedValue(paged([]));
+    const { load, setSkill, skill } = useWorkbenchQueue();
+    await load();
+    await setSkill('refund');
+    expect(skill.value).toBe('refund');
+    expect(queueWorkbenchApi).toHaveBeenLastCalledWith({
+      status: 'open',
+      q: '',
+      skill: 'refund',
+      page: 1,
+      size: 20,
+    });
+  });
+
+  it('智能分配成功调后端并重拉保当前', async () => {
+    vi.mocked(queueWorkbenchApi)
+      .mockResolvedValueOnce(paged([row('s-1', 'pending')]))
+      .mockResolvedValueOnce(paged([row('s-1', 'handling', 'cs_refund')]));
+    vi.mocked(assignWorkbenchApi).mockResolvedValue({ handoff_status: 'handling' });
+    const { load, assign, currentId } = useWorkbenchQueue();
+    await load();
+    expect(await assign()).toBe(true);
+    expect(assignWorkbenchApi).toHaveBeenCalledWith({ id: 's-1' });
+    expect(queueWorkbenchApi).toHaveBeenCalledTimes(2);
+    expect(currentId.value).toBe('s-1');
   });
 });

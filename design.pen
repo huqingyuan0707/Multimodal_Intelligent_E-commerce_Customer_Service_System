@@ -110,6 +110,109 @@
             },
             {
               "type": "frame",
+              "id": "wbf114",
+              "name": "队列技能页签",
+              "layout": "horizontal",
+              "gap": 6,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "wbf115",
+                  "name": "技能页签-全部",
+                  "layout": "horizontal",
+                  "padding": [
+                    4,
+                    9
+                  ],
+                  "fill": "#4F6BFF1F",
+                  "cornerRadius": 999,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "wbt111",
+                      "name": "技能页签-全部文案",
+                      "content": "全部技能",
+                      "fontSize": 11,
+                      "fill": "#4F6BFF",
+                      "fontWeight": "600"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "wbf116",
+                  "name": "技能页签-退款售后",
+                  "layout": "horizontal",
+                  "padding": [
+                    4,
+                    9
+                  ],
+                  "fill": "#1F24301F",
+                  "cornerRadius": 999,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "wbt112",
+                      "name": "技能页签-退款售后文案",
+                      "content": "退款售后",
+                      "fontSize": 11,
+                      "fill": "#6B7690"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "wbf117",
+                  "name": "技能页签-投诉安抚",
+                  "layout": "horizontal",
+                  "padding": [
+                    4,
+                    9
+                  ],
+                  "fill": "#1F24301F",
+                  "cornerRadius": 999,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "wbt113",
+                      "name": "技能页签-投诉安抚文案",
+                      "content": "投诉安抚",
+                      "fontSize": 11,
+                      "fill": "#6B7690"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "wbf118",
+                  "name": "技能页签-图检复核",
+                  "layout": "horizontal",
+                  "padding": [
+                    4,
+                    9
+                  ],
+                  "fill": "#1F24301F",
+                  "cornerRadius": 999,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "wbt114",
+                      "name": "技能页签-图检复核文案",
+                      "content": "图检复核",
+                      "fontSize": 11,
+                      "fill": "#6B7690"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
               "id": "wbf009",
               "name": "队列搜索框",
               "layout": "horizontal",
@@ -171,6 +274,14 @@
                     },
                     {
                       "type": "text",
+                      "id": "wbt115",
+                      "name": "队列行-王女士技能组",
+                      "content": "退款售后",
+                      "fontSize": 11,
+                      "fill": "#6B7690"
+                    },
+                    {
+                      "type": "text",
                       "id": "wbt012",
                       "name": "队列行-王女士流转态",
                       "content": "待接",
@@ -191,12 +302,32 @@
                   "fill": "#5D6880"
                 },
                 {
-                  "type": "text",
-                  "id": "wbt015",
-                  "name": "队列行-王女士时间",
-                  "content": "10:12 · VIP 优先",
-                  "fontSize": 11,
-                  "fill": "#6B7690"
+                  "type": "frame",
+                  "id": "wbf119",
+                  "name": "队列行-王女士尾行",
+                  "layout": "horizontal",
+                  "gap": 8,
+                  "alignItems": "center",
+                  "width": "fill_container",
+                  "justifyContent": "space_between",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "wbt116",
+                      "name": "队列行-王女士排队位",
+                      "content": "排队第 1 位",
+                      "fontSize": 11,
+                      "fill": "#0E9F6E"
+                    },
+                    {
+                      "type": "text",
+                      "id": "wbt015",
+                      "name": "队列行-王女士时间",
+                      "content": "10:12 · VIP 优先",
+                      "fontSize": 11,
+                      "fill": "#6B7690"
+                    }
+                  ]
                 }
               ],
               "stroke": "#4F6BFF",
@@ -522,6 +653,29 @@
                   "gap": 8,
                   "alignItems": "center",
                   "children": [
+                    {
+                      "type": "frame",
+                      "id": "wbf120",
+                      "name": "动作-智能分配",
+                      "layout": "horizontal",
+                      "padding": [
+                        5,
+                        10
+                      ],
+                      "fill": "#1F24301F",
+                      "cornerRadius": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "wbt117",
+                          "name": "动作-智能分配文案",
+                          "content": "智能分配",
+                          "fontSize": 12,
+                          "fill": "#1F2430"
+                        }
+                      ]
+                    },
                     {
                       "type": "frame",
                       "id": "wbf052",

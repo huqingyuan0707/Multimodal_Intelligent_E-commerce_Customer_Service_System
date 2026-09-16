@@ -1,8 +1,9 @@
-// 坐席工作台队列（真实 /workbench/queue：服务端分页 20 + 状态过滤 + 关键字搜索 + 流转动作）
+// 坐席工作台队列（真实 /workbench/queue：服务端分页 20 + 状态/技能组过滤 + 关键字搜索 + 流转动作）
 // 失败回退 @/mock 演示数据并打 demo 标；对齐 API 规范 §4.11 + 页面设计 §3.2
 import { computed, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import {
+  assignWorkbenchApi,
   claimWorkbenchApi,
   handoffWorkbenchApi,
   queueWorkbenchApi,
@@ -32,7 +33,7 @@ export const QUEUE_TABS = [
   { key: 'none', label: 'AI 接待' },
 ] as const;
 
-// 页面态队列行：后端行 → 页面消费形状（名称/标签/预览一次收口）
+// 页面态队列行：后端行 → 页面消费形状（名称/标签/技能组/排队位/预览一次收口）
 export type QueueRow = {
   id: string;
   name: string;
@@ -41,6 +42,9 @@ export type QueueRow = {
   statusLabel: string;
   assignee: string;
   reason: string;
+  skill: string;
+  skillLabel: string;
+  queuePosition: number;
   lastMessage: string;
   updatedAt: string;
   vip: boolean;
@@ -54,6 +58,9 @@ const toRow = (row: WorkbenchRow): QueueRow => ({
   statusLabel: handoffTag(row.handoff_status || 'none').label,
   assignee: row.assignee ?? '',
   reason: row.handoff_reason ?? '',
+  skill: row.handoff_skill ?? 'general',
+  skillLabel: row.skill_label || row.handoff_skill || '通用',
+  queuePosition: Number(row.queue_position ?? 0),
   lastMessage: row.last_message ?? '',
   updatedAt: row.updated_at ?? '',
   vip: /vip/i.test(row.title ?? '') || row.handoff_reason === 'VIP',
@@ -65,6 +72,7 @@ export const useWorkbenchQueue = () => {
   const page = ref(1);
   const size = ref(20);
   const status = ref('open');
+  const skill = ref('');
   const keyword = ref('');
   const loading = ref(false);
   const demo = ref(false);
@@ -81,28 +89,41 @@ export const useWorkbenchQueue = () => {
       statusLabel: handoffTag(i === 0 ? 'pending' : 'handling').label,
       assignee: i === 0 ? '' : 'admin',
       reason: '演示数据（后端队列不可用）',
+      skill: 'general',
+      skillLabel: '通用',
+      queuePosition: i === 0 ? 1 : 0,
       lastMessage: '演示会话预览',
       updatedAt: '',
       vip: Boolean(s.vip),
     }));
 
   // 拉取队列：patch 只覆盖传入项；keep=true 时当前会话离开筛选集也不切走（解决后仍可看 Trace）
-  const load = async (patch?: {
+  type QueuePatch = {
     status?: string;
     keyword?: string;
+    skill?: string;
     page?: number;
     size?: number;
     keep?: boolean;
-  }) => {
-    if (patch?.status !== undefined) status.value = patch.status;
-    if (patch?.keyword !== undefined) keyword.value = patch.keyword;
-    if (patch?.page !== undefined) page.value = patch.page;
-    if (patch?.size !== undefined) size.value = patch.size;
+  };
+
+  // 筛选/分页参数逐个覆盖（拆出来让 load 的分支复杂度留在 ESLint 上限内）
+  const applyPatch = (patch: QueuePatch) => {
+    if (patch.status !== undefined) status.value = patch.status;
+    if (patch.keyword !== undefined) keyword.value = patch.keyword;
+    if (patch.skill !== undefined) skill.value = patch.skill;
+    if (patch.page !== undefined) page.value = patch.page;
+    if (patch.size !== undefined) size.value = patch.size;
+  };
+
+  const load = async (patch?: QueuePatch) => {
+    if (patch) applyPatch(patch);
     loading.value = true;
     try {
       const res = await queueWorkbenchApi({
         status: status.value,
         q: keyword.value,
+        skill: skill.value,
         page: page.value,
         size: size.value,
       });
@@ -132,6 +153,8 @@ export const useWorkbenchQueue = () => {
 
   const setStatus = (key: string) => load({ status: key, page: 1 });
 
+  const setSkill = (key: string) => load({ skill: key, page: 1 });
+
   const setKeyword = (word: string) => load({ keyword: word, page: 1 });
 
   const setPage = (next: number) => load({ page: next });
@@ -157,6 +180,15 @@ export const useWorkbenchQueue = () => {
       return false;
     }
     return run(() => claimWorkbenchApi({ id: target }), '已认领，可开始代回');
+  };
+
+  // 智能分配：后端按「技能匹配 + 在手最少 + 未达上限」挑坐席直接接管（无候选 1001 明示原因）
+  const assign = async (id?: string) => {
+    const target = id ?? currentId.value;
+    if (!target) {
+      return false;
+    }
+    return run(() => assignWorkbenchApi({ id: target }), '已按负载分配坐席接管');
   };
 
   const transfer = async (id?: string) => {
@@ -225,6 +257,7 @@ export const useWorkbenchQueue = () => {
     page,
     size,
     status,
+    skill,
     keyword,
     loading,
     demo,
@@ -233,10 +266,12 @@ export const useWorkbenchQueue = () => {
     load,
     select,
     setStatus,
+    setSkill,
     setKeyword,
     setPage,
     setSize,
     claim,
+    assign,
     transfer,
     resolve,
     handoff,

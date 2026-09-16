@@ -132,3 +132,45 @@ def test_rule_table_rows_carry_threshold() -> None:
     assert rows["degrade_streak"]["threshold"] == settings.HANDOFF_DEGRADE_STREAK_THRESHOLD
     assert rows["no_evidence"]["threshold"] == 0
     assert {row["code"] for row in handoff_rules.rule_table()} == set(handoff_rules.RULE_BY_CODE)
+
+
+# ---------------- 技能组路由（FR-7 技能组） ----------------
+
+
+def test_rules_carry_skill_group() -> None:
+    """每条规则都挂组且在合法清单内；专组规则路由正确（情绪→投诉、退款→退款、图检→售后）。"""
+    groups = set(handoff_rules.skill_groups())
+    for rule in handoff_rules.RULES:
+        assert rule.skill in groups
+    by_code = {rule.code: rule.skill for rule in handoff_rules.RULES}
+    assert by_code["negative_sentiment"] == "complaint"
+    assert by_code["sensitive_approval"] == "refund"
+    assert by_code["vision_low_confidence"] == "aftersale"
+    assert by_code["explicit_request"] == "general"
+
+
+def test_evaluate_returns_skill_of_hit_rule() -> None:
+    """命中决策透出该规则的技能组（挂起时写进 sessions.handoff_skill 的路由来源）。"""
+    assert handoff_rules.evaluate({"approval_pending": True})["skill"] == "refund"
+    assert handoff_rules.evaluate({"no_evidence": True})["skill"] == "general"
+    assert handoff_rules.evaluate({})["skill"] == ""
+
+
+def test_agent_skills_and_claim_gate() -> None:
+    """坐席技能解析与认领门禁：cs:<组> 令牌、general 人人可接、admin/* 恒全组。"""
+    refund_only = ["cs", "cs:refund"]
+    assert handoff_rules.agent_skills(refund_only) == {"general", "refund"}
+    assert handoff_rules.can_claim(refund_only, "refund") is True
+    assert handoff_rules.can_claim(refund_only, "complaint") is False
+    assert handoff_rules.can_claim(refund_only, "general") is True
+    assert handoff_rules.can_claim(refund_only, "") is True  # 未路由放行
+    assert handoff_rules.can_claim(["*"], "complaint") is True
+    assert handoff_rules.can_claim(["admin"], "complaint") is True
+    assert handoff_rules.can_claim(["cs"], "complaint") is False  # 只有 cs 无组标=仅通用
+
+
+def test_skill_label_and_groups_from_settings() -> None:
+    """组清单读 Settings（逗号串也认）；标签中文可坐席直读。"""
+    assert "general" in handoff_rules.skill_groups()
+    assert handoff_rules.skill_label("refund") == "退款售后"
+    assert handoff_rules.skill_label("unknown_key") == "unknown_key"

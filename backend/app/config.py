@@ -90,6 +90,7 @@ class Settings(BaseSettings):
         "HANDOFF_ENABLED",
         "HANDOFF_MISS_STREAK_THRESHOLD",
         "HANDOFF_DEGRADE_STREAK_THRESHOLD",
+        "HANDOFF_LOAD_LIMIT",
         "OBSERVABILITY_ENABLED",
         "OBSERVABILITY_ANSWER_TARGET_SECONDS",
     )
@@ -186,6 +187,13 @@ class Settings(BaseSettings):
         3  # 「3 次不懂」：连续未解决轮次达此值即转人工（0/负数=关闭该规则）
     )
     HANDOFF_DEGRADE_STREAK_THRESHOLD: int = 3  # 模型连续降级达此值即转人工（0/负数=关闭该规则）
+
+    # 技能组路由与负载均衡（FRD FR-7「技能组 + 负载均衡」）：
+    # 规则表每条规则挂一个组（general=通用，任何坐席可接）；坐席技能组走
+    # users.roles 的 `cs:<组>` 令牌（admin/* 恒全组）；assign 智能分配按
+    # 「技能匹配 + 在手 < 上限 + 最少者优先」，上限 0=关闭分配只留手动抢接。
+    HANDOFF_SKILL_GROUPS: list[str] = ["general", "refund", "complaint", "aftersale"]
+    HANDOFF_LOAD_LIMIT: int = 5  # 单坐席在手（handling）会话上限，assign 用（0=关闭）
 
     # 可观测（FRD FR-9 / 执行步骤 E 步）：关键链路事件 → core/observability.py
     # 内存计数器 + JSONL 落盘（Prometheus/Langfuse 网关后置替换只改该模块）。

@@ -17,6 +17,9 @@ const rows: QueueRow[] = [
     statusLabel: '待接',
     assignee: '',
     reason: '情绪激动',
+    skill: 'refund',
+    skillLabel: '退款售后',
+    queuePosition: 1,
     lastMessage: '我要退那个充电宝',
     updatedAt: '2026-09-16T00:12:31',
     vip: true,
@@ -29,6 +32,9 @@ const rows: QueueRow[] = [
     statusLabel: '处理中',
     assignee: 'admin',
     reason: '',
+    skill: 'general',
+    skillLabel: '通用',
+    queuePosition: 0,
     lastMessage: '',
     updatedAt: '2026-09-16T00:05:00',
     vip: false,
@@ -42,6 +48,8 @@ const baseProps = {
   page: 1,
   size: 20,
   status: 'open',
+  skill: '',
+  skillGroups: [],
   loading: false,
   demo: false,
 };
@@ -60,6 +68,9 @@ describe('workbenchQueue', () => {
     expect(items[0].find('.name').text()).toBe('王小明');
     expect(items[0].find('.row2').text()).toBe('我要退那个充电宝');
     expect(items[0].text()).toContain('VIP');
+    expect(items[0].text()).toContain('退款售后');
+    expect(items[0].text()).toContain('排队第 1 位');
+    expect(items[1].text()).not.toContain('排队第');
     expect(items[1].find('.row2').text()).toBe('暂无消息');
     expect(items[1].text()).toContain('坐席 admin');
     expect(items[0].text()).toContain('未分配');

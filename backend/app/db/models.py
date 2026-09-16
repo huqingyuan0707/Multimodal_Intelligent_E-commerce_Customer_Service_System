@@ -61,6 +61,8 @@ class Session(Base):
     下轮拼进 LLM 上下文，老消息不再逐条注入（双重修剪之轮数侧）。
     handoff_status：坐席流转 none→pending（待接）→handling（处理中）→resolved（已解决），
     由 workbench_service 读写（买家转人工/拒答/低置信自动挂起，坐席认领/解决）。
+    handoff_skill：挂起时按规则表路由到的技能组（口径见 handoff_rules.HANDOFF_SKILL_GROUPS：
+    general 通用 + refund/complaint/aftersale 专组）；队列筛选、认领门禁、智能分配都读它。
     """
 
     __tablename__ = "sessions"
@@ -73,6 +75,7 @@ class Session(Base):
     handoff_status: Mapped[str] = mapped_column(String(16), default="none", index=True)
     assignee: Mapped[str] = mapped_column(String(64), default="")
     handoff_reason: Mapped[str] = mapped_column(String(200), default="")
+    handoff_skill: Mapped[str] = mapped_column(String(32), default="general")
     resolution: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(default=_now)
     updated_at: Mapped[datetime] = mapped_column(default=_now, onupdate=_now)

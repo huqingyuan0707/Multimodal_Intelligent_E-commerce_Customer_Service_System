@@ -19,6 +19,28 @@
       </button>
     </div>
 
+    <!-- 技能组过滤（FR-7 技能组）：组清单由后端 /workbench/load 带出，空=全部 -->
+    <div v-if="(skillGroups || []).length" class="chips skill-chips">
+      <button
+        class="chip"
+        :class="{ 'chip-on': skill === '' }"
+        type="button"
+        @click="emit('skill', '')"
+      >
+        全部技能
+      </button>
+      <button
+        v-for="group in skillGroups"
+        :key="group.key"
+        class="chip"
+        :class="{ 'chip-on': skill === group.key }"
+        type="button"
+        @click="emit('skill', group.key)"
+      >
+        {{ group.label }}
+      </button>
+    </div>
+
     <AiInput
       v-model="keyword"
       placeholder="搜标题 / 买家"
@@ -38,11 +60,22 @@
         <div class="row1">
           <span class="name">{{ row.name }}</span>
           <el-tag size="small" :type="handoffTag(row.statusKey).type">{{ row.statusLabel }}</el-tag>
+          <el-tag
+            v-if="row.skill && row.skill !== 'general'"
+            size="small"
+            type="info"
+            effect="plain"
+          >
+            {{ row.skillLabel }}
+          </el-tag>
           <el-tag v-if="row.vip" size="small" type="warning" effect="plain">VIP</el-tag>
         </div>
         <div class="row2">{{ row.lastMessage || row.reason || '暂无消息' }}</div>
         <div class="row3">
           <span>{{ row.assignee ? `坐席 ${row.assignee}` : '未分配' }}</span>
+          <span v-if="row.statusKey === 'pending' && row.queuePosition > 0" class="pos">
+            排队第 {{ row.queuePosition }} 位
+          </span>
           <span>{{ row.updatedAt.slice(5, 16) }}</span>
         </div>
       </div>
@@ -79,11 +112,13 @@ defineProps<{
   page: number;
   size: number;
   status: string;
+  skill: string;
+  skillGroups?: { key: string; label: string }[];
   loading: boolean;
   demo: boolean;
 }>();
 
-const emit = defineEmits(['select', 'search', 'filter', 'page', 'size']);
+const emit = defineEmits(['select', 'search', 'filter', 'skill', 'page', 'size']);
 
 const keyword = ref('');
 let timer: number | undefined;
@@ -154,6 +189,11 @@ onBeforeUnmount(() => window.clearTimeout(timer));
   border-color: var(--reai-primary);
 }
 
+/* 技能组页签比状态页签弱一档（次要筛选），避免同色抢视觉焦点 */
+.skill-chips .chip {
+  font-size: var(--reai-fs-micro);
+}
+
 .list {
   display: flex;
   flex: 1;
@@ -206,6 +246,11 @@ onBeforeUnmount(() => window.clearTimeout(timer));
   margin-top: 4px;
   font-size: var(--reai-fs-micro);
   color: var(--reai-text-muted);
+}
+
+/* 排队位播报（FR-7）：pending 行显示「排队第 N 位」，用在线绿强调可接 */
+.pos {
+  color: var(--reai-online);
 }
 
 .pager {

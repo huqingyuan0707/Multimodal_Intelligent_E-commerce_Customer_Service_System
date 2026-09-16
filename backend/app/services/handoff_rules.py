@@ -25,6 +25,8 @@ class HandoffRule:
     signal：signals 字典里的键名；布尔规则看真假，计数规则看数值。
     threshold_field：计数规则对应的 Settings 字段名，非空即为「阈值型」，
         此时 reason 里的 `{n}` 会被实际连续轮次替换。
+    skill：挂起后路由到的技能组（FR-7「技能组」；合法值见 Settings.HANDOFF_SKILL_GROUPS，
+        general=通用组，任何坐席可接）。坐席侧技能组走 users.roles 的 `cs:<组>` 令牌。
     """
 
     code: str
@@ -33,9 +35,11 @@ class HandoffRule:
     priority: int
     signal: str
     threshold_field: str = ""
+    skill: str = "general"
 
 
 # 规则表（priority 越小越先命中）。新增规则只改这里 + Settings 阈值，挂载点不动。
+# skill 路由口径：情绪激烈→投诉组、退款送审→退款组、图检低置信→售后组，其余通用组。
 RULES: tuple[HandoffRule, ...] = (
     HandoffRule(
         "explicit_request",
@@ -50,6 +54,7 @@ RULES: tuple[HandoffRule, ...] = (
         "买家情绪激烈，已优先转人工安抚",
         20,
         "negative_sentiment",
+        skill="complaint",
     ),
     HandoffRule(
         "sensitive_approval",
@@ -57,6 +62,7 @@ RULES: tuple[HandoffRule, ...] = (
         "退款等敏感操作已提交审批，转人工确认",
         30,
         "approval_pending",
+        skill="refund",
     ),
     HandoffRule(
         "vision_low_confidence",
@@ -64,6 +70,7 @@ RULES: tuple[HandoffRule, ...] = (
         "图片检测置信度不足，需人工复核",
         40,
         "vision_need_human",
+        skill="aftersale",
     ),
     HandoffRule(
         "no_evidence", "无据拒答", "知识库未检索到权威依据，已转人工确认", 50, "no_evidence"
@@ -171,6 +178,7 @@ def blank_decision(enabled: bool = True) -> dict[str, Any]:
         "label": "",
         "reason": "",
         "priority": 0,
+        "skill": "",
         "matched": [],
         "matched_rules": [],
     }
@@ -208,7 +216,13 @@ def evaluate(signals: dict[str, Any] | None = None) -> dict[str, Any]:
                 continue
             detail = rule.reason
         matched.append(
-            {"code": rule.code, "label": rule.label, "reason": detail, "priority": rule.priority}
+            {
+                "code": rule.code,
+                "label": rule.label,
+                "reason": detail,
+                "priority": rule.priority,
+                "skill": rule.skill,
+            }
         )
 
     if not matched:
@@ -223,6 +237,7 @@ def evaluate(signals: dict[str, Any] | None = None) -> dict[str, Any]:
             "label": top["label"],
             "reason": top["reason"],
             "priority": top["priority"],
+            "skill": top["skill"],
         }
     )
     result["matched"] = [item["code"] for item in matched]
@@ -245,8 +260,48 @@ def rule_table() -> list[dict[str, Any]]:
                 "reason": rule.reason,
                 "priority": rule.priority,
                 "signal": rule.signal,
+                "skill": rule.skill,
                 "threshold": threshold,
                 "enabled": enabled_all and (not rule.threshold_field or threshold > 0),
             }
         )
     return rows
+
+
+# ---------------- 技能组路由与认领门禁（FR-7「技能组」，纯函数） ----------------
+
+SKILL_LABELS = {
+    "general": "通用",
+    "refund": "退款售后",
+    "complaint": "投诉安抚",
+    "aftersale": "图检复核",
+}
+
+
+def skill_groups() -> list[str]:
+    """合法技能组清单（Settings.HANDOFF_SKILL_GROUPS，.env 逗号串也认）。"""
+    return _words(settings.HANDOFF_SKILL_GROUPS)
+
+
+def skill_label(group: str) -> str:
+    return SKILL_LABELS.get(group, group or "")
+
+
+def agent_skills(roles: list[str]) -> set[str]:
+    """坐席可接技能组：roles 里 `cs:<组>` 令牌集合；`*`/`admin` 恒全组。
+
+    通用组人人可接（否则无技能标记者接不了任何单）；非法组名忽略（配置漂移不炸）。
+    """
+    groups = set(skill_groups())
+    if "*" in roles or "admin" in roles:
+        return groups
+    owned = {g for g in groups if f"cs:{g}" in roles}
+    owned.add("general")
+    return owned
+
+
+def can_claim(roles: list[str], skill: str) -> bool:
+    """认领门禁：会话技能组必须在坐席可接集合内（空组=未路由，放行）。"""
+    if not skill:
+        return True
+    return skill in agent_skills(roles)

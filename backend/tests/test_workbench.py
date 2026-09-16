@@ -20,11 +20,11 @@ from app.core.exceptions import BusinessError, ErrorCode
 from app.core.rbac import get_current_user
 from app.core.user_context import CurrentUser, set_current_user
 from app.db import session as session_mod
-from app.db.models import Session
+from app.db.models import Session, User
 from app.db.seed import seed_on_startup
 from app.db.session import init_models
 from app.main import app
-from app.services import handoff_service, session_service, workbench_service
+from app.services import handoff_routing, handoff_service, session_service, workbench_service
 
 TENANT = settings.SEED_TENANT
 TESTER = CurrentUser(username="tester", tenant=TENANT, roles=["*"])
@@ -271,20 +271,116 @@ async def test_claim_race_only_one_winner(tmp_path: Path, monkeypatch: pytest.Mo
     try:
         # 双方都先读到 pending（模拟并发窗口），再各自发起认领
         assert row.handoff_status == "pending"
-        winner = await workbench_service.claim(db, tenant=TENANT, user=TESTER, session_id=row.id)
+        winner = await handoff_routing.claim(db, tenant=TENANT, user=TESTER, session_id=row.id)
         assert (winner.handoff_status, winner.assignee) == ("handling", "tester")
         with pytest.raises(BusinessError) as lost:
-            await workbench_service.claim(db2, tenant=TENANT, user=CS2, session_id=row.id)
+            await handoff_routing.claim(db2, tenant=TENANT, user=CS2, session_id=row.id)
         assert lost.value.code == ErrorCode.PARAM_INVALID
         assert "tester" in lost.value.msg
         # 输家重读：归属仍是赢家，没被覆盖
         check = (await db2.execute(select(Session).where(Session.id == row.id))).scalar_one()
         assert (check.handoff_status, check.assignee) == ("handling", "tester")
         # 赢家重复认领 = 幂等（不报错、归属不变）
-        again = await workbench_service.claim(db, tenant=TENANT, user=TESTER, session_id=row.id)
+        again = await handoff_routing.claim(db, tenant=TENANT, user=TESTER, session_id=row.id)
         assert again.assignee == "tester" and again.handoff_status == "handling"
     finally:
         await gen2.aclose()
+        await gen.aclose()
+
+
+async def test_skill_gate_and_routing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """技能组闭环：门禁（无组标坐席接不了专组单）+ 排队位（FIFO）+ 智能分配（最少负载优先）。"""
+    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'skill.db'}")
+    monkeypatch.setattr(session_mod, "_engine", None)
+    monkeypatch.setattr(session_mod, "_SessionFactory", None)
+    await init_models()
+    gen = session_mod.get_db()
+    db = await gen.__anext__()
+    try:
+        db.add_all(
+            [
+                User(tenant=TENANT, username="cs_refund", pwd_hash="x", roles="cs,cs:refund"),
+                User(tenant=TENANT, username="cs_general", pwd_hash="x", roles="cs"),
+            ]
+        )
+        await db.commit()
+        refund_user = CurrentUser(username="cs_refund", tenant=TENANT, roles=["cs", "cs:refund"])
+        plain_user = CurrentUser(username="cs_general", tenant=TENANT, roles=["cs"])
+
+        # 1) 退款组会话：无组标坐席 claim 被门禁（1001 明示缺组），组内坐席可接
+        row = await session_service.create_session(db, tenant=TENANT, username="b1", title="退款单")
+        await handoff_service.auto_handoff(
+            db, tenant=TENANT, session_id=row.id, signals={"approval_pending": True}
+        )
+        await db.commit()
+        assert row.handoff_skill == "refund"
+        with pytest.raises(BusinessError) as gate:
+            await handoff_routing.claim(db, tenant=TENANT, user=plain_user, session_id=row.id)
+        assert "退款售后" in gate.value.msg
+        won = await handoff_routing.claim(db, tenant=TENANT, user=refund_user, session_id=row.id)
+        assert (won.handoff_status, won.assignee) == ("handling", "cs_refund")
+
+        # 2) 排队位：同组 pending 按等待时长 FIFO（先挂的排 1）
+        first = await session_service.create_session(db, tenant=TENANT, username="b2", title="先挂")
+        second = await session_service.create_session(
+            db, tenant=TENANT, username="b3", title="后挂"
+        )
+        await handoff_service.mark_pending_if_idle(
+            db, tenant=TENANT, session_id=first.id, reason="排队1", skill="general"
+        )
+        await db.commit()
+        await handoff_service.mark_pending_if_idle(
+            db, tenant=TENANT, session_id=second.id, reason="排队2", skill="general"
+        )
+        await db.commit()
+        positions = await handoff_routing.pending_positions(db, tenant=TENANT, skill="general")
+        assert (positions[first.id], positions[second.id]) == (1, 2)
+        queued = await workbench_service.queue(db, tenant=TENANT, status="pending")
+        by_id = {item["id"]: item for item in queued["items"]}
+        assert by_id[first.id]["queue_position"] == 1
+        assert by_id[first.id]["handoff_skill"] == "general"
+        filtered = await workbench_service.queue(
+            db, tenant=TENANT, status="pending", skill="refund"
+        )
+        assert all(item["handoff_skill"] == "refund" for item in filtered["items"])
+
+        # 3) 智能分配：cs_refund 已在手 1 单，新退款单应派给更闲的组内坐席；无组标者不候选
+        row2 = await session_service.create_session(
+            db, tenant=TENANT, username="b4", title="退款单2"
+        )
+        await handoff_service.auto_handoff(
+            db, tenant=TENANT, session_id=row2.id, signals={"approval_pending": True}
+        )
+        await db.commit()
+        assigned = await handoff_routing.assign(db, tenant=TENANT, user=TESTER, session_id=row2.id)
+        assert (assigned.handoff_status, assigned.assignee) == ("handling", "cs_refund")
+        # 满载即拒：上限压到 1，cs_refund 在手 2 单 → 无候选，1001 明示满载，会话留队列
+        monkeypatch.setattr(settings, "HANDOFF_LOAD_LIMIT", 1)
+        row3 = await session_service.create_session(
+            db, tenant=TENANT, username="b5", title="退款单3"
+        )
+        await handoff_service.auto_handoff(
+            db, tenant=TENANT, session_id=row3.id, signals={"approval_pending": True}
+        )
+        await db.commit()
+        with pytest.raises(BusinessError) as full:
+            await handoff_routing.assign(db, tenant=TENANT, user=TESTER, session_id=row3.id)
+        assert "满载" in full.value.msg
+        assert row3.handoff_status == "pending"
+        # 关闭分配：上限 0 → 1001 提示手动抢接
+        monkeypatch.setattr(settings, "HANDOFF_LOAD_LIMIT", 0)
+        with pytest.raises(BusinessError) as off:
+            await handoff_routing.assign(db, tenant=TENANT, user=TESTER, session_id=row3.id)
+        assert "已关闭" in off.value.msg
+
+        # 4) 负载视图：坐席在手数 + 各组待接数
+        monkeypatch.setattr(settings, "HANDOFF_LOAD_LIMIT", 5)
+        view = await handoff_routing.load_view(db, tenant=TENANT)
+        loads = {a["username"]: a["handling"] for a in view["agents"]}
+        assert loads["cs_refund"] == 2 and loads["cs_general"] == 0
+        assert view["pending_by_skill"]["refund"] == 1
+        assert {g["key"] for g in view["skill_groups"]} >= {"general", "refund"}
+    finally:
         await gen.aclose()
 
 
@@ -351,6 +447,15 @@ async def test_auto_handoff_follows_rule_table(
         )
         assert (first["hit"], first["code"], first["applied"]) == (True, "explicit_request", True)
         assert row.handoff_status == "pending" and row.handoff_reason == first["reason"]
+        assert row.handoff_skill == "general"  # 喊人工路由通用组
+        # 1b) 退款送审路由退款组（技能组隔离：队列筛选/认领门禁/分配按组走）
+        row_ref = await session_service.create_session(
+            db, tenant=TENANT, username="buyer1", title="退款路由"
+        )
+        routed = await handoff_service.auto_handoff(
+            db, tenant=TENANT, session_id=row_ref.id, signals={"approval_pending": True}
+        )
+        assert routed["skill"] == "refund" and row_ref.handoff_skill == "refund"
         # 2) 已 pending：仍命规则但不重复挂起，原因不被覆盖
         again = await handoff_service.auto_handoff(
             db, tenant=TENANT, session_id=row.id, signals={"query": "转人工"}
@@ -358,7 +463,7 @@ async def test_auto_handoff_follows_rule_table(
         assert (again["hit"], again["applied"], again["handoff_status"]) == (True, False, "pending")
         assert row.handoff_reason == first["reason"]
         # 3) 已认领：不抢单，状态与归属原样
-        await workbench_service.claim(db, tenant=TENANT, user=TESTER, session_id=row.id)
+        await handoff_routing.claim(db, tenant=TENANT, user=TESTER, session_id=row.id)
         picked = await handoff_service.auto_handoff(
             db, tenant=TENANT, session_id=row.id, signals={"no_evidence": True}
         )
