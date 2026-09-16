@@ -25,8 +25,8 @@ description: This skill should be used when implementing, refactoring, or review
 | 前端函数嵌套过深 | ESLint `max-depth` | >3 error |
 | 前端单文件过长 | ESLint `max-lines` | >400 行 error |
 | 前端函数参数 / 复杂度溢出 | ESLint `max-params` / `complexity` | >4 / >20 error |
-| 后端单文件 >400 行 | `scripts/check_arch.py` | FAIL |
-| endpoint 直接触 DB（`execute/add/commit/scalar/select(`） | `scripts/check_arch.py` | FAIL（存量见 §5 基线） |
+| 后端单文件 >400 行 | `skills/anti-shit-code/scripts/check_arch.py` | FAIL |
+| endpoint 直接触 DB（`execute/add/commit/scalar/select(`） | `skills/anti-shit-code/scripts/check_arch.py` | FAIL（存量见 §5 基线） |
 | views/components 直写 `fetch(` / `axios` | ESLint `no-restricted-globals` + `check_arch.py` 双保险 | FAIL |
 
 运行：`python skills/anti-shit-code/scripts/check_arch.py`（退出码 0 = 过）。

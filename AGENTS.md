@@ -16,7 +16,8 @@
 | 任务优先级/剩余工序           | `执行步骤.md`（现状盘点 + 剩余工序 A-F）                                                              |
 | 后端风格                      | `skills/backend-code-style/SKILL.md`                                                                  |
 | 前端风格                      | `skills/frontend-code-style/SKILL.md`                                                                 |
-| 架构健康/防屎山（提交前自检） | `skills/anti-shit-code/SKILL.md`（含硬检查脚本 `scripts/check_arch.py`）                              || UI/设计稿（画板）             | `design.pen`（画板名 `<中文标题>-/<route>`）+ `skills/design-first/SKILL.md`                           |
+| 架构健康/防屎山（提交前自检） | `skills/anti-shit-code/SKILL.md`（含硬检查脚本 `skills/anti-shit-code/scripts/check_arch.py`）  |
+| UI/设计稿（画板）             | `design.pen`（画板名 `<中文标题>-/<route>`）+ `skills/design-first/SKILL.md`                           |
 
 ## 2. AI 工作流（强制）
 

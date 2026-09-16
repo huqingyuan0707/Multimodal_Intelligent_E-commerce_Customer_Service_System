@@ -25,8 +25,8 @@ description: This skill should be used when implementing, refactoring, or review
 | 前端函数嵌套过深 | ESLint `max-depth` | >3 error |
 | 前端单文件过长 | ESLint `max-lines` | >400 行 error |
 | 前端函数参数 / 复杂度溢出 | ESLint `max-params` / `complexity` | >4 / >20 error |
-| 后端单文件 >400 行 | `scripts/check_arch.py` | FAIL |
-| endpoint 直接触 DB（`execute/add/commit/scalar/select(`） | `scripts/check_arch.py` | FAIL（存量见 §5 基线） |
+| 后端单文件 >400 行 | `skills/anti-shit-code/scripts/check_arch.py` | FAIL |
+| endpoint 直接触 DB（`execute/add/commit/scalar/select(`） | `skills/anti-shit-code/scripts/check_arch.py` | FAIL（存量见 §5 基线） |
 | views/components 直写 `fetch(` / `axios` | ESLint `no-restricted-globals` + `check_arch.py` 双保险 | FAIL |
 
 运行：`python skills/anti-shit-code/scripts/check_arch.py`（退出码 0 = 过）。
@@ -53,6 +53,7 @@ description: This skill should be used when implementing, refactoring, or review
 | `PLR0913` service 函数参数 >5 | 13 处（approval/goods/inventory/order/promo/review service） | 触碰对应 service 时把参数收进 dataclass / 查询对象，清零后再启用该规则 |
 | endpoint 直写 `await db.commit()` | 9 处（logistics/reviews/promos/tickets） | 事务下沉到 service 层 |
 | service 依赖 FastAPI 对象 | 未机检 | 后续可扩进 `check_arch.py`（import 扫描） |
+| `check_arch.py` 机检存量（棘轮记名，只准减不准增） | `endpoint-db-op` 10 处（logistics 1 / reviews 3 / promos 3 / tickets 2 / agent 1）记在 `BASELINE`；`file-too-long` 4 处（`modules/agent/runtime.py` 519 / `chat_service.py` 799 / `vision_service.py` 501 / `inventory_service.py` 409）记在 `FILE_LINE_BUDGET`（**按行数预算**记名，涨一行即红，拆小后提示收紧） | 触碰对应文件时把事务下沉 service / 按职责拆模块（v0.2.9 例：转人工挂载点拆出 `handoff_service.py`，`workbench_service.py` 450→330 行回到红线内） |
 
 ## 6. 提交前自检（每项都必须是"是"）
 

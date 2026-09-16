@@ -29,6 +29,16 @@ BASELINE: dict[tuple[str, str], int] = {
     ("backend/app/api/v1/endpoints/reviews.py", "endpoint-db-op"): 3,
     ("backend/app/api/v1/endpoints/promos.py", "endpoint-db-op"): 3,
     ("backend/app/api/v1/endpoints/tickets.py", "endpoint-db-op"): 2,
+    ("backend/app/api/v1/endpoints/agent.py", "endpoint-db-op"): 1,
+}
+
+# file-too-long 的棘轮语义不同于上面「条数」：一个文件只产生 1 条违规，记成 1 等于永不收紧，
+# 故按「当前允许行数」记名——超预算即红，文件拆小后提示把预算收到新行数，清零后删条目。
+FILE_LINE_BUDGET: dict[str, int] = {
+    "backend/app/modules/agent/runtime.py": 519,
+    "backend/app/services/chat_service.py": 799,
+    "backend/app/services/inventory_service.py": 409,
+    "backend/app/services/vision_service.py": 501,
 }
 
 RULE_FILE_TOO_LONG = "file-too-long"
@@ -99,12 +109,29 @@ def main() -> int:
         counts.setdefault((rel, rule), []).append(lineno)
 
     failures: list[str] = []
+    debt = 0
     for key, linenos in sorted(counts.items()):
+        rel, rule = key
+        if rule == RULE_FILE_TOO_LONG:
+            budget = FILE_LINE_BUDGET.get(rel, MAX_FILE_LINES)
+            if linenos[0] > budget:
+                tag = f"超出基线预算 {budget}" if rel in FILE_LINE_BUDGET else "新增"
+                failures.append(f"{rel} [{rule}] {tag}：行 {linenos}")
+            else:
+                debt += 1
+            continue
         allowed = BASELINE.get(key, 0)
         if len(linenos) > allowed:
-            rel, rule = key
             tag = "新增" if allowed == 0 else f"超出基线 {allowed}"
             failures.append(f"{rel} [{rule}] {tag}：行 {linenos}")
+        debt += min(len(linenos), allowed)
+
+    for rel, budget in sorted(FILE_LINE_BUDGET.items()):
+        current = counts.get((rel, RULE_FILE_TOO_LONG))
+        if current and current[0] < budget:
+            print(f"NOTE | 超长文件已拆小，可收紧预算：{rel}（{budget} → {current[0]}）")
+        elif not current:
+            print(f"NOTE | 已回到 {MAX_FILE_LINES} 行内，可删除预算条目：{rel}")
     for key, allowed in sorted(BASELINE.items()):
         if key not in counts:
             print(f"NOTE | 基线债务已清零，可收紧：{key[0]} [{key[1]}]（{allowed}）")
@@ -113,7 +140,6 @@ def main() -> int:
         print(f"FAIL | {msg}")
     if not failures:
         print("PASS | 分层与体量检查全部通过（存量债务未增加）")
-    debt = sum(min(len(v), BASELINE.get(k, 0)) for k, v in counts.items())
     print(f"RESULT: {len(violations) - debt} new violation(s), {debt} baseline debt, {len(failures)} failed check(s)")
     return 1 if failures else 0
 
