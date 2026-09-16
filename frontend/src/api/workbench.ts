@@ -170,3 +170,70 @@ export const traceWorkbenchApi = (params: { id: string; size?: number }) =>
     path: `/api/v1/workbench/sessions/${encodeURIComponent(params.id)}/trace`,
     params: { size: params.size ?? 50 },
   });
+
+// ---------------- 质检打分 + 绩效统计（C 步收官，FR-7） ----------------
+
+// 质检评分：resolve 后自动评分（judge=AI 评审 / rule=规则兜底），人工改评 source=manual
+export type WorkbenchScoreDetail = {
+  dimensions?: { [key: string]: number };
+  reason?: string;
+  messages?: number;
+};
+
+export type WorkbenchScore = {
+  id: string;
+  session_id: string;
+  assignee: string;
+  score: number; // 综合 1..5；0=未评
+  resolution_ok: boolean;
+  source: string;
+  reviewer: string;
+  detail: WorkbenchScoreDetail;
+  pass: boolean;
+  updated_at: string;
+};
+
+// 读会话当前质检评分（未评返回 score=0 空形状，不 404）
+export const getScoreWorkbenchApi = (params: { id: string }) =>
+  request({
+    method: 'GET',
+    path: `/api/v1/workbench/sessions/${encodeURIComponent(params.id)}/score`,
+  });
+
+// 人工改评（覆盖自动评分，reviewer=当前坐席留痕）
+export const saveScoreWorkbenchApi = (params: {
+  id: string;
+  score: number;
+  resolution_ok: boolean;
+  comment?: string;
+}) =>
+  request({
+    method: 'POST',
+    path: `/api/v1/workbench/sessions/${encodeURIComponent(params.id)}/score`,
+    params: {
+      score: params.score,
+      resolution_ok: params.resolution_ok,
+      comment: params.comment ?? '',
+    },
+    idempotent: true,
+  });
+
+// 坐席绩效：已解决会话数 / 质检均分 / 通过率 / 人工复核数（按 assignee 聚合）
+export type WorkbenchAgentPerf = {
+  assignee: string;
+  resolved: number;
+  scored: number;
+  avg_score: number | null;
+  pass_rate: number | null;
+  manual_reviews: number;
+  unscored: number;
+};
+
+export type WorkbenchPerformance = {
+  pass_score: number;
+  auto_enabled: boolean;
+  agents: WorkbenchAgentPerf[];
+};
+
+export const performanceWorkbenchApi = () =>
+  request({ method: 'GET', path: '/api/v1/workbench/performance' });

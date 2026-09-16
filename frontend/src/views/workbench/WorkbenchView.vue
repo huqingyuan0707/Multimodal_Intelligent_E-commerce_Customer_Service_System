@@ -18,6 +18,7 @@
       @skill="setSkill"
       @page="setPage"
       @size="setSize"
+      @performance="perfVisible = true"
     />
 
     <!-- 中：当前会话（顶栏流转动作＋消息流＋快捷话术＋输入行，画布 chatPanel） -->
@@ -88,7 +89,19 @@
         :disabled="notesDisabled"
         @add="saveNote"
       />
+      <!-- 质检评分卡（C 步收官）：仅已解决会话展示自动评分与人工改评 -->
+      <WorkbenchQc
+        v-if="currentRow?.statusKey === 'resolved'"
+        :key="`qc-${currentId}`"
+        :score="qcScore"
+        :loading="qcLoading"
+        :saving="qcSaving"
+        :demo="qcDemo"
+        @save="submitQc"
+      />
     </WorkbenchSide>
+    <!-- 坐席绩效面板（C 步收官）：按坐席聚合已解决会话质检口径 -->
+    <WorkbenchPerformance v-model="perfVisible" />
   </div>
 </template>
 
@@ -101,11 +114,14 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { replyWorkbenchApi } from '@/api';
 import WorkbenchChat from '@/components/WorkbenchChat.vue';
 import WorkbenchNotes from '@/components/WorkbenchNotes.vue';
+import WorkbenchPerformance from '@/components/WorkbenchPerformance.vue';
+import WorkbenchQc from '@/components/WorkbenchQc.vue';
 import WorkbenchQueue from '@/components/WorkbenchQueue.vue';
 import WorkbenchSide from '@/components/WorkbenchSide.vue';
 import { useAgentStream } from '@/composables/useAgentStream';
 import { useWorkbenchLoad } from '@/composables/useWorkbenchLoad';
 import { useWorkbenchNotes } from '@/composables/useWorkbenchNotes';
+import { useWorkbenchQc } from '@/composables/useWorkbenchQc';
 import { useWorkbenchQueue } from '@/composables/useWorkbenchQueue';
 import { useWorkbenchSide } from '@/composables/useWorkbenchSide';
 import { useWorkbenchTrace } from '@/composables/useWorkbenchTrace';
@@ -167,6 +183,19 @@ const {
 } = useWorkbenchNotes();
 const { sideOrder, sideDemo, sessionTraces, sideUsage } = useWorkbenchSide(messages, context);
 
+// —— 质检评分（C 步收官）：resolved 会话自动评分展示 + 人工改评 ——
+const {
+  score: qcScore,
+  loading: qcLoading,
+  saving: qcSaving,
+  demo: qcDemo,
+  load: loadQc,
+  save: saveQc,
+  reset: resetQc,
+} = useWorkbenchQc();
+
+const perfVisible = ref(false);
+
 const draft = ref('');
 const notesRef = ref<InstanceType<typeof WorkbenchNotes> | null>(null);
 const stream = useAgentStream();
@@ -221,13 +250,18 @@ const phaseText = computed(() => {
   return '';
 });
 
-// 切会话联动：停流 + 重拉 Trace/备注（队列 load 自动选首行也会触发本 watch）
+// 切会话联动：停流 + 重拉 Trace/备注/质检评分（队列 load 自动选首行也会触发本 watch）
 watch(currentId, id => {
   if (stream.streaming.value) stream.stop();
   draft.value = '';
   loadTrace(id);
-  if (queueDemo.value) resetNotes();
-  else loadNotes(id);
+  if (queueDemo.value) {
+    resetNotes();
+    resetQc();
+  } else {
+    loadNotes(id);
+    loadQc(id);
+  }
 });
 
 const send = async () => {
@@ -278,6 +312,11 @@ const applyQuick = (key: string) => {
 // 备注保存成功才清草稿；失败保留，避免坐席白写一段
 const saveNote = async (text: string) => {
   if (await addNote(currentId.value, text)) notesRef.value?.reset();
+};
+
+// 质检人工改评：成功后卡片由 composable 用返回值原地刷新
+const submitQc = (payload: { score: number; resolution_ok: boolean; comment: string }) => {
+  saveQc(currentId.value, payload);
 };
 
 const pickImage = () => ElMessage.info('图片上传后续接多模态接口（演示占位，≤9张/单张≤10M）');

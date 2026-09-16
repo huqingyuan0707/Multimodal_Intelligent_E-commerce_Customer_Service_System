@@ -520,3 +520,129 @@ async def test_auto_handoff_follows_rule_table(
         assert row3.handoff_status == "none"
     finally:
         await gen.aclose()
+
+
+async def test_quality_score_rule_manual_performance(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """质检闭环（C 步收官）：resolve 后台自动评分（LLM 关走规则兜底）→ 查分 →
+    人工改评覆盖 → 越界拦截 → 绩效聚合（含未评会话）；异租户/幽灵会话 404。"""
+    monkeypatch.setattr(settings, "LLM_ENABLED", False)  # 不依赖 Ollama：judge 直接走规则兜底
+    sid = await _new_session(client, "退货咨询")
+    login_as(BUYER)
+    await _ok(await client.post(f"/api/v1/workbench/sessions/{sid}/handoff"))
+    login_as(TESTER)
+    await _ok(await client.post(f"/api/v1/workbench/sessions/{sid}/claim"))
+    # 未评：score=0 空形状（端点不 404）
+    empty = await _ok(await client.get(f"/api/v1/workbench/sessions/{sid}/score"))
+    assert empty["score"] == 0 and empty["source"] == ""
+    # 代回 + 解决 → 后台自动评分（ASGITransport 下 background 同步跑完）
+    await _ok(
+        await client.post(
+            f"/api/v1/workbench/sessions/{sid}/reply", json={"content": "已为您办理退货"}
+        )
+    )
+    await _ok(
+        await client.post(
+            f"/api/v1/workbench/sessions/{sid}/resolve", json={"conclusion": "退货已受理"}
+        )
+    )
+    scored = await _ok(await client.get(f"/api/v1/workbench/sessions/{sid}/score"))
+    assert scored["source"] == "rule" and scored["assignee"] == "tester"
+    assert scored["score"] == 5  # 基线3 + 有客服回复 +1 + 有解决小结 +1
+    assert scored["resolution_ok"] is True and scored["pass"] is True
+    # 人工改评覆盖（source=manual + reviewer 留痕）
+    manual = await _ok(
+        await client.post(
+            f"/api/v1/workbench/sessions/{sid}/score",
+            json={"score": 2, "resolution_ok": False, "comment": "回复模板化，未确认运单"},
+        )
+    )
+    assert manual["source"] == "manual" and manual["reviewer"] == "tester"
+    assert manual["score"] == 2 and manual["pass"] is False
+    # 越界/非法分数 1001
+    for bad in ({"score": 0}, {"score": 6}, {"score": "x"}):
+        assert (
+            await _code(await client.post(f"/api/v1/workbench/sessions/{sid}/score", json=bad))
+        )["code"] == 1001
+    # 未评会话（关自动评分）→ 绩效 unscored 计数
+    monkeypatch.setattr(settings, "QUALITY_AUTO_SCORE", False)
+    sid2 = await _new_session(client, "物流催单")
+    login_as(BUYER)
+    await _ok(await client.post(f"/api/v1/workbench/sessions/{sid2}/handoff"))
+    login_as(TESTER)
+    await _ok(await client.post(f"/api/v1/workbench/sessions/{sid2}/claim"))
+    await _ok(
+        await client.post(
+            f"/api/v1/workbench/sessions/{sid2}/resolve", json={"conclusion": "已催单"}
+        )
+    )
+    perf = await _ok(await client.get("/api/v1/workbench/performance"))
+    assert perf["pass_score"] == int(settings.QUALITY_PASS_SCORE)
+    assert perf["auto_enabled"] is False
+    row = next(a for a in perf["agents"] if a["assignee"] == "tester")
+    assert row["resolved"] == 2 and row["scored"] == 1 and row["unscored"] == 1
+    assert row["avg_score"] == 2.0 and row["pass_rate"] == 0.0 and row["manual_reviews"] == 1
+    # 隔离：异租户查分 404；幽灵会话 404
+    login_as(OTHER)
+    assert (await _code(await client.get(f"/api/v1/workbench/sessions/{sid}/score")))[
+        "code"
+    ] == 1004
+    login_as(TESTER)
+    assert (await _code(await client.get("/api/v1/workbench/sessions/nope/score")))[
+        "code"
+    ] == 1004
+
+
+async def test_quality_judge_paths(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """LLM-as-judge 双路径：输出可解析落 judge 分；模型不可用降级规则兜底（绝不 500）。"""
+    from types import SimpleNamespace
+
+    from app.services import llm_service, quality_service
+
+    # 纯函数：合法 JSON 解析（未知维度丢弃）；坏输出/越界一律 None
+    good = quality_service.parse_judge_output(
+        '{"score": 4, "resolution_ok": true, "dimensions": {"resolution": 4, "bogus": 9},'
+        ' "reason": "基本解决"}'
+    )
+    assert good is not None and good["score"] == 4 and good["dimensions"] == {"resolution": 4}
+    assert quality_service.parse_judge_output("抱歉，我无法输出 JSON") is None
+    assert quality_service.parse_judge_output('{"score": 9, "resolution_ok": true}') is None
+
+    sid = await _new_session(client, "换货咨询")
+    login_as(BUYER)
+    await _ok(await client.post(f"/api/v1/workbench/sessions/{sid}/handoff"))
+    login_as(TESTER)
+    await _ok(await client.post(f"/api/v1/workbench/sessions/{sid}/claim"))
+
+    async def _fake_ok(messages: list[dict[str, str]], **_: object) -> SimpleNamespace:
+        return SimpleNamespace(
+            text='{"score": 5, "resolution_ok": true, "dimensions": {}, "reason": "全部解决"}'
+        )
+
+    monkeypatch.setattr(llm_service, "complete", _fake_ok)
+    await _ok(
+        await client.post(f"/api/v1/workbench/sessions/{sid}/resolve", json={"conclusion": "已换货"})
+    )
+    judged = await _ok(await client.get(f"/api/v1/workbench/sessions/{sid}/score"))
+    assert judged["source"] == "judge" and judged["score"] == 5
+    assert judged["detail"]["reason"] == "全部解决"
+
+    # 模型不可用 → 规则兜底（source=rule），resolve 主流程不受影响
+    sid2 = await _new_session(client, "发票咨询")
+    login_as(BUYER)
+    await _ok(await client.post(f"/api/v1/workbench/sessions/{sid2}/handoff"))
+    login_as(TESTER)
+    await _ok(await client.post(f"/api/v1/workbench/sessions/{sid2}/claim"))
+
+    async def _fake_down(messages: list[dict[str, str]], **_: object) -> SimpleNamespace:
+        raise llm_service.LlmUnavailableError("模型离线")
+
+    monkeypatch.setattr(llm_service, "complete", _fake_down)
+    await _ok(
+        await client.post(f"/api/v1/workbench/sessions/{sid2}/resolve", json={"conclusion": "已开票"})
+    )
+    ruled = await _ok(await client.get(f"/api/v1/workbench/sessions/{sid2}/score"))
+    assert ruled["source"] == "rule" and 1 <= ruled["score"] <= 5

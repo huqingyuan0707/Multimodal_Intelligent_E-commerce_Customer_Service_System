@@ -35,7 +35,10 @@
           :show-followups="m.role === 'agent' && m.id === lastAgentId && !streaming"
           @ask="sendPreset"
           @preview="preview"
-          @transfer="transfer"
+          @transfer="doTransfer"
+          @vote="v => vote(m, v)"
+          @open-doc="openDoc"
+          @retry="retryLast"
         />
         <div v-if="streaming" class="bubble agent">
           <p class="content">{{ draft || phase || '思考中…' }}</p>
@@ -51,8 +54,9 @@
         </div>
       </div>
       <p v-if="imgError" class="err">{{ imgError }}</p>
-      <VoicePanel v-if="voiceOpen" @transcribed="onTranscribed" />
+      <VoicePanel v-if="voiceOpen" @transcribed="onTranscribed" @play="trackPlay" />
       <ImagePreviewDialog ref="previewRef" />
+      <ChatQuickEntries @ask="sendPreset" @notice="noticeLine" />
       <div class="input-row">
         <AiInput v-model="input" placeholder="请输入问题，如：退货政策是什么" @keyup.enter="send" />
         <AiButton aria-label="上传图片" @click="pick">图片</AiButton>
@@ -86,27 +90,28 @@
 </template>
 
 <script setup lang="ts">
-// 真实对话：会话抽屉 + 图片上传 + 语音录播 + 流式落条（引用/trace/sources）；失败重连后仍不用回 mock 演示（对齐页面设计 §3.1/§4）
-// 发送带 threadId（t- 占位不传）+ clientMsgId 幂等键，首轮 done 回 session_id 后认领替换占位。
-import { ElMessage } from 'element-plus';
+// 真实对话：会话抽屉 + 图片上传 + 语音录播 + 流式落条 + 赞踩反馈/埋点/快捷入口/限流排队话术
+// （发送/重试/预设管线在 useChatSend，对齐页面设计 §3.1/§4）
 import { computed, onMounted, ref } from 'vue';
 import { useAgentStream } from '@/composables/useAgentStream';
 import { useHumanHandoff } from '@/composables/useHumanHandoff';
 import { useChatHistory } from '@/composables/useChatHistory';
+import { useChatFeedback } from '@/composables/useChatFeedback';
+import { useChatSend } from '@/composables/useChatSend';
 import { useImageUpload } from '@/composables/useImageUpload';
 import { useStickToBottom } from '@/composables/useStickToBottom';
 import { useSuggestedQuestions } from '@/composables/useSuggestedQuestions';
 import ChatMessage from '@/components/ChatMessage.vue';
+import ChatQuickEntries from '@/components/ChatQuickEntries.vue';
 import ChatSuggestions from '@/components/ChatSuggestions.vue';
 import ImagePreviewDialog from '@/components/ImagePreviewDialog.vue';
 import SessionDrawer from '@/components/SessionDrawer.vue';
 import SessionList from '@/components/SessionList.vue';
 import VoicePanel from '@/components/VoicePanel.vue';
-import { mockChatFallback } from '@/mock';
 import { useSessionStore } from '@/stores/session';
 import AiButton from '@/shared/components/AiButton.vue';
 import AiInput from '@/shared/components/AiInput.vue';
-import type { AgentMessage, VisionInspection } from '@/types/agent';
+import type { AgentMessage } from '@/types/agent';
 
 const messages = ref<AgentMessage[]>([]);
 const input = ref('');
@@ -130,21 +135,34 @@ const restore = async (id: string) => {
     last.followups = getFollowups(last.content, last.references);
   }
 };
-const { streaming, sources, phase, draft, error, done, start, stop, toMessage } = useAgentStream();
-const {
-  images: pendingImages,
-  error: imgError,
-  addFiles,
-  remove: removeImage,
-  uploadAll,
-  clear: clearImages,
-} = useImageUpload();
+const stream = useAgentStream();
+const { streaming, sources, phase, draft, stop } = stream;
+const feedback = useChatFeedback(messages);
+const { vote, openDoc, trackPlay } = feedback;
+const upload = useImageUpload();
+const pendingImages = upload.images;
+const { error: imgError, addFiles, remove: removeImage } = upload;
 const voiceOpen = ref(false);
 const previewRef = ref<{ open: (url: string) => unknown } | null>(null);
 // 流式增量粘底跟随（翻历史不抢滚动，对齐页面设计 §5）
 const { listRef, onListScroll, stickNow } = useStickToBottom(() => messages.value.length, draft);
 // 空态预设 + 追问延伸（欢迎卡 chips / 最后一条回复下猜你想问，点击直接发送）
 const { getWelcomeSuggestions, getFollowups } = useSuggestedQuestions();
+// 发送/重试/预设/快捷回执管线（幂等键 + t- 占位认领 + 错误收尾，全在 useChatSend）
+const {
+  send,
+  retry: retryLast,
+  sendPreset,
+  noticeLine,
+} = useChatSend({
+  messages,
+  input,
+  stream,
+  feedback,
+  upload,
+  stickNow,
+  getFollowups,
+});
 const welcomeSuggestions = getWelcomeSuggestions();
 const isEmpty = computed(() => messages.value.length === 0 && !streaming.value);
 const lastAgentId = computed(() => {
@@ -196,100 +214,17 @@ const onPick = (e: Event) => {
   (e.target as HTMLInputElement).value = '';
 };
 
-const send = async () => {
-  const query = input.value.trim();
-  const attached = pendingImages.value.length;
-  if ((!query && attached === 0) || streaming.value) {
-    return;
-  }
-  // 先保证本地会话占位（t- 前缀），首轮 done 带回后端 id 后再认领替换
-  const threadId = sessionStore.currentId ?? sessionStore.createLocalSession();
-  const clientMsgId = `c-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
-  const previews = pendingImages.value.map(i => i.preview);
-  messages.value = [
-    ...messages.value,
-    {
-      id: `u-${Date.now()}`,
-      role: 'user',
-      modality: attached > 0 ? 'image' : 'text',
-      content: query + (attached > 0 ? `（附${attached}张图）` : ''),
-      images: previews,
-    },
-  ];
-  input.value = '';
-  // 发送即回粘底，保证增量打字可见
-  stickNow();
-  // 上传即检测：检测卡随用户泡即时渲染，file_id/inspections 透传拼 LLM 上下文
-  let imageIds: string[] = [];
-  let inspections: VisionInspection[] = [];
-  if (attached > 0) {
-    const done = await uploadAll();
-    if (done.length < attached) {
-      ElMessage.warning('部分图片上传失败，已继续发送文字');
-    }
-    imageIds = done.map(d => d.file_id);
-    inspections = done.map(d => d.inspection);
-    messages.value = [
-      ...messages.value,
-      {
-        id: `v-${Date.now()}`,
-        role: 'agent',
-        modality: 'image',
-        content: '瑕疵检测结果',
-        vision: inspections,
-        need_human: inspections.some(v => v.need_human),
-      },
-    ];
-    clearImages();
-  }
-  await start(query || '请看这几张图', {
-    threadId: threadId.startsWith('t-') ? undefined : threadId,
-    clientMsgId,
-    imageIds,
-    inspections,
-  });
-  if (error.value) {
-    ElMessage.error(`${error.value}，已用本地演示回复`);
-    messages.value = [
-      ...messages.value,
-      {
-        id: `a-${Date.now()}`,
-        role: 'agent',
-        modality: 'text',
-        content: mockChatFallback,
-        followups: getFollowups(mockChatFallback),
-      },
-    ];
-    return;
-  }
-  // 后端认领：t- 占位换成真实会话 id 并回填标题，抽屉列表随后刷新
-  if (done.value?.session_id) {
-    sessionStore.adoptSession(threadId, done.value.session_id, query.slice(0, 20) || '新会话');
-    sessionStore.loadSessions();
-  }
-  const reply: AgentMessage = toMessage(`a-${Date.now()}`);
-  reply.followups = getFollowups(reply.content, reply.references);
-  messages.value = [...messages.value, reply];
-};
-
-// 预设问题 / 追问一键发送（复用 send 的图片与幂等链路，流式中禁用防并发）
-const sendPreset = async (text: string) => {
-  if (streaming.value || !text.trim()) {
-    return;
-  }
-  input.value = text;
-  await send();
-};
-
-// 转人工：买家自助挂起（useHumanHandoff 内置占位落库 + handoff + 系统提示行）
+// 转人工：买家自助挂起（useHumanHandoff 内置占位落库 + handoff + 系统提示行），埋点同步
 const { transferring, transfer } = useHumanHandoff();
-const doTransfer = () =>
+const doTransfer = () => {
+  feedback.track('handoff.request', {});
   transfer(content => {
     messages.value = [
       ...messages.value,
       { id: `s-${Date.now()}`, role: 'agent', modality: 'text', content },
     ];
   });
+};
 
 onMounted(() => {
   sessionStore.loadSessions();
@@ -323,7 +258,7 @@ onMounted(() => {
   display: none;
 }
 
-@media (max-width: 1023px) {
+@media (width <= 1023px) {
   .sider {
     display: none;
   }
@@ -369,6 +304,7 @@ onMounted(() => {
   background: var(--reai-bubble-agent);
   border: 1px solid var(--reai-border);
   border-radius: 8px;
+
   /* 流式增量原文换行保留（white-space 可继承到气泡内 p.content） */
   white-space: pre-wrap;
 }

@@ -4,6 +4,7 @@
       <span class="title">会话队列</span>
       <el-tag v-if="demo" size="small" type="warning" effect="plain">演示数据</el-tag>
       <span class="count">{{ loading ? '加载中…' : `${total} 条` }}</span>
+      <AiButton link size="small" class="perf" @click="emit('performance')">绩效</AiButton>
     </div>
 
     <div class="chips">
@@ -101,6 +102,7 @@
 // 坐席工作台左栏队列：状态页签 + 服务端搜索 + 服务端分页（默认 20 / 可切 10-100）
 // 对齐 页面设计 §3.2 + 前端 Skill §7；数据与流转动作由 useWorkbenchQueue 提供，组件只做展示与事件
 import { onBeforeUnmount, ref } from 'vue';
+import AiButton from '@/shared/components/AiButton.vue';
 import AiInput from '@/shared/components/AiInput.vue';
 import { handoffTag, QUEUE_TABS } from '@/composables/useWorkbenchQueue';
 import type { QueueRow } from '@/composables/useWorkbenchQueue';
@@ -118,7 +120,7 @@ defineProps<{
   demo: boolean;
 }>();
 
-const emit = defineEmits(['select', 'search', 'filter', 'skill', 'page', 'size']);
+const emit = defineEmits(['select', 'search', 'filter', 'skill', 'page', 'size', 'performance']);
 
 const keyword = ref('');
 let timer: number | undefined;
@@ -165,6 +167,10 @@ onBeforeUnmount(() => window.clearTimeout(timer));
   margin-left: auto;
   font-size: var(--reai-fs-caption);
   color: var(--reai-text-muted);
+}
+
+.perf {
+  margin-left: 4px;
 }
 
 .chips {

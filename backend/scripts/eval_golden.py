@@ -47,8 +47,8 @@ ROLES = ["cs"]
 ACCEPT_GROUNDED_MIN = 0.95  # 可答题命中预期资料的底线（FRD 验收）
 ACCEPT_HALLUCINATION_MAX = 0.02  # 拒答题被抬进引用的上限（FRD 验收）
 ACCEPT_AUTO_RESOLVE_MIN = 0.80  # 网关模式自动解决率底线（FRD 验收）
-BASE_GROUNDED_MIN = 0.85  # 棘轮：低于已验证基线即回归，CI 红
-BASE_HALLUCINATION_MAX = 0.80  # 棘轮：拒答泄漏率基线 0.775（离线检索段，无域守卫）
+BASE_GROUNDED_MIN = 0.92  # 棘轮：低于当前已验证基线 0.927 即回归，CI 红
+BASE_HALLUCINATION_MAX = 0.03  # 棘轮：当前基线 0.020（守卫+检索双闸）
 
 
 def load_samples(tsv: Path) -> list[dict[str, Any]]:
@@ -122,12 +122,29 @@ def _score(samples: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 async def _run_one(db: AsyncSession, sample: dict[str, Any], gateway: bool) -> None:
-    """单样本判定：检索命中预期资料=hit；网关模式再走 answer 统计 resolved（真答+guard.pass）。"""
+    """单样本判定：与线上同款两道闸——先 guard_service（注入/域外），再检索。
+
+    拒答题 hit=True 当且仅当「守卫拦下 或 检索空手」；可答题 hit=True 当「守卫放行
+    且 检索命中预期资料」（守卫误拦的域内题记 got=GUARD-BLOCKED 便于归因）。
+    网关模式再走 chat_service.answer 统计 resolved（真答 + guard.pass + grounded）。
+    """
+    from app.services import guard_service
+
+    expect = set(sample["expect_titles"])
+    verdict = guard_service.check(sample["query"])
+    if verdict["refuse"]:
+        sample["guard"] = str(verdict["category"])
+        if sample["expect_refuse"]:
+            sample["hit"] = True
+        else:  # 域内题被守卫误拦：不算 hit，报告里归因
+            sample["hit"] = False
+            sample["got_titles"] = ["GUARD-BLOCKED"]
+        sample["resolved"] = False
+        return
     refs = await knowledge_service.retrieve(
         sample["query"], TENANT, db=db, roles=ROLES, trace_id=f"eval-{sample['id']}"
     )
     titles = [str(r.get("title", "")) for r in refs]
-    expect = set(sample["expect_titles"])
     if sample["expect_refuse"]:
         sample["hit"] = not titles  # 拒答题：检索必须空手（空→端点 2001）
     else:

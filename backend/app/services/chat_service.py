@@ -21,6 +21,7 @@ from app.core.user_context import CurrentUser, access_context
 from app.modules.agent import runtime as agent_runtime
 from app.services import (
     context_service,
+    guard_service,
     handoff_service,
     knowledge_service,
     llm_service,
@@ -88,6 +89,17 @@ async def _assemble_generation(
     ctx = access_context()
     vision_block = build_vision_context(vision)
     need_human = any(bool(v.get("need_human")) for v in vision)
+    # 第一道闸：输入域守卫（注入/域外直接拒答转人工，不烧检索与模型；GUARD_ENABLED 可旁路）
+    guard = guard_service.check(query)
+    if guard["refuse"]:
+        rag_governance.trace_step(
+            "guard.reject",
+            tenant=ctx["tenant"],
+            trace_id=trace_id,
+            extra={"category": guard["category"]},
+        )
+        record("chat", {"trace_id": trace_id, "guard_reject": guard["category"]})
+        raise NoEvidenceError(str(guard["reason"]))
     refs: list[dict[str, object]] = []
     tool_calls: list[dict[str, object]] = []
     notes: list[str] = []
@@ -274,7 +286,7 @@ async def answer(
         )
     except llm_service.LlmUnavailableError as exc:
         degraded = True
-        text = fallback_answer(query, refs, vision_block, history)
+        text = fallback_answer(query, refs, vision_block)
         rag_governance.trace_step(
             "llm.degraded",
             tenant=ctx["tenant"],
@@ -346,6 +358,7 @@ async def _begin_turn(
                 "tool_calls": [],
                 "orchestration": {"notes": ["重放命中：未重跑工具调用，可按 trace_id 回查审计"]},
                 "handoff": handoff_service.blank_handoff(session),
+                "message_id": saved.id,
                 "replayed": True,
                 "rejected": False,
             }
@@ -419,7 +432,7 @@ async def _persist_agent_turn(
     落库 guard 额外带 degraded/empty 标记（规则表据此算「连续降级 / 连续未解决」）。
     """
     stored_guard = {**dict(guard), "degraded": bool(degraded), "empty": bool(empty)}
-    await session_service.save_agent_message(
+    agent_row = await session_service.save_agent_message(
         db,
         tenant=user.tenant,
         session_id=session.id,
@@ -460,6 +473,8 @@ async def _persist_agent_turn(
         "tool_calls": list(tool_calls or []),
         "orchestration": {"notes": list(notes or [])},
         "handoff": handoff,
+        # 赞踩反馈定位键（mining/feedback 的 message_id，落库行 id，刷新/重放同键）
+        "message_id": agent_row.id,
     }
     await _record_cost_and_audit(db, user=user, session_id=session.id, result=result, query=query)
     await session_service.touch_session(
@@ -486,7 +501,7 @@ async def _persist_reject(
     """
     trace = uuid.uuid4().hex[:16]
     stored_guard: dict[str, object] = {"pass": True, "rejected": True}
-    await session_service.save_agent_message(
+    reject_row = await session_service.save_agent_message(
         db,
         tenant=user.tenant,
         session_id=session.id,
@@ -526,6 +541,7 @@ async def _persist_reject(
         "tool_calls": [],
         "orchestration": {"notes": ["无据拒答：未产出可引用资料，已转人工"]},
         "handoff": handoff,
+        "message_id": reject_row.id,
         "replayed": False,
         "rejected": True,
     }
@@ -708,7 +724,7 @@ async def stream_text_turn(
         if buf:
             text = "".join(buf).strip() + "\n（后续内容生成中断，可重试或转人工继续跟进）"
         else:
-            text = fallback_answer(query, refs, vision_block, history_block)
+            text = fallback_answer(query, refs, vision_block)
             yield text
         degraded = True
         model = "template"

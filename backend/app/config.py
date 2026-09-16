@@ -87,6 +87,8 @@ class Settings(BaseSettings):
         "AGENT_TOOL_CIRCUIT_THRESHOLD",
         "AGENT_TOOL_CIRCUIT_COOLDOWN_SECONDS",
         "AGENT_CHAT_ORCHESTRATE",
+        "GUARD_ENABLED",
+        "GUARD_INJECTION_PATTERNS",
         "HANDOFF_ENABLED",
         "HANDOFF_MISS_STREAK_THRESHOLD",
         "HANDOFF_DEGRADE_STREAK_THRESHOLD",
@@ -187,13 +189,93 @@ class Settings(BaseSettings):
         3  # 「3 次不懂」：连续未解决轮次达此值即转人工（0/负数=关闭该规则）
     )
     HANDOFF_DEGRADE_STREAK_THRESHOLD: int = 3  # 模型连续降级达此值即转人工（0/负数=关闭该规则）
-
     # 技能组路由与负载均衡（FRD FR-7「技能组 + 负载均衡」）：
     # 规则表每条规则挂一个组（general=通用，任何坐席可接）；坐席技能组走
     # users.roles 的 `cs:<组>` 令牌（admin/* 恒全组）；assign 智能分配按
     # 「技能匹配 + 在手 < 上限 + 最少者优先」，上限 0=关闭分配只留手动抢接。
     HANDOFF_SKILL_GROUPS: list[str] = ["general", "refund", "complaint", "aftersale"]
     HANDOFF_LOAD_LIMIT: int = 5  # 单坐席在手（handling）会话上限，assign 用（0=关闭）
+
+    # 质检打分与绩效（FRD FR-7「质检打分」/ 执行步骤 C 步收官）：resolve 会话后台
+    # LLM-as-judge 自动评分（模型不可用走规则兜底），坐席可人工改评（source=manual）。
+    QUALITY_AUTO_SCORE: bool = True  # 解决会话后自动评分总开关（false=只留手动）
+    QUALITY_PASS_SCORE: int = 4  # 绩效口径：综合分 ≥ 此值算质检通过（1..5）
+    QUALITY_MAX_MESSAGES: int = 40  # 送 judge 的会话消息上限（超长截断，控 token 成本）
+
+    # 输入域守卫（guard_service，问答第一道闸）：注入模式 + 电商客服域词表。
+    # 词表可热更；误拦率优先于拦全率——拿不准一律放行给 RAG 治理兜底。
+    GUARD_ENABLED: bool = True  # false=整体旁路（回滚位，同 AGENT_CHAT_ORCHESTRATE）
+    # 域外黑名单：确定与电商客服无关的闲聊/套话/越权话题词，命中即拒（先于白名单；
+    # 只收无歧义词，宁可少拦不误伤——域内无据由检索阈值负责拒答）
+    GUARD_OFF_DOMAIN_KEYWORDS: list[str] = [
+        "天气",
+        "股票",
+        "股价",
+        "基金",
+        "电影",
+        "电视剧",
+        "笑话",
+        "驾照",
+        "八字",
+        "算命",
+        "星座",
+        "加油站",
+        "好吃",
+        "菜谱",
+        "做什么菜",
+        "训练数据",
+        "system prompt",
+        "代码",
+        "编程",
+        "翻译",
+        "闲聊",
+        "推荐一部",
+        "附近",
+        "怎么治",
+        "求职信",
+        "讲个",
+        "量子",
+        "算法原理",
+        "竞争对手",
+        "黑进",
+        "密码",
+        "密钥",
+        "手机号",
+        "别的店铺",
+        "其他店铺",
+        "内部角色",
+        "买家群",
+        "盗版",
+        "jailbreak",
+        "脏话",
+        "脏字",
+        "你是谁",
+        "注册资本",
+        "扮演",
+        "免审批",
+        "现在几点",
+    ]
+    GUARD_INJECTION_PATTERNS: list[str] = [
+        r"忽略(以上|之前|所有)(的)?(指令|提示|规则)",
+        r"无视(租户隔离|权限|风控|安全)",
+        r"(system|系统)?\s*prompt",
+        r"(api|访问|数据库)?\s*密钥",
+        r"越权",
+        r"扮演\s*\w",
+        r"假设你是.{0,6}(管理员|监管|root|超级|平台)",
+        r"我是.{0,8}(监管|管理员|平台).{0,10}(免审|直接|批准)",
+        r"(绕过|绕开)风控",
+        r"伪造.{0,6}(截图|凭证|单据)",
+        r"(别的|其他|其它)买家.{0,4}(手机号|电话|信息)",
+        r"(其他|别的|其它)租户.{0,6}(数据|尺码表|订单|资料)",
+        r"(其他|别的|其它)店铺.{0,6}(政策|价格|资料|数据)",
+        r"(内部|机密).{0,8}(发给|发到|泄漏|外传|群)",
+        r"(全部|所有)(内部|机密)(资料|文件|密码)",
+        r"批量.{0,4}(下单|注册)",
+        r"黑进|入侵|攻击账号",
+        r"(从现在开始|从现在起).{0,10}(脏|无视|没有(任何)?限制)",
+        r"没有任何限制",
+    ]
 
     # 可观测（FRD FR-9 / 执行步骤 E 步）：关键链路事件 → core/observability.py
     # 内存计数器 + JSONL 落盘（Prometheus/Langfuse 网关后置替换只改该模块）。

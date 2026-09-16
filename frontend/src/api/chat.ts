@@ -17,8 +17,9 @@ export const toAgentMessages = (list: unknown[]) => {
     if (typeof m !== 'object' || m === null) {
       return [];
     }
-    // 后端行：content/role/modality/attachments/citations[{source,title,score}]/trace_id
+    // 后端行：id/content/role/modality/trace_id/attachments/citations[{source,title,score}]
     const r = m as {
+      id?: string;
       content?: string;
       role?: string;
       modality?: string;
@@ -45,6 +46,8 @@ export const toAgentMessages = (list: unknown[]) => {
         content: r.content,
         references,
         trace_id: typeof r.trace_id === 'string' ? r.trace_id : undefined,
+        // 赞踩反馈定位键：历史回放同样可评（后端 message_to_dict 带 id）
+        message_id: typeof r.id === 'string' ? r.id : undefined,
         vision: r.role === 'agent' ? vision : [],
         need_human: r.role === 'agent' && vision.some(v => v.need_human),
       } as AgentMessage,
@@ -58,6 +61,8 @@ export type DonePayload = {
   faithfulness: number;
   trace_id: string;
   session_id: string;
+  // 赞踩反馈定位键（done.message_id → POST /mining/feedback 入参；空=本地演示行不显按钮）
+  message_id?: string;
   vision?: VisionInspection[];
   need_human?: boolean;
   context?: SessionContext;
@@ -71,7 +76,8 @@ export type StreamHandlers = {
   onPhase: (name: string) => unknown;
   onMessage: (content: string) => unknown;
   onDone: (payload: DonePayload) => unknown;
-  onError: (msg: string) => unknown;
+  // fatal=true：限流（2002/429）等「重连也不会好」的错误，调用方不应退避重试
+  onError: (msg: string, fatal?: boolean) => unknown;
 };
 
 // 流式入参：threadId 复用后端会话（t- 开头本地占位不传），clientMsgId 幂等键（重连复用同一键不翻倍）
@@ -140,6 +146,20 @@ const parseFrame = (frame: string, handlers: StreamHandlers, seen: Set<string>) 
   }
 };
 
+// 限流（2002/429 信封）：透后端中文话术，fatal=true 告知调用方勿退避重连（重连也撞墙）
+const handleRateLimit = async (res: Response, handlers: StreamHandlers) => {
+  let msg = '对话过于频繁，请稍后再试';
+  try {
+    const body = (await res.json()) as { msg?: string };
+    if (body.msg) {
+      msg = body.msg;
+    }
+  } catch {
+    // 信封解析失败用默认话术兜底
+  }
+  handlers.onError(msg, true);
+};
+
 // SSE 对话（done 解析失败进 onError；网络异常提示检查后端）
 export const streamChat = async (
   query: string,
@@ -173,6 +193,10 @@ export const streamChat = async (
   if (res.status === 401) {
     handle401();
     handlers.onError('未登录');
+    return;
+  }
+  if (res.status === 429) {
+    await handleRateLimit(res, handlers);
     return;
   }
   const reader = res.body?.getReader();

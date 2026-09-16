@@ -7,7 +7,7 @@
     </div>
     <div v-if="!recording && audioUrl" class="play-row">
       <canvas ref="waveRef" width="220" height="40" class="wave" role="img" aria-label="录音波形" />
-      <audio :src="audioUrl" controls class="player" aria-label="语音播放" @play="muteOthers" />
+      <audio :src="audioUrl" controls class="player" aria-label="语音播放" @play="onPlay" />
     </div>
     <div v-if="!recording && audioUrl" class="row">
       <AiButton aria-label="语音转文字" @click="toText">转文字</AiButton>
@@ -43,7 +43,7 @@ import { useVoiceRecorder } from '@/composables/useVoiceRecorder';
 import AiButton from '@/shared/components/AiButton.vue';
 import AiInput from '@/shared/components/AiInput.vue';
 
-const emits = defineEmits(['transcribed']);
+const emits = defineEmits(['transcribed', 'play']);
 
 const {
   recording,
@@ -67,13 +67,14 @@ const voice = ref('晓晓');
 const waveRef = ref<HTMLCanvasElement | null>(null);
 let lastBlob: Blob | null = null;
 
-// 播放互斥：播 A 停 B（页面设计 §4）
-const muteOthers = (e: Event) => {
+// 播放互斥：播 A 停 B（页面设计 §4），并向上抛 play 事件供页面埋点
+const onPlay = (e: Event) => {
   document.querySelectorAll('audio').forEach(a => {
     if (a !== e.target) {
       a.pause();
     }
   });
+  emits('play');
 };
 
 // 伪波形：由 blob 大小哈希定高，保证同段录音同波形（装饰性，不代表真实频谱）

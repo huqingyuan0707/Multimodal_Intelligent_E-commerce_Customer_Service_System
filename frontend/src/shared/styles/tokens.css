@@ -10,31 +10,37 @@
   --reai-gold: #b07c1f;
   --reai-online: #0e9f6e;
   --reai-notice: #d97706;
+
   /* 浅底警告正文（AI 泡内 .human 用；#b45309 在 #f2f5fc 上约 4.6:1） */
   --reai-notice-deep: #b45309;
+
   /* 浅泡内嵌白卡（商品卡等） */
-  --reai-surface-light: #ffffff;
+  --reai-surface-light: #fff;
   --reai-bg: #f5f7fb;
-  --reai-card: #ffffff;
+  --reai-card: #fff;
   --reai-card-2: #eef1f8;
   --reai-text-main: #1f2430;
   --reai-text-muted: #5d6880;
+
   /* 微文案次要色（11-12px 时间/条数/占位用；#6b7690 在白底约 5.5:1） */
   --reai-text-soft: #6b7690;
   --reai-border: rgb(31 36 48 / 8%);
   --reai-chip: rgb(31 36 48 / 12%);
   --reai-shadow-card: 0 2px 12px rgb(31 36 48 / 8%);
   --reai-gradient: linear-gradient(90deg, #4f6bff 0%, #8b5cf6 100%);
+
   /* 品牌色（蓝渐变）上的前景：白恒成立，不随主题翻转（用户气泡/主按钮/头像/波形高光） */
-  --reai-text-on-brand: #ffffff;
+  --reai-text-on-brand: #fff;
+
   /* 顶栏：浅色=白底深字墨 hover（顶栏文字只吃 nav-* 三枚）；深色=品牌渐变白字 */
-  --reai-topbar-bg: #ffffff;
+  --reai-topbar-bg: #fff;
   --reai-nav-text: #1f2430;
   --reai-nav-active: #4f6bff;
   --reai-nav-hover: rgb(31 36 48 / 6%);
   --reai-bubble-user: #4f6bff;
   --reai-bubble-agent: #f2f5fc;
   --reai-text-on-light: #1f2430;
+
   /* 浅泡次要/微文案（引用 12px / trace 11px mono 用；在 #f2f5fc 上分别约 7:1 / 4.8:1） */
   --reai-text-on-light-muted: #4c5670;
   --reai-text-on-light-faint: #5f6b87;
@@ -42,12 +48,14 @@
   --reai-glass-bg: rgb(255 255 255 / 60%);
   --reai-glass-border: rgb(31 36 48 / 12%);
   --reai-glow: 0 0 24px rgb(79 107 255 / 14%);
+
   /* 字体栈（品牌统一：普惠体 3.0 本地字面优先（fonts.css 注册），未装回退苹方/雅黑；mono 给 trace/语音时长） */
   --reai-font-sans:
     'Alibaba PuHuiTi 3.0', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans SC',
-    system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
+    system-ui, -apple-system, 'Segoe UI', roboto, arial, sans-serif;
   --reai-font-mono:
-    ui-monospace, 'SF Mono', 'JetBrains Mono', Consolas, 'Noto Sans Mono', monospace;
+    ui-monospace, 'SF Mono', 'JetBrains Mono', consolas, 'Noto Sans Mono', monospace;
+
   /* 字阶（正文 14 起跳，微文案最小 11；行高正文 1.6、标题 1.4） */
   --reai-fs-display: 20px;
   --reai-fs-title: 16px;
@@ -62,6 +70,7 @@
   --reai-fw-medium: 500;
   --reai-fw-semibold: 600;
   --reai-fw-bold: 700;
+
   /* 语义卡底：12% 语义色叠在卡片上（VLM 检测卡 / 引用溯源卡 / 预警卡） */
   --reai-primary-soft: rgb(79 107 255 / 12%);
   --reai-gold-soft: rgb(176 124 31 / 12%);
@@ -69,6 +78,18 @@
   --reai-page-gradient:
     radial-gradient(1000px 500px at 15% 10%, rgb(79 107 255 / 7%), transparent 60%),
     radial-gradient(800px 500px at 85% 90%, rgb(139 92 246 / 6%), transparent 60%), #f5f7fb;
+
+  /* Element Plus 字体归一：EP 默认栈是 Helvetica 优先（与本项目中文优先栈打架），
+   * 字号梯度与 --reai-fs-* 对齐；组件内部 font-family:inherit 已保证继承，
+   * 这里覆写变量是为了 popper 挂到 body 外的浮层等不走继承的边角
+   * （并入首个 :root：stylelint no-duplicate-selectors 禁重复 :root，合并零视觉差） */
+  --el-font-family: var(--reai-font-sans);
+  --el-font-size-extra-large: var(--reai-fs-display);
+  --el-font-size-large: var(--reai-fs-title);
+  --el-font-size-medium: var(--reai-fs-h3);
+  --el-font-size-base: var(--reai-fs-body);
+  --el-font-size-small: var(--reai-fs-body-sm);
+  --el-font-size-extra-small: var(--reai-fs-caption);
 }
 
 /* 深色主题覆盖（useTheme 给 <html> 挂 .dark；Element Plus dark css-vars 同用该类，天然联动）。
@@ -100,19 +121,19 @@ html.dark {
   --reai-page-gradient:
     radial-gradient(1000px 500px at 15% 10%, rgb(79 107 255 / 25%), transparent 60%),
     radial-gradient(800px 500px at 85% 90%, rgb(139 92 246 / 22%), transparent 60%), #0b1124;
-}
 
-/* Element Plus 字体归一：EP 默认栈是 Helvetica 优先（与本项目中文优先栈打架），
- * 字号梯度与 --reai-fs-* 对齐；组件内部 font-family:inherit 已保证继承，
- * 这里覆写变量是为了 popper 挂到 body 外的浮层等不走继承的边角 */
-:root {
-  --el-font-family: var(--reai-font-sans);
-  --el-font-size-extra-large: var(--reai-fs-display);
-  --el-font-size-large: var(--reai-fs-title);
-  --el-font-size-medium: var(--reai-fs-h3);
-  --el-font-size-base: var(--reai-fs-body);
-  --el-font-size-small: var(--reai-fs-body-sm);
-  --el-font-size-extra-small: var(--reai-fs-caption);
+  /* EP 深色面桥接：EP 组件（el-card/el-table/el-input/el-dialog）底/字/边框对齐 reai 深色口径，
+   * 否则 EP 自家 #141414 系与 --reai-card #161d33 两套深色打架（同页细微色差）。
+   * 同权重 (0,1,1) 下本文件在 EP dark css-vars 包之后 import，后写胜出。 */
+  --el-bg-color: var(--reai-card);
+  --el-bg-color-overlay: var(--reai-card-2);
+  --el-fill-color-blank: var(--reai-card-2);
+  --el-text-color-primary: var(--reai-text-main);
+  --el-text-color-regular: var(--reai-text-main);
+  --el-text-color-secondary: var(--reai-text-muted);
+  --el-border-color: var(--reai-chip);
+  --el-border-color-light: var(--reai-border);
+  --el-border-color-lighter: var(--reai-border);
 }
 
 /* Element Plus 主色/语义色归一：EP 默认 #409eff/#67c23a/#e6a23c 与品牌蓝/在线绿/预警橙打架，
@@ -139,8 +160,10 @@ body {
   background: var(--reai-bg);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizelegibility;
+
   /* 数字等宽对齐（订单号/金额/队列条数不跳动；普惠体与苹方/雅黑均支持 tnum） */
   font-variant-numeric: tabular-nums;
+
   /* 主题切换只变色不变动画，避免整站过渡卡顿 */
   transition:
     background-color 0.2s ease,

@@ -147,6 +147,8 @@ async def chat_stream(
                 "faithfulness": result.get("faithfulness", 0.0),
                 "trace_id": result.get("trace_id", ""),
                 "session_id": result.get("session_id", ""),
+                # 赞踩反馈定位键（POST /mining/feedback 入参，前端气泡 thumbs 用）
+                "message_id": result.get("message_id", ""),
                 "vision": result.get("vision", []),
                 "need_human": result.get("need_human", False),
                 "context": result.get(

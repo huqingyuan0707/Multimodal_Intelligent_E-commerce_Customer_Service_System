@@ -142,8 +142,10 @@ router.beforeEach(async to => {
   const userStore = useUserStore();
 
   if (PUBLIC_PATHS.includes(to.path)) {
-    // 已登录不必再看登录页，直接进主区；其余公开页（嵌入/异常）直接放行
-    if (to.path === '/login' && userStore.hasToken()) {
+    // 已确认身份的不必再看登录页，直接进主区；其余公开页（嵌入/异常）直接放行。
+    // 必须校验 user 非空：后端不可达时 loadMe 失败、身份未取到而 token 仍在，
+    // 若只看 hasToken 会与受保护路由的 loadMe 重试互相踢形成 /login↔/chat 死循环（/auth/me 请求风暴）
+    if (to.path === '/login' && userStore.hasToken() && userStore.user) {
       return { path: '/chat' };
     }
     return true;

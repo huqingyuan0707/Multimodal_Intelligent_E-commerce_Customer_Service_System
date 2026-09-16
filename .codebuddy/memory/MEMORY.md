@@ -6,7 +6,7 @@
 ## 项目定位
 
 - 艾梦尔智慧电商 AI 赋能平台 / 多模态智能电商客服系统（Agent + RAG）。文档先行，13 份 root md，索引见 `AGENTS.md` §1。
-- ⚠️ 口径冲突：`电商开发文档.md` 自称 FRD v3，其 SSE 仍写旧的 `text/tool_call/tool_result`。**实际形态以 `API接口与SSE事件协议规范.md` §5 的 `source/phase/message/done` 为准。**
+- ~~口径冲突~~（2026-09-16 已修）：`电商开发文档.md`（自称 FRD v3）FR-1.1 的旧事件联合 `text/tool_call/tool_result/approval/error/done` 已替换为 `API接口与SSE事件协议规范.md` §5 权威口径（`source/phase/message/done`），§0 文档控制表加权威源声明、技术选型表「统一AgentEvent」同步更名。**实际形态始终以 API 规范 §5 为准**。残留：该文档 L193 错误码仍是旧英文枚举（`PARAM_INVALID` 等），与实装数字号段（1xxx~5xxx）不一致，未修。
 
 ## 本机环境与启动
 
@@ -30,10 +30,12 @@
 - **PowerShell 内联脚本 `$var` 会被吞**（`powershell -Command "foreach($c in ...)"` 报 Missing variable name）→ 批量文本统计改用 `python -c`。
 - **并行操作**：用户另一窗口会同时改文件与 `git add -A` / push。断言前重读磁盘，commit 前 `git status --short` 复核 index。实测踩到：按 pathspec 只暂存 7 个文件，`git diff --cached` 却出 83 个（含 `*.pen.bak`）→ `git reset -q` 清索引后重新精确暂存，**每组 commit 前必查 `git diff --cached --name-only`**。2026-09-14 再踩升级版：同窗口并行写**同名共享层**（api/composable/组件），我写的版本被更完整版本覆盖 → **动手写共享层前先 git status + 全文搜索目标名**；被覆盖后以磁盘为准适配视图与测试，不恢复自己的版本。
 - **PowerShell 新 shell 坑**：`cd c:\…中文…` 后再执行命令，行尾中文路径最后一字符被 GBK 截断（`;` 被吞）→ 不 cd，直接相对路径执行（初始 cwd 已是工作区根）。
-- **git 钩子本机未生效**：`core.hooksPath` 未设，`.git/hooks` 只有 `*.sample` → `frontend/.husky/{pre-commit,commit-msg}`（lint-staged / commitlint）本地不跑，门禁实际只靠 CI。要本地启用：仓库根 `git config core.hooksPath frontend/.husky`。
+- **git 钩子已生效（2026-09-16 修正，原「未生效」记录过时）**：husky 的 lint-staged + commitlint 本机真跑。commitlint `body-max-line-length 100` 会拦中文长行——中文提交信息 body 每行 ≤50 汉字保险；scope 不在 SCOPE_PATHS 只 WARN 不拦。
 - **8000 端口遗留进程**：冒烟命中旧行为（governance 全 stub、`/goods` 404）＝旧 uvicorn 仍占端口、新进程静默退出。`Get-NetTCPConnection -LocalPort 8000 -State Listen` 找 PID 杀掉再重启。
+- **execute_command 长命令（探测+sleep >10s）输出会被监控超时截断**，且 Start-Process 起的子进程有被连带清理的先例（2026-09-16：uvicorn 起活后死于两条命令之间）→ 启动服务后必须**另起一条命令再探测** `/health` 确认存活，别信同一条命令里的第二次探测结果。
 - **Ollama 模型名字段**：OpenAI 兼容 `/v1/models` 用 `id`（原生 `/api/tags` 才是 `name`），`probe()` 须 `item.get("id") or item.get("name")`，否则误报「在线但无模型」。
 - **`python-multipart`**：新增上传/表单端点必须同步补进 `backend/requirements.txt`，否则 FastAPI 在**导入路由阶段**抛 `RuntimeError`，服务起不来。
+- **vite dev server 长跑后 CSS 转换缓存会损坏（2026-09-16 实锤）**：症状＝某 css 的 vite 产物 `__vite__css = ""`（空）→ 页面所有 `var(--reai-*)` 失效（头像裸字母/气泡无底色），EP 组件因用自家 `--el-*` 不受影响；**硬刷新无效、`?t=` 强制重转换无效**。定位 1 分钟法：curl `http://localhost:5173/src/<文件>.css` 看产物是否为空 → 起第二实例对照 → 杀旧 vite 重启即愈。别在源码层打转，「代码对但页面不对」先查编译产物。
 
 ## 工具链路径
 

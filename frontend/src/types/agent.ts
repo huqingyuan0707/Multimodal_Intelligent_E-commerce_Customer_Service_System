@@ -52,6 +52,12 @@ export type AgentMessage = {
   // 本轮真调工具记录（ToolCallCard 透明展示）与编排说明（缺必填参数/无权调用/回落如实透出）
   tool_calls?: ToolCall[];
   notes?: string[];
+  // 赞踩反馈定位键（done.message_id，POST /mining/feedback 入参；本地演示/占位行为空即不显按钮）
+  message_id?: string;
+  // 本轮反馈结果（'up' | 'down'，提交成功后置灰防重复）
+  feedback?: 'up' | 'down';
+  // 错误气泡（友好话术 + 重试 + 转人工，对齐页面设计 §3.1 状态完整性）
+  retryable?: boolean;
 };
 
 export type AgentEvent =

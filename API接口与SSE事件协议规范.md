@@ -77,6 +77,7 @@ api_router.include_router(chat.router, dependencies=[Depends(get_current_user)])
 - `tool_calls[]`：本轮检索段经 Agent 编排真调的工具记录（形状同 `POST /agent/tools/{name}/invoke` 出参，含 `scope/attempts/latency_ms/trace_id`，前端 `ToolCallCard` 直接渲染）；走回落直调时为空数组，帧形不随分支变化。
 - `orchestration{notes[]}`：编排说明（中文可读，空数组 = 规划按预期命中）。固定文案：`命中「退款」但缺少必填参数（如订单号/SKU），已回落知识库检索` / `当前身份无权调用 X，已回落知识库检索` / `X 未返回可用结果，已转人工跟进` / `该动作需人工审批，已生成审批单（账目未变动）` / `编排不可用，已回落直连检索`。
 - `2001` 表示无据拒答，前端渲染拒答话术 + 转人工按钮，不当错误抛异常（拒答同样落库，`guard.rejected=true`）。
+- **输入域守卫（`services/guard_service.py`，问答第一道闸）**：`/agent/chat[/stream]` 检索前先 `check(query)`，命中「注入诱导（越权/套提示词/绕过风控…正则）」或「域外闲聊（天气/股票/代码…黑名单）」即直接 `2001` 拒答转人工（话术即守卫 `reason`），**不烧检索与模型**；记 `guard.reject` trace + `chat.guard_reject` 可观测事件（`category=injection/off_domain` 归因）。词表与正则全在 `Settings.GUARD_*`（进 `_HOT_FIELDS` 可热更），`GUARD_ENABLED=false` 整体旁路（回滚位，同 `AGENT_CHAT_ORCHESTRATE`）。口径：只拦「确定注入/确定域外」，拿不准一律放行交 RAG 检索阈值兜底——误拦比漏拦更伤体验；黄金集 `eval_golden.py` 按守卫→检索两道闸分别归因拦截量。
 - `handoff`：本轮转人工规则表判定结果（C 步）。`hit=true` 表示命中某条规则（`code/label/reason` 是坐席可读依据，`matched[]` 列出所有命中规则，取 `priority` 最小者挂起）；`applied=true` 表示确实把会话挂进了待接队列（已 `handling/resolved` 或已 `pending` 时为 `false`，`handoff_status` 回当前状态）。`guard.empty`（工具空手）与 `guard.degraded` 是「连续未解决 / 连续降级」的计数依据，坐席代回（`guard.by="agent"`）即清零。
 
 ### 4.3 会话与记忆（三层：Session→Message→Context，对齐 FR-1.4）
@@ -163,7 +164,7 @@ api_router.include_router(chat.router, dependencies=[Depends(get_current_user)])
 - `GET /workbench/sessions/{id}/trace?size=50` → `ok({session, messages[], context{summary,rounds,tokens,dropped,budget,window_rounds}})`。与买家侧 `get_session_detail` **完全同源**（同 `message_to_dict`、同 `context_service.load_window/build_history_block`），坐席所见即买家所得；`size` 1..200。
 - `GET /workbench/metrics` → `ok({observability:{enabled,dir,counters{},flags{},handoff{hits,applied,pending_now,claims,answer_measured,answer_within_target,answer_rate,answer_avg_seconds,answer_p95_seconds,target_seconds},llm_ok_rate,tool_ok_rate,reject_count}, queue{none,pending,handling,resolved}})`。坐席运营指标（E 步可观测，FR-7「30s 内接起率 ≥95%」度量口）：`observability` 取进程内滑窗（`core/observability.py::snapshot()`，重启清零、JSONL 留历史），`answer_rate` = `handoff.claim` 距该会话挂起 ≤ `target_seconds`（`Settings.OBSERVABILITY_ANSWER_TARGET_SECONDS`，默认 30，可热更）的占比，无认领时为 `null`；`queue` 为本租户各流转态存量（DB 实况）。仅 `require_any_perm("cs","admin")`。
 - 跨租户 / 不存在的会话一律 `404`「会话不存在或已过期」（不泄露存在性）。
-- openapi 自查说明：本轮以 `app.openapi()` 导出核对，新增 10 条 `/workbench/*` path（含 `GET /workbench/handoff-rules`、`GET /workbench/metrics`），总 **80** paths，其余端点未变。
+- openapi 自查说明：本轮以 `app.openapi()` 导出核对，新增 12 条 `/workbench/*` path（含 `GET /workbench/handoff-rules`、`GET /workbench/metrics`、`POST /workbench/sessions/{id}/assign`、`GET /workbench/load`），总 **82** paths，其余端点未变。
 
 ### 4.12 Agent Runtime 与工具注册中心（对齐 FRD-3/FR-5 + 附录 A，同基座 JWT/租户隔离/审批/审计）
 > 状态机：`IDLE → PLANNING → ACTING → OBSERVING → REFLECTING → DONE`，分支 `WAITING_APPROVAL / WAITING_HUMAN / FAILED`；非法流转 `4009`「状态流转非法：X → Y」（白名单见 `modules/agent/contracts.py::TRANSITIONS`）。

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,7 +17,7 @@ from app.core.rbac import get_current_user, require_any_perm
 from app.core.responses import ok
 from app.core.user_context import CurrentUser
 from app.db.session import get_db
-from app.services import handoff_routing, handoff_service, workbench_service
+from app.services import handoff_routing, handoff_service, quality_service, workbench_service
 
 router = APIRouter(prefix="/workbench", tags=["workbench"])
 
@@ -52,6 +52,14 @@ class ReplyRequest(BaseModel):
     """代回入参（内容 1..2000 字，落 agent 行买家可见）。"""
 
     content: str = ""
+
+
+class ScoreRequest(BaseModel):
+    """人工改评入参（score 1..5 必填；是否解决与评语可选）。"""
+
+    score: int
+    resolution_ok: bool | None = None
+    comment: str = ""
 
 
 @router.get("/queue")
@@ -154,11 +162,16 @@ async def get_load(
 @router.post("/sessions/{session_id}/resolve")
 async def resolve_session(
     session_id: str,
+    background: BackgroundTasks,
     payload: ResolveRequest | None = None,
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(CS),
 ) -> dict[str, Any]:
-    """解决归档（→resolved + 解决小结；解决后可被买家再次转人工重开）。"""
+    """解决归档（→resolved + 解决小结；解决后可被买家再次转人工重开）。
+
+    归档成功后丢后台质检自动评分（LLM-as-judge，模型不可用走规则兜底；
+    QUALITY_AUTO_SCORE=false 或已人工评则跳过），评分失败不影响归档主流程。
+    """
     row = await workbench_service.resolve(
         db,
         tenant=user.tenant,
@@ -166,7 +179,53 @@ async def resolve_session(
         session_id=session_id,
         conclusion=payload.conclusion if payload else "",
     )
+    background.add_task(
+        quality_service.auto_score_session, tenant=user.tenant, session_id=session_id
+    )
     return ok(workbench_service.handoff_to_dict(row), "会话已解决归档")
+
+
+@router.get("/sessions/{session_id}/score")
+async def get_score(
+    session_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(CS),
+) -> dict[str, Any]:
+    """读会话当前质检评分（未评返回 score=0 空形状；来源 judge/rule/manual 可回溯）。"""
+    return ok(
+        await quality_service.get_score(db, tenant=user.tenant, session_id=session_id), "获取成功"
+    )
+
+
+@router.post("/sessions/{session_id}/score")
+async def put_score(
+    session_id: str,
+    payload: ScoreRequest,
+    db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(CS),
+) -> dict[str, Any]:
+    """人工改评（source=manual + reviewer 留痕；score 1..5 越界 1001）。"""
+    data = await quality_service.score_session(
+        db,
+        tenant=user.tenant,
+        session_id=session_id,
+        manual={
+            "score": payload.score,
+            "resolution_ok": payload.resolution_ok,
+            "comment": payload.comment,
+        },
+        reviewer=user.username,
+    )
+    return ok(data, "质检评分已更新")
+
+
+@router.get("/performance")
+async def get_performance(
+    db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(CS),
+) -> dict[str, Any]:
+    """坐席绩效：已解决会话数/质检均分/通过率/人工改评数（按 assignee 聚合）。"""
+    return ok(await quality_service.performance_view(db, tenant=user.tenant), "获取成功")
 
 
 @router.post("/sessions/{session_id}/reply")

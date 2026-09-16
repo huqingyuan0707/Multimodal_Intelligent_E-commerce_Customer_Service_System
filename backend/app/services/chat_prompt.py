@@ -64,20 +64,34 @@ def build_messages(
     ]
 
 
+_MD_MARKS = re.compile(r"(?m)^\s*[-*+]\s+|[>*`#]+")
+
+
+def _plain_text(text: str) -> str:
+    """引用摘要轻清洗：剥 markdown 记号（标题#/列表-/引用>/强调*`）并压平换行为单行。
+
+    降级回复走纯文本消息流（前端 white-space: pre-wrap 直出，不渲染 markdown），
+    知识库原文的 md 记号裸露会显得粗糙，展示前收口在此。
+    """
+    return " ".join(_MD_MARKS.sub("", text).split())
+
+
 def fallback_answer(
     query: str,
     refs: list[dict[str, object]],
     vision_block: str = "",
-    history_block: str = "",
 ) -> str:
-    """降级回复（模型不可用时）：检测结论 + 资料摘要，不编造引用之外的单号与政策。"""
+    """降级回复（模型不可用时）：检测结论 + 资料摘要，不编造引用之外的单号与政策。
+
+    历史块只进 LLM 提示词用于理解指代，绝不复述进买家可见回复——降级也不能把
+    上一轮拒答/转人工的原文回显给买家（既难看又泄露服务侧口径）。
+    """
     lines = ["已为你找到相关的店内政策（以下为知识库原文摘要）："]
     if vision_block.strip():
         lines.append(f"【图像检测】\n{vision_block[:400]}")
-    if history_block.strip():
-        lines.append(f"{history_block[:400]}")
     for i, ref in enumerate(refs, 1):
-        lines.append(f"[{i}]《{ref.get('title', '')}》：{str(ref.get('content', ''))[:120]}")
+        summary = _plain_text(str(ref.get("content", "")))[:120]
+        lines.append(f"[{i}]《{ref.get('title', '')}》：{summary}")
     lines.append("如需人工跟进，可直接回复“转人工”。")
     _ = query
     return "\n".join(lines)

@@ -40,7 +40,7 @@ Out（v1 不做，预留接口）：实时电话外呼、视频客服、跨境�
 | 业务 DB | SQLite 兼容 | PostgreSQL 主从 + Alembic 版本迁移 | 生产强制 PG |
 | 缓存/队列 | Redis 单机 | Redis Cluster/Sentinel + Celery/ARQ + Redis Streams / RabbitMQ | Worker 用 KEDA 按队列长度伸缩 |
 | 对象存储 | MinIO | S3 / OSS / MinIO（统一 S3 协议） | 存瑕疵图 / 语音，人脸打码后存 |
-| 前端 | Vue3 + TS strict + Element Plus + Pinia + Vite + pnpm | 同左 + CDN + Nginx | 按业务域分层，统一 AgentEvent 协议 |
+| 前端 | Vue3 + TS strict + Element Plus + Pinia + Vite + pnpm | 同左 + CDN + Nginx | 按业务域分层，统一 SSE 事件协议（权威源：API 规范 §5） |
 | 后端 | FastAPI + Pydantic v2 + SQLAlchemy 2.0 async | + Gunicorn/Uvicorn + K8s HPA | Router 薄 / Service 厚 / Runtime 专 |
 | 可观测 | OTel + Prometheus + Grafana + Loki/ELK + Sentry + Langfuse | 同左 | 日志字段强制 trace/tenant/user |
 

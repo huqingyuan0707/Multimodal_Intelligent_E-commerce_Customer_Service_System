@@ -1,20 +1,52 @@
 """治理与可观测端点（13 步巡检，对齐 RAG 规范 §5/数据模型 §3）
 
-链路：GET /governance/status → 向量/关键词/重排/LLM/VLM/ASR/缓存 七适配层 status()。
+链路：GET /governance/status → 向量/关键词/重排/LLM/VLM/ASR/缓存 七适配层 status()；
+      POST /governance/track → 前端行为埋点（发送/上传/播放/引用/转人工/赞踩）→ observability。
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 
 from app.config import settings
 from app.core import cache
+from app.core.observability import record
+from app.core.rbac import get_current_user
 from app.core.responses import ok
+from app.core.user_context import CurrentUser
 from app.services import llm_service, rerank_service, speech_service, vector_store, vision_service
 
 router = APIRouter(prefix="/governance", tags=["governance"])
+
+
+class TrackRequest(BaseModel):
+    """埋点入参（端点私有 DTO）：事件名 ≤64 字，载荷截 500 字，绝不存原文敏感内容。"""
+
+    event: str
+    data: dict[str, Any] = {}
+
+
+@router.post("/track")
+async def track(
+    payload: TrackRequest, user: CurrentUser = Depends(get_current_user)
+) -> dict[str, Any]:
+    """前端行为埋点：只进 observability 事件流（JSONL + 计数器），不落业务表、不抛错。
+
+    红线：埋点永远成功（200）——埋点失败不能影响买家操作；路由级登录（随 governance router）。
+    """
+    record(
+        "frontend.track",
+        {
+            "event": payload.event.strip()[:64],
+            "tenant": user.tenant,
+            "username": user.username,
+            "payload": {k: str(v)[:80] for k, v in list(payload.data.items())[:8]},
+        },
+    )
+    return ok({"tracked": True}, "埋点已记录")
 
 
 @router.get("/status")

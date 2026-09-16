@@ -14,6 +14,7 @@ export * from './tasks';
 export * from './chat';
 export * from './workbench';
 export * from './multimodal';
+export * from './mining';
 export * from './dashboard';
 export * from './screen';
 export * from './admin';

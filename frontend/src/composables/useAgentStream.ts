@@ -1,4 +1,5 @@
-// SSE 对话状态封装（source/phase/message/done 全分支 + 失败退避重连 3 次；主动停止不重连，对齐 API 规范 §5）
+// SSE 对话状态封装（source/phase/message/done 全分支 + 失败退避重连 3 次；主动停止不重连，
+// 限流等 fatal 错误不重连（重连也撞墙），对齐 API 规范 §5）
 import { ref } from 'vue';
 import { streamChat } from '@/api';
 import type { DonePayload, StreamOptions } from '@/api';
@@ -17,6 +18,8 @@ export const useAgentStream = () => {
   const draft = ref('');
   const done = ref<DonePayload | null>(null);
   const error = ref('');
+  // 限流标记（fatal 错误置真）：页面显示排队话术，不走 mock 兜底
+  const limited = ref(false);
   const controller = ref<AbortController | null>(null);
 
   const start = async (query: string, opts?: StreamOptions) => {
@@ -26,8 +29,10 @@ export const useAgentStream = () => {
     draft.value = '';
     done.value = null;
     error.value = '';
+    limited.value = false;
     for (let attempt = 0; ; attempt += 1) {
       controller.value = new AbortController();
+      let fatal = false;
       await streamChat(
         query,
         {
@@ -46,8 +51,12 @@ export const useAgentStream = () => {
             done.value = payload;
             streaming.value = false;
           },
-          onError: msg => {
+          onError: (msg, isFatal) => {
             error.value = msg;
+            fatal = isFatal === true;
+            if (fatal) {
+              limited.value = true;
+            }
             streaming.value = false;
           },
         },
@@ -56,6 +65,10 @@ export const useAgentStream = () => {
       );
       if (controller.value.signal.aborted) {
         error.value = '';
+        return;
+      }
+      // 限流（2002/429）这类重连也不会好的错误：立即收手不退避
+      if (fatal) {
         return;
       }
       if (done.value || draft.value || attempt >= MAX_RETRIES) {
@@ -84,6 +97,8 @@ export const useAgentStream = () => {
     content: draft.value || error.value,
     references: done.value?.references ?? [],
     trace_id: done.value?.trace_id,
+    // 赞踩反馈定位键随消息落盘（mining/feedback 的 message_id）
+    message_id: done.value?.message_id,
     vision: done.value?.vision ?? [],
     need_human: done.value?.need_human ?? false,
     context: done.value?.context,
@@ -92,5 +107,5 @@ export const useAgentStream = () => {
     notes: done.value?.orchestration?.notes ?? [],
   });
 
-  return { streaming, sources, phase, draft, done, error, start, stop, toMessage };
+  return { streaming, sources, phase, draft, done, error, limited, start, stop, toMessage };
 };
