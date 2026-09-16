@@ -57,7 +57,25 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh run view "${RUN_ID}" --log-failed > failed.log 2>/dev/null || true
+          # 优先 REST 逐 job 拉取：gh run view --log-failed 在 run 刚结束、日志尚未归档时会偶发空转，
+          # 且 stderr 被丢弃后无从排查；REST 端点可按失败 job 单独重试，失败也不再静默。
+          : > failed.log
+          FAILED_IDS=$(jq -r '(.jobs // [])[] | select(.conclusion == "failure" or .conclusion == "timed_out") | .id' jobs.json || true)
+          for id in $FAILED_IDS; do
+            for i in 1 2 3; do
+              if gh api "repos/${GITHUB_REPOSITORY}/actions/jobs/${id}/logs" > "job-${id}.log" 2>/dev/null; then
+                { echo "===== job ${id} ====="; cat "job-${id}.log"; } >> failed.log
+                break
+              fi
+              echo "job ${id} 第 ${i} 次拉取失败，5s 后重试" >&2
+              sleep 5
+            done
+            rm -f "job-${id}.log"
+          done
+          # 兜底：REST 未取到（jobs.json 缺失、job 超过 100 个被分页截断等）时退回 gh run view
+          if [ ! -s failed.log ]; then
+            gh run view "${RUN_ID}" --log-failed > failed.log 2>/dev/null || true
+          fi
           if [ -s failed.log ]; then
             tail -c 40000 failed.log > failed-trim.log
           else
