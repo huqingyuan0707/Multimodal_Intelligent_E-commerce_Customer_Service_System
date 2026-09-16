@@ -44,7 +44,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     yield
 
 
-app = FastAPI(title="multimodal-cs", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="multimodal-cs", version=settings.APP_VERSION, lifespan=lifespan)
 app.add_middleware(TraceMiddleware)
 app.add_middleware(
     CORSMiddleware,

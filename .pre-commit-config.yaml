@@ -49,3 +49,15 @@ repos:
         entry: python scripts/check_large_files.py
         language: system
         pass_filenames: false
+      # 工具链门禁：Node/pnpm 三处声明必须对齐（源头 .nvmrc + packageManager，强拦在 CI toolchain）
+      - id: toolchain-guard
+        name: 工具链对齐（Node/pnpm）
+        entry: python scripts/check_toolchain.py
+        language: system
+        pass_filenames: false
+      # 版本门禁：项目版本三源必须对齐（源头 执行步骤.md 头部版本，强拦在 CI version）
+      - id: version-guard
+        name: 项目版本三源对齐
+        entry: python scripts/check_version.py
+        language: system
+        pass_filenames: false

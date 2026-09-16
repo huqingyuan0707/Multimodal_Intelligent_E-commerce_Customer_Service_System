@@ -1,0 +1,44 @@
+# 后端运行时依赖锁：精确版本闭包（backend 唯一可复现的安装口径）
+# 职责：把 requirements.txt 的直接依赖展开为全传递精确钉死；链路：pip install -r requirements.lock（本地/CI/镜像三处同口）
+# 对齐：部署工程化.md §三、ADR-0002（SHA 不可变精神：依赖与基镜像双钉死）
+# 生成：backend/.venv（本地 pytest 全绿环境）pip freeze 按元数据划分 runtime 子集；
+#   另补 3 项 freeze 缺位：redis（requirements 有、本地未装，取 7.4.1 成熟大版本）/
+#   sniffio（anyio 硬依赖，元数据声明而本地漏装）/ uvloop（uvicorn[standard]，仅非 Win）
+# 升级：改 requirements.txt → 新环境实装 + pytest 全绿 → 重新 freeze 回填 → 同 PR 改本文档头
+# 平台标记：uvloop 仅非 Windows；colorama 仅 Windows（click 在 Win 才需要它）
+
+aiosqlite==0.22.1
+alembic==1.20.0
+annotated-doc==0.0.5
+annotated-types==0.8.0
+anyio==4.15.1
+certifi==2026.7.22
+click==8.5.0
+colorama==0.4.6; sys_platform == "win32"
+fastapi==0.141.1
+greenlet==3.5.5
+h11==0.16.0
+httpcore==1.0.9
+httptools==0.8.0
+httpx==0.28.1
+idna==3.19
+Mako==1.4.1
+MarkupSafe==3.0.3
+pillow==12.3.0
+pydantic==2.13.5
+pydantic-settings==2.15.0
+pydantic_core==2.46.5
+PyJWT==2.14.0
+python-dotenv==1.2.3
+python-multipart==0.0.32
+PyYAML==6.0.3
+redis==7.4.1
+sniffio==1.3.1
+SQLAlchemy==2.0.52
+starlette==1.6.0
+typing-inspection==0.4.4
+typing_extensions==4.16.0
+uvicorn==0.52.4
+uvloop==0.22.1; sys_platform != "win32"
+watchfiles==1.2.0
+websockets==17.1

@@ -3,14 +3,14 @@
 # /api 反代地址不 bake 死：经 BACKEND_UPSTREAM 环境变量由 nginx 官方模板入口启动时渲染
 # （默认 backend:8000 即 compose 服务名；单容器启动改 -e BACKEND_UPSTREAM=<host:port>，不再依赖卷挂载覆盖）
 # Node 基座唯一源头是 frontend/.nvmrc（当前 22.18.0）：CI / 发版 / 本地 nvm 用它，镜像此处钉同值（exact pin，不跟 floating major）
-FROM node:22.18.0-alpine AS builder
+FROM node:22.18.0-alpine@sha256:1b2479dd35a99687d6638f5976fd235e26c5b37e8122f786fcd5fe231d63de5b AS builder
 WORKDIR /app
 COPY package.json pnpm-lock.yaml ./
 RUN corepack enable && pnpm install --frozen-lockfile
 COPY . .
 RUN pnpm build
 
-FROM nginx:alpine
+FROM nginx:alpine@sha256:c8497b180665e631ec92a5091125bec5b214f0e2b99409e30653a125b37557da
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx.conf.template /etc/nginx/templates/default.conf.template
 ENV BACKEND_UPSTREAM=backend:8000

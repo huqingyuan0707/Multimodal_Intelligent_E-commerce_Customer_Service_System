@@ -1,5 +1,5 @@
 # 本机 Compose 部署：GHCR 镜像 + SQLite 落盘（对应部署工程化.md §五/§十三）
-# 用法：powershell -File deploy/deploy.ps1（默认 latest；指定版本加 -Tag v0.1.0）
+# 用法：powershell -File deploy/deploy.ps1（默认 latest；指定版本加 -Tag v0.3.13）
 # 回滚：powershell -File deploy/deploy.ps1 -Tag <上一个版本号>
 name: reai
 
@@ -26,8 +26,6 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-    labels:
-      - 'com.centurylinklabs.watchtower.scope=reai'
 
   frontend:
     image: ghcr.io/huqingyuan0707/reai-frontend:${REAI_TAG:-latest}
@@ -40,18 +38,10 @@ services:
       backend:
         condition: service_started
     restart: unless-stopped
-    labels:
-      - 'com.centurylinklabs.watchtower.scope=reai'
 
-  # 全自动更新（可选）：每 5 分钟查 GHCR，有新包自动拉起替换
-  # 用法：docker compose --profile auto-update up -d watchtower
-  watchtower:
-    image: containrrr/watchtower:latest
-    command: --interval 300 --scope reai --cleanup
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    profiles: [auto-update]
-    restart: unless-stopped
+  # 更新唯一入口（ADR-0002 不可变部署）：deploy.ps1 -Tag <短 sha 或版本号> 显式拉取指定 tag。
+  # 禁止 watchtower 等任何自动更新器：轮询拉起会与回滚切 tag 打架（回滚 5 分钟内被改回去），
+  # 且让运行中镜像 digest 脱离部署记录、无审计可查；连带省掉 docker.sock 特权挂载。
 
 volumes:
   backend-data:

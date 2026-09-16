@@ -26,9 +26,18 @@ def main() -> int:
     if not files:
         print("SKIP: 取不到 push 差异，仅提醒：改接口/RAG/页面/表结构请同 PR 改对应规范文档。")
         return 0
+    # RAG 无独立目录（backend/app/modules/agent/rag/ 不存在）：按实现文件显式列，漏一个即门禁 silent
     rules = [
         ("backend/app/api/", "API接口与SSE事件协议规范.md"),
-        ("backend/app/modules/agent/rag/", "RAG知识库构建检索治理规范.md"),
+        ("backend/app/services/knowledge_service.py", "RAG知识库构建检索治理规范.md"),
+        ("backend/app/services/rag_governance.py", "RAG知识库构建检索治理规范.md"),
+        ("backend/app/services/vector_store.py", "RAG知识库构建检索治理规范.md"),
+        ("backend/app/services/rerank_service.py", "RAG知识库构建检索治理规范.md"),
+        ("backend/app/services/document_service.py", "RAG知识库构建检索治理规范.md"),
+        ("backend/app/services/doc_parse_service.py", "RAG知识库构建检索治理规范.md"),
+        ("backend/app/modules/agent/connectors.py", "RAG知识库构建检索治理规范.md"),
+        ("backend/seed/", "RAG知识库构建检索治理规范.md"),
+        ("backend/scripts/eval_golden.py", "RAG知识库构建检索治理规范.md"),
         ("frontend/src/views/", "页面设计.md"),
         ("frontend/src/components/", "页面设计.md"),
         ("frontend/src/composables/", "页面设计.md"),

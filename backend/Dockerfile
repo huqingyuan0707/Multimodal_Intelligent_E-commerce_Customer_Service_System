@@ -1,10 +1,12 @@
 # 后端运行镜像：依赖层与运行层分离，非 root 运行（对应部署工程化.md §三）
-FROM python:3.11-slim AS base
+# 双钉死（ADR-0002 不可变精神）：基镜像 tag+digest；依赖走 requirements.lock 精确闭包（dev 工具不进镜像）
+FROM python:3.11-slim@sha256:9534e5a8e315485d4061ed659af0fd78a284c015f9b73661b41d6bab25604534 AS base
 WORKDIR /srv/app
-COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.lock ./
+RUN pip install --no-cache-dir -r requirements.lock \
+ && pip check
 
-FROM python:3.11-slim
+FROM python:3.11-slim@sha256:9534e5a8e315485d4061ed659af0fd78a284c015f9b73661b41d6bab25604534
 RUN useradd -m appuser
 WORKDIR /srv/app
 COPY --from=base /usr/local /usr/local

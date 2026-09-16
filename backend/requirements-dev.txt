@@ -1,0 +1,12 @@
+# 后端开发直接依赖（下限声明，精确版本见 requirements-dev.lock）
+# 职责：测试/类型/ lint 工具链的直接依赖清单；链路：pip install -r requirements-dev.lock（CI 与本地同口）
+# 对齐：部署工程化.md §三、.pre-commit-config.yaml（ruff 版本三处同钉 0.16.7，升级同步改）
+# 升级：改本文件下限 → 实装验证 → 回填 requirements-dev.lock → 同 PR 改文档
+
+ruff>=0.16.7
+mypy>=2.3.1
+pytest>=9.1.1
+pytest-asyncio>=1.4.0
+pytest-cov>=7.1.0
+coverage>=7.16.0
+psycopg2-binary>=2.9.13

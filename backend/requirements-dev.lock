@@ -1,0 +1,21 @@
+# 后端开发依赖锁：测试/类型/lint 工具链精确版本闭包
+# 职责：requirements-dev.txt 的全传递精确钉死；链路：pip install -r requirements-dev.lock（接在 requirements.lock 之后装）
+# 对齐：部署工程化.md §三、.pre-commit-config.yaml（ruff 0.16.7 三处同钉）
+# 生成：backend/.venv（本地 pytest 全绿环境）pip freeze 按元数据划分 dev 子集
+# 升级：改 requirements-dev.txt → 实装验证 → 重新 freeze 回填 → 同 PR 改本文档头
+
+ast_serialize==0.11.1
+coverage==7.16.0
+iniconfig==2.3.0
+librt==0.15.0
+mypy==2.3.1
+mypy_extensions==1.1.0
+packaging==26.3
+pathspec==1.1.1
+pluggy==1.6.0
+psycopg2-binary==2.9.13
+Pygments==2.21.0
+pytest==9.1.1
+pytest-asyncio==1.4.0
+pytest-cov==7.1.0
+ruff==0.16.7

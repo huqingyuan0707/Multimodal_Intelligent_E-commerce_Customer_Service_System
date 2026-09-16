@@ -41,9 +41,10 @@ jobs:
         working-directory: backend
         run: |
           python -m pip install --upgrade pip
-          pip install ruff==0.16.7 mypy pytest pytest-asyncio pytest-cov httpx
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
+          # 锁文件唯一口径（requirements.lock 精确闭包 + dev 锁；散装 pip install 禁止加回，升级改锁文件）
+          pip install -r requirements.lock
+          pip install -r requirements-dev.lock
+          pip check
 
       - name: ruff check
         if: steps.guard.outputs.ok == 'true'
@@ -70,7 +71,7 @@ jobs:
         if: steps.guard.outputs.ok == 'true'
         working-directory: backend
         run: |
-          pip install psycopg2-binary
+          # psycopg2-binary 已随 requirements-dev.lock 装好（同 job 环境透传），此处不再散装
           export DATABASE_URL="sqlite+aiosqlite:///./ci_migration.db"
           alembic upgrade head
           alembic check
@@ -235,7 +236,8 @@ jobs:
           echo "$CHANGED"
           fail=0
           echo "$CHANGED" | grep -q "^backend/app/api/" && ! echo "$CHANGED" | grep -q "API接口与SSE事件协议规范.md" && { echo "::error::改了后端路由/schema 必须同 PR 改 API接口与SSE事件协议规范.md"; fail=1; }
-          echo "$CHANGED" | grep -q "^backend/app/modules/agent/rag/" && ! echo "$CHANGED" | grep -q "RAG知识库构建检索治理规范.md" && { echo "::error::改了 RAG 必须同 PR 改 RAG规范"; fail=1; }
+          # RAG 无独立目录：按实现文件显式列（与 scripts/check_docs_link.py 同步，漏一个即门禁 silent）
+          echo "$CHANGED" | grep -Eq "^(backend/app/services/(knowledge_service|rag_governance|vector_store|rerank_service|document_service|doc_parse_service)\.py|backend/app/modules/agent/connectors\.py|backend/seed/|backend/scripts/eval_golden\.py)" && ! echo "$CHANGED" | grep -q "RAG知识库构建检索治理规范.md" && { echo "::error::改了 RAG 必须同 PR 改 RAG规范"; fail=1; }
           echo "$CHANGED" | grep -Eq "^frontend/src/(views|components|composables|stores|types)/" && ! echo "$CHANGED" | grep -q "页面设计.md" && { echo "::error::改了页面/组件/路由 必须同 PR 改 页面设计.md"; fail=1; }
           echo "$CHANGED" | grep -q "^backend/app/db/" && ! echo "$CHANGED" | grep -q "数据模型与存储设计.md" && { echo "::error::改了表/迁移 必须同 PR 改 数据模型文档"; fail=1; }
           exit $fail
@@ -281,6 +283,27 @@ jobs:
             exit 0
           fi
           python scripts/check_large_files.py --range "$BASE..$HEAD"
+
+  # ---------------- 工具链门禁：Node/pnpm 三处声明必须对齐（源头 .nvmrc + packageManager） ----------------
+  # 本地同规则在 pre-commit toolchain-guard；此处是硬门禁（任一红灯不合并）
+  toolchain:
+    name: toolchain · Node/pnpm 版本对齐
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 五源交叉比对（Dockerfile/CI/发版/engines）
+        run: python scripts/check_toolchain.py
+
+  # ---------------- 版本门禁：项目版本三源必须对齐（源头 执行步骤.md 头部版本） ----------------
+  # 本地同规则在 pre-commit version-guard；此处是硬门禁（任一红灯不合并）
+  # 修好后 release.yml 的 tag-vs-package.json 检查自然正确，发版只需打 tag 推送
+  version:
+    name: version · 项目版本三源对齐
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 三源交叉比对（执行步骤头/package.json/APP_VERSION）
+        run: python scripts/check_version.py
 
   # ---------------- 失败自动诊断已迁出：见 .github/workflows/ai-diagnose.yml ----------------
   # 为什么不在本文件里做：诊断需要读「失败日志」，而 gh run view --log-failed 对**仍在进行中**

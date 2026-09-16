@@ -1,6 +1,6 @@
 # 多模态智能电商客服系统
 
-> 版本：v0.3.1 | 日期：2026-09-15 | 状态：**P0/P1 代码已落地，CI/CD 与容器化部署已跑通**（文档基线 → 可运行系统）
+> 版本：v0.3.13 | 日期：2026-09-17 | 状态：**P0/P1 代码已落地，CI/CD 与容器化部署已跑通**（文档基线 → 可运行系统）
 
 **多模态交互（文本/图片/语音）+ Agent Runtime 状态机 + 场景化 RAG 与业务连接器 + 人机协同审批与坐席工作台 + 多租户与模型网关 + 全链路可观测与评估 + K8s 云原生交付 + 成本与 ROI 闭环 = 生产可用、可治理、可评估、成本可控的智能客服平台。**
 
@@ -117,7 +117,9 @@ Agent 平台层：Runtime 状态机 | 多模态路由 | 工具注册 | RAG | 记
 │   │   ├── db/                    # SQLAlchemy 模型 + seed.py + Alembic 迁移
 │   │   └── services/              # 纯业务逻辑；llm_service.py 为模型唯一出口（ADR-0001）
 │   ├── tests/                     # pytest 单测/集成 + smoke_*.py 联调脚本
-│   ├── requirements.txt           # 依赖清单（已固化）
+│   ├── requirements.txt           # 直接依赖下限（只声明，不直接安装）
+│   ├── requirements.lock          # 精确锁：安装唯一口径（pip install -r requirements.lock）
+│   ├── requirements-dev.txt/.lock # 测试/lint 工具链下限 + 精确锁
 │   ├── pyproject.toml             # ruff / mypy / pytest / coverage ≥ 70
 │   └── Dockerfile                 # 非 root appuser；/srv/app/data 预建并 chown（卷权限坑已修）
 │
@@ -204,7 +206,7 @@ pnpm build            # vue-tsc --noEmit && vite build
 ```bash
 cd backend
 python -m venv .venv && source .venv/bin/activate     # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+pip install -r requirements.lock -r requirements-dev.lock
 uvicorn app.main:app --reload --port 8000             # 端口 8000，与 vite proxy 口径一致
 ```
 
