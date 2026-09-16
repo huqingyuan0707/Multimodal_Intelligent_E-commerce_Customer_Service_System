@@ -8,11 +8,14 @@
       :page="page"
       :size="size"
       :status="status"
+      :skill="skill"
+      :skill-groups="skillGroups"
       :loading="queueLoading"
       :demo="queueDemo"
       @select="pickRow"
       @search="setKeyword"
       @filter="setStatus"
+      @skill="setSkill"
       @page="setPage"
       @size="setSize"
     />
@@ -28,6 +31,14 @@
         <el-tag v-if="traceDemo" size="small" type="warning" effect="plain">演示消息</el-tag>
         <AiButton v-if="currentRow?.statusKey === 'pending'" type="primary" @click="claim()">
           认领
+        </AiButton>
+        <AiButton
+          v-if="currentRow?.statusKey === 'pending'"
+          :disabled="!assignEnabled"
+          title="按技能匹配与在手负载自动挑坐席接管"
+          @click="assign()"
+        >
+          智能分配
         </AiButton>
         <template v-else-if="isMine">
           <AiButton @click="transfer()">转接</AiButton>
@@ -93,6 +104,7 @@ import WorkbenchNotes from '@/components/WorkbenchNotes.vue';
 import WorkbenchQueue from '@/components/WorkbenchQueue.vue';
 import WorkbenchSide from '@/components/WorkbenchSide.vue';
 import { useAgentStream } from '@/composables/useAgentStream';
+import { useWorkbenchLoad } from '@/composables/useWorkbenchLoad';
 import { useWorkbenchNotes } from '@/composables/useWorkbenchNotes';
 import { useWorkbenchQueue } from '@/composables/useWorkbenchQueue';
 import { useWorkbenchSide } from '@/composables/useWorkbenchSide';
@@ -120,6 +132,7 @@ const {
   page,
   size,
   status,
+  skill,
   loading: queueLoading,
   demo: queueDemo,
   currentId,
@@ -127,14 +140,19 @@ const {
   load: loadQueue,
   select: pickRow,
   setStatus,
+  setSkill,
   setKeyword,
   setPage,
   setSize,
   claim,
+  assign,
   transfer,
   resolve,
   handoff,
 } = useWorkbenchQueue();
+
+// —— 技能组/负载面板（FR-7）：技能组筛选清单 + 智能分配开关；失败静默降级不阻塞队列 ——
+const { skillGroups, assignEnabled, refresh: refreshLoad } = useWorkbenchLoad();
 
 // —— 会话流 / Trace / 内部备注（三者同口径绑定 currentId）——
 const { messages, context, demo: traceDemo, load: loadTrace, append } = useWorkbenchTrace();
@@ -270,6 +288,7 @@ const openDoc = (source: string) => ElMessage.info(`打开原文 ${source}（知
 onMounted(() => {
   // load 内部自动选首行 → watch 触发 Trace/备注加载；队列为空时中栏留白
   loadQueue();
+  refreshLoad();
 });
 </script>
 
@@ -280,6 +299,7 @@ onMounted(() => {
   height: 100%;
   min-height: 0;
 }
+
 .card {
   padding: 16px;
   background: var(--reai-glass-bg);
@@ -288,10 +308,12 @@ onMounted(() => {
   box-shadow: var(--reai-glow);
   backdrop-filter: blur(12px);
 }
+
 .name,
 .online {
   line-height: var(--reai-lh-tight);
 }
+
 .avatar {
   display: inline-flex;
   flex-shrink: 0;
@@ -304,17 +326,20 @@ onMounted(() => {
   background: var(--reai-primary);
   border-radius: 50%;
 }
+
 .name {
   font-size: var(--reai-fs-body-sm);
   font-weight: var(--reai-fw-semibold);
   color: var(--reai-text-main);
 }
+
 .chat {
   display: flex;
   flex: 1;
   flex-direction: column;
   min-width: 0;
 }
+
 .chat-head {
   display: flex;
   gap: 10px;
@@ -322,22 +347,26 @@ onMounted(() => {
   padding-bottom: 12px;
   border-bottom: 1px solid var(--reai-border);
 }
+
 .meta {
   display: flex;
   flex: 1;
   flex-direction: column;
   gap: 2px;
 }
+
 .online {
   font-size: var(--reai-fs-micro);
   font-weight: var(--reai-fw-semibold);
   color: var(--reai-online);
 }
+
 @media (width <= 1024px) {
   .workbench {
     flex-direction: column;
     overflow-y: auto;
   }
+
   .chat {
     min-height: 60vh;
   }
