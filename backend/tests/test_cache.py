@@ -31,7 +31,9 @@ async def _tester_override() -> CurrentUser:
 
 
 @pytest.fixture
-async def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[httpx.AsyncClient]:
+async def client(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> AsyncIterator[httpx.AsyncClient]:
     """独立临时库 + 全量种子 + 鉴权替换的 ASGI 客户端。"""
     monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'cache.db'}")
     monkeypatch.setattr(session_mod, "_engine", None)
