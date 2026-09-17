@@ -2,3 +2,7 @@
 # design.pen 是加密二进制（~490KB/版，无增量压缩空间）：直接入库则每次 UI 提交永久 +500KB；LFS 下仓库只存指针（~130B），画板文件照常落盘，check_design.py 与 MCP 工作流无感。
 # 新增大二进制一律先 `git lfs track` 同类 pattern；硬门禁见 scripts/check_large_files.py（本地 pre-commit + CI large-files job）。
 *.pen filter=lfs diff=lfs merge=lfs -text
+
+# Python 统一 LF 行尾：Windows 侧编辑器写出 CRLF 时，ruff format --check 会把整个文件判为待格式化
+# （症状：本地 ruff check 全过、CI backend job 的 format 步骤整片报红），此属性把它钉在 git 层。
+*.py text eol=lf
