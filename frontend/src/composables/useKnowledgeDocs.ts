@@ -10,7 +10,6 @@ import {
   transitionDocApi,
   uploadDocumentApi,
 } from '@/api';
-import { mockDocs } from '@/mock/knowledge';
 import type { DocStats, KnowledgeDoc } from '@/types/knowledge';
 
 const TRANSITION_NAMES: { [k: string]: string } = {
@@ -51,13 +50,11 @@ export const useKnowledgeDocs = () => {
       docs.value = rows.filter(r => r && (r.doc_id || r.id));
       total.value = res.total ?? rows.length;
       await loadStats();
-    } catch {
-      const rows = keyword.value.trim()
-        ? mockDocs.filter(d => d.title.includes(keyword.value.trim()))
-        : mockDocs;
-      docs.value = rows;
-      total.value = rows.length;
-      ElMessage.warning('后端不可用，已显示演示数据');
+    } catch (e) {
+      docs.value = [];
+      total.value = 0;
+      stats.value = null;
+      ElMessage.error(e instanceof Error ? `加载知识库失败：${e.message}` : '加载知识库失败');
     } finally {
       loading.value = false;
     }
@@ -90,7 +87,7 @@ export const useKnowledgeDocs = () => {
     reindexing.value = true;
     try {
       const r = await reindexDocumentsApi();
-      ElMessage.success(`重建索引任务已提交：${r.task_id || '演示任务'}，请到任务中心跟进`);
+      ElMessage.success(`重建索引任务已提交：${r.task_id}，请到任务中心跟进`);
     } catch (e) {
       ElMessage.error(e instanceof Error ? e.message : '提交失败');
     } finally {

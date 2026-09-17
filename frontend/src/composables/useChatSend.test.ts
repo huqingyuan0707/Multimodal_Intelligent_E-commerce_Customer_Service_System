@@ -7,6 +7,9 @@ import type { AgentMessage } from '@/types/agent';
 import { useChatSend } from './useChatSend';
 import type { SendDeps } from './useChatSend';
 
+// node 环境无 DOM，桩掉 ElMessage（会话列表刷新失败会走失败提示）
+vi.mock('element-plus', () => ({ ElMessage: { error: vi.fn(), success: vi.fn() } }));
+
 const fakeStream = (behavior: 'ok' | 'error' | 'limited' = 'ok') => ({
   streaming: ref(false),
   error: ref(''),

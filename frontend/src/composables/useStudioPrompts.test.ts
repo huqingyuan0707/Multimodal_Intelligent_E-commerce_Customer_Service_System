@@ -1,5 +1,5 @@
 // useStudioPrompts 单测（版本列表映射/新建回填页/发布刷新线上，对齐 API 规范 §4.13）
-// api 层打桩；失败向上传播由调用方 catch 回 mock（本层不断言兜底，只断言透出）
+// api 层打桩；失败向上传播由调用方 catch 提示（本层不断言兜底，只断言透出）
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createPromptApi,
@@ -96,7 +96,7 @@ describe('useStudioPrompts', () => {
     expect(online.value?.version).toBe('v12');
   });
 
-  it('接口失败向上传播（页面 catch 回 mock，本层不吞错）', async () => {
+  it('接口失败向上传播（页面置空并中文提示，本层不吞错）', async () => {
     vi.mocked(listPromptsApi).mockRejectedValue(new Error('网络错误'));
     const { versions, refresh } = useStudioPrompts();
     await expect(refresh()).rejects.toThrow('网络错误');

@@ -82,7 +82,6 @@
 import { ElMessage } from 'element-plus';
 import { ref, watch } from 'vue';
 import { listInventoryApi, stocktakeApi } from '@/api';
-import { mockInventory } from '@/mock';
 import AiButton from '@/shared/components/AiButton.vue';
 import AiInput from '@/shared/components/AiInput.vue';
 import type { InventoryRow } from '@/types/shop';
@@ -104,7 +103,7 @@ const emit = defineEmits(['update:modelValue', 'done']);
 const lines = ref<StocktakeLine[]>([]);
 const reason = ref('');
 const submitting = ref(false);
-// SKU 候选：打开时拉全量库存（size 200），失败回 mock，保证「挑选的 SKU×仓库」一定真实存在
+// SKU 候选：打开时拉全量库存（size 200），失败置空并提示，保证「挑选的 SKU×仓库」一定真实存在
 const skuRows = ref<InventoryRow[]>([]);
 const skuOptions = ref<InventoryRow[]>([]);
 
@@ -165,8 +164,9 @@ const loadCandidates = async () => {
   try {
     const res = await listInventoryApi({ page: 1, size: 200 });
     skuRows.value = res.items;
-  } catch {
-    skuRows.value = mockInventory;
+  } catch (e) {
+    skuRows.value = [];
+    ElMessage.error(e instanceof Error ? `加载 SKU 失败：${e.message}` : '加载 SKU 失败');
   }
   const seen = new Map<string, InventoryRow>();
   skuRows.value.forEach(r => {

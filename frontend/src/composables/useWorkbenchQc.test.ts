@@ -1,4 +1,4 @@
-// useWorkbenchQc 单测（质检评分读取 + 人工改评覆盖 + 失败回退不打断主链路，对齐前端 Skill §8）
+// useWorkbenchQc 单测（质检评分读取 + 人工改评覆盖 + 失败置空不打断主链路，对齐前端 Skill §8）
 // getScoreWorkbenchApi/saveScoreWorkbenchApi 打桩；ElMessage 弹 DOM，node 环境桩掉
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getScoreWorkbenchApi, saveScoreWorkbenchApi, type WorkbenchScore } from '@/api';
@@ -30,11 +30,10 @@ const scoreRow = (overrides: object = {}): WorkbenchScore => ({
 describe('useWorkbenchQc', () => {
   beforeEach(() => vi.resetAllMocks());
 
-  it('load 拉取评分并撤 demo 标', async () => {
+  it('load 拉取评分', async () => {
     vi.mocked(getScoreWorkbenchApi).mockResolvedValue(scoreRow());
-    const { score, demo, loading, load } = useWorkbenchQc();
+    const { score, loading, load } = useWorkbenchQc();
     await load('s-1');
-    expect(demo.value).toBe(false);
     expect(loading.value).toBe(false);
     expect(score.value?.score).toBe(4);
     expect(score.value?.source).toBe('judge');
@@ -47,11 +46,10 @@ describe('useWorkbenchQc', () => {
     expect(score.value).toBeNull();
   });
 
-  it('load 失败回退空态并挂 demo 标（不打断主链路）', async () => {
+  it('load 失败置空并提示（不打断主链路）', async () => {
     vi.mocked(getScoreWorkbenchApi).mockRejectedValue(new Error('网络错误'));
-    const { score, demo, load } = useWorkbenchQc();
+    const { score, load } = useWorkbenchQc();
     await load('s-1');
-    expect(demo.value).toBe(true);
     expect(score.value).toBeNull();
   });
 
@@ -80,11 +78,10 @@ describe('useWorkbenchQc', () => {
     expect(score.value).toBeNull();
   });
 
-  it('reset 清空评分与 demo 标', async () => {
+  it('reset 清空评分', async () => {
     vi.mocked(getScoreWorkbenchApi).mockRejectedValue(new Error('网络错误'));
-    const { demo, load, reset } = useWorkbenchQc();
+    const { load, reset } = useWorkbenchQc();
     await load('s-1');
     reset();
-    expect(demo.value).toBe(false);
   });
 });

@@ -1,8 +1,6 @@
 <template>
   <div class="card">
-    <h3 class="card-title">
-      质检评分 <el-tag v-if="demo" type="warning" size="small">演示数据</el-tag>
-    </h3>
+    <h3 class="card-title">质检评分</h3>
     <el-empty v-if="loading" description="评分加载中…" :image-size="48" />
     <template v-else-if="score && score.score > 0">
       <p class="kv">
@@ -54,7 +52,6 @@ const props = defineProps<{
   score: WorkbenchScore | null;
   loading: boolean;
   saving: boolean;
-  demo: boolean;
 }>();
 
 const emit = defineEmits(['save']);

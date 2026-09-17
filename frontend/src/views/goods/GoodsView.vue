@@ -1,14 +1,8 @@
 <!-- 商品管理：SPU 列表（含销量）+ SKU 展开明细 + 改价进审批 + 上下架 + 商品知识同步。
      对齐 页面设计.md §3.10 与 design.pen「商品管理-/goods」画板；
-     后端不可用时 catch 回 mock 演示数据（页面可用性优先）。 -->
+     后端不可用时置空 + 中文提示，不编造数据。 -->
 <template>
   <div class="page">
-    <div v-if="demo" class="err-bar">
-      <el-tag type="warning" size="small">演示数据</el-tag>
-      <span class="err-text">商品接口不可用 → 已切演示数据（操作可能不落库）</span>
-      <AiButton size="small" @click="reload">重试</AiButton>
-    </div>
-
     <div class="filters">
       <AiInput v-model="keyword" placeholder="搜 SPU / 名称" class="kw" @keyup.enter="reload" />
       <el-select v-model="status" placeholder="状态" class="sel" clearable @change="reload">
@@ -132,7 +126,6 @@ import { useRouter } from 'vue-router';
 import { listGoodsApi, setGoodsStatusApi, updateSkuApi } from '@/api';
 import GoodsMatrixCard from '@/components/GoodsMatrixCard.vue';
 import GoodsPriceDialog from '@/components/GoodsPriceDialog.vue';
-import { mockGoods } from '@/mock';
 import AiButton from '@/shared/components/AiButton.vue';
 import AiInput from '@/shared/components/AiInput.vue';
 import { formatCents, goodsTagOf } from '@/types/shop';
@@ -154,7 +147,6 @@ const size = ref(20);
 const keyword = ref('');
 const status = ref('');
 const loading = ref(false);
-const demo = ref(false);
 const selected = ref<GoodsItem | null>(null);
 const kbSync = ref<KbDocInfo | null>(null);
 
@@ -169,12 +161,11 @@ const load = async () => {
     });
     rows.value = res.items ?? [];
     total.value = res.total ?? 0;
-    demo.value = false;
-  } catch {
-    rows.value = mockGoods;
-    total.value = mockGoods.length;
-    demo.value = true;
+  } catch (e) {
+    rows.value = [];
+    total.value = 0;
     kbSync.value = null;
+    ElMessage.error(e instanceof Error ? `加载商品失败：${e.message}` : '加载商品失败');
   } finally {
     loading.value = false;
   }
@@ -253,22 +244,6 @@ onMounted(load);
 <style scoped>
 .page {
   padding: 16px;
-}
-
-.err-bar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 12px;
-  margin-bottom: 12px;
-  border: 1px solid var(--reai-border);
-  border-radius: 8px;
-  background: var(--reai-card);
-  font-size: var(--reai-fs-body-sm);
-}
-
-.err-text {
-  color: var(--reai-notice);
 }
 
 .filters {

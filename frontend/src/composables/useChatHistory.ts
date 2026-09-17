@@ -31,7 +31,7 @@ export const useChatHistory = (messages: Ref<AgentMessage[]>) => {
       hasMore.value = data.has_more === true;
       messages.value = toAgentMessages(data.messages).reverse();
     } catch {
-      ElMessage.error('会话恢复失败，已清空为本地演示');
+      ElMessage.error('会话恢复失败，已清空消息');
       resetHistory();
     }
   };

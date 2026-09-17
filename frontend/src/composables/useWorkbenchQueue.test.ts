@@ -1,4 +1,4 @@
-// useWorkbenchQueue 单测（真实队列映射 + 服务端筛选/分页透传 + 失败回退演示挂标 + 认领后重拉保当前）
+// useWorkbenchQueue 单测（真实队列映射 + 服务端筛选/分页透传 + 失败置空 + 认领后重拉保当前）
 // queueWorkbenchApi/claimWorkbenchApi 打桩；ElMessage/ElMessageBox 弹 DOM，node 环境桩掉（对齐前端 Skill §8）
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { assignWorkbenchApi, claimWorkbenchApi, queueWorkbenchApi, type WorkbenchRow } from '@/api';
@@ -46,9 +46,8 @@ describe('useWorkbenchQueue', () => {
     vi.mocked(queueWorkbenchApi).mockResolvedValue(
       paged([row('s-1', 'pending'), row('s-2', 'handling', 'cs01')]),
     );
-    const { rows, total, demo, currentId, currentRow, load } = useWorkbenchQueue();
+    const { rows, total, currentId, currentRow, load } = useWorkbenchQueue();
     await load();
-    expect(demo.value).toBe(false);
     expect(total.value).toBe(2);
     expect(rows.value[0]).toEqual({
       id: 's-1',
@@ -99,14 +98,13 @@ describe('useWorkbenchQueue', () => {
     });
   });
 
-  it('后端不可用回退演示种子并挂 demo 标', async () => {
+  it('后端不可用置空并提示（不编造队列）', async () => {
     vi.mocked(queueWorkbenchApi).mockRejectedValue(new Error('网络错误'));
-    const { rows, demo, currentId, load } = useWorkbenchQueue();
+    const { rows, total, currentId, load } = useWorkbenchQueue();
     await load();
-    expect(demo.value).toBe(true);
-    expect(rows.value.length).toBeGreaterThan(0);
-    expect(rows.value[0]).toMatchObject({ statusKey: 'pending', vip: true });
-    expect(currentId.value).toBe(rows.value[0]?.id);
+    expect(rows.value).toEqual([]);
+    expect(total.value).toBe(0);
+    expect(currentId.value).toBe('');
   });
 
   it('认领成功调后端并重拉；当前会话不在新集合也不切走（keep）', async () => {

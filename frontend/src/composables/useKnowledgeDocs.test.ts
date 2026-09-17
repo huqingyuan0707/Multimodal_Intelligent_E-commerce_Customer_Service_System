@@ -1,5 +1,5 @@
 // useKnowledgeDocs 测试：知识库列表管线（对齐页面设计 §3.5）
-// 覆盖：列表加载映射分页/后端不可用回退演示数据/删除二次确认取消不调接口
+// 覆盖：列表加载映射分页/后端不可用置空并提示/删除二次确认取消不调接口
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest';
 
@@ -51,12 +51,14 @@ describe('useKnowledgeDocs', () => {
     expect(store.stats.value?.total).toBe(1);
   });
 
-  it('后端不可用回退演示数据', async () => {
+  it('后端不可用置空并提示', async () => {
     listMock.mockReset();
     listMock.mockRejectedValue(new Error('down'));
     const store = useKnowledgeDocs();
     await store.loadDocs();
-    expect(store.docs.value.length).toBeGreaterThan(0);
+    expect(store.docs.value).toEqual([]);
+    expect(store.total.value).toBe(0);
+    expect(store.stats.value).toBeNull();
     expect(store.loading.value).toBe(false);
   });
 });

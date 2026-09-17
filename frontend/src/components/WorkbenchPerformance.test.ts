@@ -1,5 +1,5 @@
 // WorkbenchPerformance 组件测试：坐席绩效弹窗（C 步收官，对齐页面设计 §3.2）
-// 覆盖：打开拉数据渲染行/口径说明/失败回退 demo 标+空表；teleport 就地渲染便于断言
+// 覆盖：打开拉数据渲染行/口径说明/失败置空表+中文提示；teleport 就地渲染便于断言
 // @vitest-environment jsdom
 import { mount } from '@vue/test-utils';
 import ElementPlus from 'element-plus';
@@ -65,12 +65,11 @@ describe('workbenchPerformance', () => {
     expect(wrapper.text()).toContain('3.5');
   });
 
-  it('接口失败回退 demo 标 + 空表（不弹错误阻塞）', async () => {
+  it('接口失败置空表 + 中文提示（不编造绩效）', async () => {
     vi.mocked(performanceWorkbenchApi).mockRejectedValue(new Error('网络错误'));
     const wrapper = mountPerf();
     await vi.dynamicImportSettled();
     await wrapper.vm.$nextTick();
-    expect(wrapper.text()).toContain('演示数据');
     expect(wrapper.text()).toContain('暂无已解决会话');
   });
 

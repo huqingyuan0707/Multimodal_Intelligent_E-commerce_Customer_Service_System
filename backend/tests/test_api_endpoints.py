@@ -125,7 +125,9 @@ async def test_api_happy_paths_cover_endpoints(client: httpx.AsyncClient) -> Non
         )
     )
     assert approval["status"] == "pending"
-    edited = await _ok(await client.put(f"/api/v1/goods/skus/{sku_id}", json={"barcode": "690000001"}))
+    edited = await _ok(
+        await client.put(f"/api/v1/goods/skus/{sku_id}", json={"barcode": "690000001"})
+    )
     assert "kb_doc" in edited and edited["kb_doc"]["title"].startswith("商品知识｜")
     changed = await _ok(
         await client.put(f"/api/v1/goods/{goods['items'][0]['id']}/status", json={"status": "off"})

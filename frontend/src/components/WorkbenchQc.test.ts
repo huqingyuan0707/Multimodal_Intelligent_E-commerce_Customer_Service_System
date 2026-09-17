@@ -1,5 +1,5 @@
 // WorkbenchQc 组件测试：质检评分卡（C 步收官，对齐页面设计 §3.2 + 前端 Skill §7）
-// 覆盖：空态/评分展示（来源标签+通过 tag+依据）/改评表单校验与上抛/演示标
+// 覆盖：空态/评分展示（来源标签+通过 tag+依据）/改评表单校验与上抛
 // @vitest-environment jsdom
 import { mount } from '@vue/test-utils';
 import ElementPlus from 'element-plus';
@@ -26,7 +26,6 @@ const baseProps = {
   score: null as WorkbenchScore | null,
   loading: false,
   saving: false,
-  demo: false,
 };
 
 const mountQc = (props: object = {}) =>
@@ -61,10 +60,6 @@ describe('workbenchQc', () => {
     expect(wrapper.text()).toContain('人工复核');
     expect(wrapper.text()).toContain('复核人 admin');
     expect(wrapper.text()).toContain('未达标');
-  });
-
-  it('demo 标透传', () => {
-    expect(mountQc({ score: scoreRow(), demo: true }).text()).toContain('演示数据');
   });
 
   it('改评：表单回填当前评分，直接提交上抛；点星改分后上抛新值', async () => {

@@ -60,17 +60,16 @@
 </template>
 
 <script setup lang="ts">
-// 租户列表窗格：分页默认 20 + 新建 + 停服/恢复（危险操作 confirm），失败回 mock 演示
+// 租户列表窗格：分页默认 20 + 新建 + 停服/恢复（危险操作 confirm），失败置空 + 中文提示
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { onMounted, ref } from 'vue';
 import { createTenantApi, listTenantsApi, setTenantStatusApi } from '@/api';
-import { mockAdminTenants } from '@/mock';
 import AiButton from '@/shared/components/AiButton.vue';
 import AiInput from '@/shared/components/AiInput.vue';
 import { tenantPlanTagOf, tenantStatusTagOf } from '@/types/admin';
 import type { TenantItem } from '@/types/admin';
 
-const emit = defineEmits(['pick-quota', 'changed', 'demo']);
+const emit = defineEmits(['pick-quota', 'changed']);
 
 const rows = ref<TenantItem[]>([]);
 const total = ref(0);
@@ -92,12 +91,10 @@ const load = async () => {
     });
     rows.value = res.items;
     total.value = res.total;
-    emit('demo', false);
   } catch (e) {
-    rows.value = mockAdminTenants as TenantItem[];
-    total.value = mockAdminTenants.length;
-    emit('demo', true);
-    ElMessage.error(e instanceof Error ? e.message : '加载租户失败，已用演示数据');
+    rows.value = [];
+    total.value = 0;
+    ElMessage.error(e instanceof Error ? `加载租户失败：${e.message}` : '加载租户失败');
   } finally {
     loading.value = false;
   }

@@ -33,7 +33,6 @@
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { onMounted, ref } from 'vue';
 import { listInventoryApi, replenishApi } from '@/api';
-import { mockInventory } from '@/mock';
 import AiButton from '@/shared/components/AiButton.vue';
 import type { InventoryRow } from '@/types/shop';
 
@@ -52,8 +51,9 @@ const load = async () => {
   try {
     const res = await listInventoryApi({ only_warn: true, page: 1, size: 100 });
     rows.value = res.items as InventoryRow[];
-  } catch {
-    rows.value = mockInventory.filter(r => r.warning);
+  } catch (e) {
+    rows.value = [];
+    ElMessage.error(e instanceof Error ? `加载预警失败：${e.message}` : '加载预警失败');
   }
 };
 

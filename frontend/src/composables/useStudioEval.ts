@@ -1,5 +1,5 @@
 // Studio 评测一键跑（建 run + 轮询 + 历史，对齐 API 规范 §4.13）
-// 失败向上传播（页面 catch 回 mock 兜底）；轮询页切走即停（cancelled 防内存泄漏）
+// 失败向上传播（页面 catch 后中文提示）；轮询页切走即停（cancelled 防内存泄漏）
 import { onUnmounted, ref } from 'vue';
 import { createEvalRunApi, getEvalRunApi, listEvalRunsApi } from '@/api';
 import type { EvalPage, EvalRun } from '@/types/agent';

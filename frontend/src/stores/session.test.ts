@@ -1,17 +1,14 @@
-// session store 单测（t- 占位认领 + 列表降级，对齐前端 Skill §8 改 store 必补用例）
+// session store 单测（t- 占位认领 + 列表失败置空，对齐前端 Skill §8 改 store 必补用例）
 import { createPinia, setActivePinia } from 'pinia';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { listSessionsApi } from '@/api';
-import { mockSessions } from '@/mock';
 import { useSessionStore } from './session';
 
 vi.mock('@/api', () => ({
   listSessionsApi: vi.fn(),
 }));
 
-vi.mock('@/mock', () => ({
-  mockSessions: [{ id: 'm-1', title: '演示会话' }],
-}));
+vi.mock('element-plus', () => ({ ElMessage: { error: vi.fn() } }));
 
 describe('useSessionStore', () => {
   beforeEach(() => {
@@ -44,11 +41,12 @@ describe('useSessionStore', () => {
     expect(store.sessions[0]?.id).toBe('backend-1');
   });
 
-  it('loadSessions 失败回退 mock 演示数据', async () => {
+  it('loadSessions 失败置空不编造数据', async () => {
     vi.mocked(listSessionsApi).mockRejectedValue(new Error('net'));
     const store = useSessionStore();
     await store.loadSessions();
-    expect(store.sessions).toEqual(mockSessions);
+    expect(store.sessions).toEqual([]);
+    expect(store.total).toBe(0);
   });
 
   it('loadSessions 成功采用后端分页对象', async () => {

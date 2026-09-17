@@ -1,8 +1,5 @@
 <template>
   <div class="page">
-    <div class="head">
-      <el-tag v-if="demo" type="warning" size="small">演示数据</el-tag>
-    </div>
     <div class="filters">
       <AiInput v-model="keyword" placeholder="搜平台单号" class="kw" @keyup.enter="reload" />
       <el-select v-model="status" placeholder="状态" class="sel" @change="reload">
@@ -155,7 +152,6 @@ import {
   listOrdersApi,
   shipOrderApi,
 } from '@/api';
-import { mockOrders } from '@/mock';
 import AiButton from '@/shared/components/AiButton.vue';
 import AiInput from '@/shared/components/AiInput.vue';
 import { aftersaleTagOf, dispositionTagOf, formatCents, orderTagOf } from '@/types/shop';
@@ -178,7 +174,6 @@ const size = ref(20);
 const keyword = ref('');
 const status = ref('');
 const loading = ref(false);
-const demo = ref(false);
 
 const waybill = (row: OrderItem) =>
   row.company && row.tracking_no ? `${row.company} ${row.tracking_no}` : '-';
@@ -194,14 +189,10 @@ const load = async () => {
     });
     rows.value = res.items;
     total.value = res.total;
-    demo.value = false;
-  } catch {
-    const kw = keyword.value.trim();
-    rows.value = mockOrders.filter(
-      o => (!status.value || o.status === status.value) && (!kw || o.outer_id.includes(kw)),
-    );
-    total.value = rows.value.length;
-    demo.value = true;
+  } catch (e) {
+    rows.value = [];
+    total.value = 0;
+    ElMessage.error(e instanceof Error ? `加载订单失败：${e.message}` : '加载订单失败');
   } finally {
     loading.value = false;
   }
@@ -352,12 +343,6 @@ onMounted(() => {
 <style scoped>
 .page {
   padding: 16px;
-}
-
-.head {
-  display: flex;
-  gap: 12px;
-  align-items: center;
 }
 
 .filters {

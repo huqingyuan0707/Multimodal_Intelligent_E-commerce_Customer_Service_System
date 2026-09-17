@@ -68,7 +68,7 @@ describe('useChatFeedback', () => {
     expect(() => track('chat.send', {})).not.toThrow();
   });
 
-  it('限流错误落排队话术行（可重试假、无 mock 兜底）', () => {
+  it('限流错误落排队话术行（可重试假、不编造回复）', () => {
     const messages = ref<AgentMessage[]>([]);
     const { handleStreamError } = useChatFeedback(messages);
     handleStreamError('对话过于频繁，请 1 分钟后再试', true);
@@ -77,7 +77,7 @@ describe('useChatFeedback', () => {
     expect(messages.value[0].retryable).toBeFalsy();
   });
 
-  it('网络错误落 mock 兜底行且 retryable', () => {
+  it('网络错误落错误提示行且 retryable', () => {
     const messages = ref<AgentMessage[]>([]);
     const { handleStreamError } = useChatFeedback(messages);
     handleStreamError('连接中断，可重试', false);

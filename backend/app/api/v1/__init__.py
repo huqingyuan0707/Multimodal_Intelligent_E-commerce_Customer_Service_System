@@ -26,6 +26,7 @@ from app.api.v1.endpoints import (
     orders,
     promos,
     reviews,
+    screen,
     sessions,
     studio,
     tasks,
@@ -65,3 +66,5 @@ api_router.include_router(admin.router, dependencies=[Depends(get_current_user)]
 # 管理后台扩展面（密钥/SLO/消息模板/排班）：同前缀 /admin，同 admin 权限口径
 api_router.include_router(admin_ops.router, dependencies=[Depends(get_current_user)])
 api_router.include_router(admin_org.router, dependencies=[Depends(get_current_user)])
+# 经营大屏（FRDv2 附录 D 大屏节）：全租户聚合视图，权限在端点内 screen:read/shop/admin
+api_router.include_router(screen.router, dependencies=[Depends(get_current_user)])

@@ -27,16 +27,13 @@
 </template>
 
 <script setup lang="ts">
-// 审计窗格：只读倒序分页（默认 20），后端不可用回 mock 演示并置演示标记
+// 审计窗格：只读倒序分页（默认 20），后端不可用置空 + 中文提示
 import { ElMessage } from 'element-plus';
 import { onMounted, ref } from 'vue';
 import { listAuditsApi } from '@/api';
-import { mockAdminAudits } from '@/mock';
 import AiButton from '@/shared/components/AiButton.vue';
 import AiInput from '@/shared/components/AiInput.vue';
 import type { AuditItem } from '@/types/admin';
-
-const emit = defineEmits(['demo']);
 
 const rows = ref<AuditItem[]>([]);
 const total = ref(0);
@@ -57,12 +54,10 @@ const load = async () => {
     });
     rows.value = res.items;
     total.value = res.total;
-    emit('demo', false);
   } catch (e) {
-    rows.value = mockAdminAudits as AuditItem[];
-    total.value = mockAdminAudits.length;
-    emit('demo', true);
-    ElMessage.error(e instanceof Error ? e.message : '加载审计失败，已用演示数据');
+    rows.value = [];
+    total.value = 0;
+    ElMessage.error(e instanceof Error ? `加载审计失败：${e.message}` : '加载审计失败');
   } finally {
     loading.value = false;
   }

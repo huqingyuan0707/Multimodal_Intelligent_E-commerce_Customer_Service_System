@@ -15,7 +15,7 @@
       <AiButton :loading="reindexing" @click="reindex">重建索引</AiButton>
       <AiButton @click="testerVisible = true">检索测试</AiButton>
     </div>
-    <el-empty v-if="!docs.length && !loading" description="暂无文档（后端不可用时显示演示数据）" />
+    <el-empty v-if="!docs.length && !loading" description="暂无文档" />
     <el-table v-loading="loading" :data="docs" style="width: 100%">
       <el-table-column prop="title" label="标题" min-width="200" />
       <el-table-column prop="topic" label="主题" width="110" />

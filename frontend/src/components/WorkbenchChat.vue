@@ -103,7 +103,7 @@ const QUICK_REPLIES = [
   { key: 'handoff', label: '转人工' },
 ] as const;
 
-// 语音演示元数据（时长·转写置信度；真语音链路接通后随消息下发）
+// 语音元数据（时长·转写置信度；真语音链路接通后随消息下发）
 const VOICE_META = { 'v-1': '0:12 · 转写0.91' } as const;
 
 const voiceText = (id: string) =>
@@ -119,20 +119,24 @@ const voiceText = (id: string) =>
   padding: 16px 4px;
   overflow-y: auto;
 }
+
 .phase {
   margin: 0;
   font-size: var(--reai-fs-caption);
   color: var(--reai-text-soft);
   text-align: center;
 }
+
 .msg {
   display: flex;
   gap: 8px;
   align-items: flex-start;
 }
+
 .msg.user {
   flex-direction: row-reverse;
 }
+
 .avatar {
   display: inline-flex;
   flex-shrink: 0;
@@ -145,38 +149,45 @@ const voiceText = (id: string) =>
   background: var(--reai-primary);
   border-radius: 50%;
 }
+
 .avatar.agent {
   font-size: 12px;
   color: var(--reai-text-on-light);
   background: var(--reai-accent);
 }
+
 .bubble {
   max-width: 70%;
   padding: 10px 14px;
   margin: 0;
   font-size: var(--reai-fs-body);
+
   /* 缺 color 会白上白糊，显式深字 */
   color: var(--reai-text-on-light);
   background: var(--reai-bubble-agent);
   border-radius: 12px;
 }
+
 .msg.user .bubble {
   font-weight: var(--reai-fw-medium);
   color: var(--reai-text-on-brand);
   background: var(--reai-bubble-user);
 }
+
 .text {
   margin: 0;
   line-height: 1.5;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
 .bubble.voice {
   display: flex;
   gap: 8px;
   align-items: center;
   color: var(--reai-text-on-brand);
 }
+
 .play {
   width: 24px;
   height: 24px;
@@ -186,6 +197,7 @@ const voiceText = (id: string) =>
   border: 1px solid currentcolor;
   border-radius: 50%;
 }
+
 .wave {
   display: inline-block;
   width: 120px;
@@ -194,6 +206,7 @@ const voiceText = (id: string) =>
   border-radius: 6px;
   opacity: 0.75;
 }
+
 .wave i {
   display: block;
   width: 40%;
@@ -202,15 +215,18 @@ const voiceText = (id: string) =>
   border-radius: 6px;
   opacity: 0.6;
 }
+
 .vmeta {
   font-family: var(--reai-font-mono);
   font-size: var(--reai-fs-micro);
 }
+
 .quicks {
   display: flex;
   gap: 8px;
   padding: 10px 0;
 }
+
 .quick {
   padding: 4px 10px;
   font-size: var(--reai-fs-caption);
@@ -221,34 +237,41 @@ const voiceText = (id: string) =>
   border: none;
   border-radius: 999px;
 }
-.quick:hover:not(:disabled),
-.quick:focus-visible:not(:disabled) {
-  color: var(--reai-text-on-brand);
-  background: var(--reai-primary);
-}
+
 .quick:disabled {
   cursor: not-allowed;
   opacity: 0.45;
 }
+
 /* 原生 button 不继承 Element Plus 焦点环，显式给键盘焦点 */
 .quick:focus-visible,
 .play:focus-visible {
   outline: 2px solid var(--reai-accent);
   outline-offset: 2px;
 }
+
+.quick:hover:not(:disabled),
+.quick:focus-visible:not(:disabled) {
+  color: var(--reai-text-on-brand);
+  background: var(--reai-primary);
+}
+
 .play:hover {
   background: var(--reai-glass-border);
 }
+
 .locked {
   margin: 0 0 8px;
   font-size: var(--reai-fs-caption);
   color: var(--reai-notice);
 }
+
 .input-row {
   display: flex;
   gap: 10px;
   align-items: center;
 }
+
 .grow {
   flex: 1;
 }

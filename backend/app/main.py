@@ -22,7 +22,7 @@ from app.config import is_default_seed_password, settings
 from app.core.exceptions import BusinessError, ErrorCode
 from app.core.middleware import TraceMiddleware
 from app.core.responses import fail
-from app.db.seed import seed_on_startup
+from app.db.seed import seed_closed_loop_demo, seed_on_startup
 from app.db.session import init_models
 from app.modules.agent.bootstrap import startup as startup_agent_kernel
 
@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     """启动建表（幂等，防空库 500）+ 种子账号（SEED_ON_START=false 可关，生产必关）
+    + 页面闭环演示数据（会话/消息/成本/售后/营销等，已有会话即跳过；单测不跑这条）
     + Agent 内核工具注册（FR-5：6 个连接器进注册中心，幂等且失败不阻断启动）。"""
     await init_models()
     if settings.SEED_ON_START:
@@ -40,6 +41,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
                 "种子账号仍用本地默认口令，仅限本机演示，禁止暴露到公网；生产用 ENV=prod 关种子并走 scripts/create_admin.py 建号"
             )
         await seed_on_startup()
+        await seed_closed_loop_demo()
     await startup_agent_kernel()
     yield
 

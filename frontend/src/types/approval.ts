@@ -13,7 +13,7 @@ export type ApprovalItem = {
   session_id: string;
   created_at: string;
   decided_at: string;
-  // 超时升级口径（后端 to_dict 必带，演示数据缺省按 false 处理）
+  // 超时升级口径（后端 to_dict 必带，缺省按 false 处理）
   overdue?: boolean;
   waiting_hours?: number;
 };

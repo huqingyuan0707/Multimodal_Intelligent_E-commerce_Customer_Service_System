@@ -18,7 +18,7 @@ export const useAgentStream = () => {
   const draft = ref('');
   const done = ref<DonePayload | null>(null);
   const error = ref('');
-  // 限流标记（fatal 错误置真）：页面显示排队话术，不走 mock 兜底
+  // 限流标记（fatal 错误置真）：页面显示排队话术，不本地编造回复
   const limited = ref(false);
   const controller = ref<AbortController | null>(null);
 

@@ -23,7 +23,7 @@
         <el-button link size="small" class="top-link" @click="showNotice">
           <i class="dot notice-dot" />消息通知
         </el-button>
-        <span class="tenant">{{ user?.tenant ?? '演示租户' }}</span>
+        <span class="tenant">{{ user?.tenant ?? '未知租户' }}</span>
         <el-dropdown trigger="click" placement="bottom-end" @command="handleUserCommand">
           <span class="username dropdown-trigger"
             >{{ user?.name ?? '管理员' }}<i class="caret"
@@ -114,7 +114,7 @@ const extraPermCount = computed(() =>
 );
 
 const showNotice = () => {
-  ElMessage.info('暂无新消息（演示占位，通知中心后续补）');
+  ElMessage.info('暂无新消息（通知中心后续补）');
 };
 
 const logout = async () => {

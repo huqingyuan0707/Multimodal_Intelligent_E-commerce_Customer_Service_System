@@ -42,7 +42,7 @@ export const useChatSend = (deps: SendDeps) => {
     messages.value = [...messages.value, m];
   };
 
-  // 流式收尾：错误统一交 feedback.handleStreamError（限流排队/可重试 mock），成功落 Agent 气泡
+  // 流式收尾：错误统一交 feedback.handleStreamError（限流排队 / 可重试话术），成功落 Agent 气泡
   const settle = async (threadId: string, query: string) => {
     if (stream.error.value) {
       feedback.handleStreamError(stream.error.value, stream.limited.value);

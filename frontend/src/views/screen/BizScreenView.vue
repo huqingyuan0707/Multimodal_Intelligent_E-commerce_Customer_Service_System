@@ -29,19 +29,19 @@
 </template>
 
 <script setup lang="ts">
-// 经营大屏（4指标＋趋势柱＋预警下钻，30秒轮询；后端未就绪回 mock，对齐页面设计 §3.15 与画布屏四）
+// 经营大屏（4指标＋趋势柱＋预警下钻，30秒轮询；对齐页面设计 §3.15 与画布屏四）
+import { ElMessage } from 'element-plus';
 import { onMounted, onUnmounted, ref } from 'vue';
 import { getScreenSummaryApi } from '@/api';
-import { mockScreenMetrics, mockScreenTrend, mockScreenWarnings } from '@/mock/screen';
-import type { ScreenMetric, ScreenTrendPoint, ScreenWarning } from '@/mock/screen';
 import AiButton from '@/shared/components/AiButton.vue';
+import type { ScreenMetric, ScreenTrendPoint, ScreenWarning } from '@/types/screen';
 
 const POLL_MS = 30000;
 const BAR_MAX_PX = 170;
 
-const metrics = ref<ScreenMetric[]>([...mockScreenMetrics]);
-const trend = ref<ScreenTrendPoint[]>([...mockScreenTrend]);
-const warnings = ref<ScreenWarning[]>([...mockScreenWarnings]);
+const metrics = ref<ScreenMetric[]>([]);
+const trend = ref<ScreenTrendPoint[]>([]);
+const warnings = ref<ScreenWarning[]>([]);
 let timer = 0;
 
 const barHeight = (v: number) => {
@@ -49,7 +49,7 @@ const barHeight = (v: number) => {
   return Math.round((v / max) * BAR_MAX_PX);
 };
 
-// 后端汇总形态与 mock 同形才采用，否则保持演示数据不断屏
+// 后端汇总直接映射到三个响应式数组，缺字段按空数组处理
 const applySummary = (data: unknown) => {
   if (typeof data !== 'object' || data === null) return;
   const d = data as {
@@ -57,18 +57,16 @@ const applySummary = (data: unknown) => {
     trend?: ScreenTrendPoint[];
     warnings?: ScreenWarning[];
   };
-  if (Array.isArray(d.metrics) && d.metrics.length) metrics.value = d.metrics;
-  if (Array.isArray(d.trend) && d.trend.length) trend.value = d.trend;
-  if (Array.isArray(d.warnings)) warnings.value = d.warnings;
+  metrics.value = d.metrics ?? [];
+  trend.value = d.trend ?? [];
+  warnings.value = d.warnings ?? [];
 };
 
 const load = async () => {
   try {
     applySummary(await getScreenSummaryApi({ range: 'today' }));
-  } catch {
-    metrics.value = [...mockScreenMetrics];
-    trend.value = [...mockScreenTrend];
-    warnings.value = [...mockScreenWarnings];
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? `加载大屏失败：${e.message}` : '加载大屏失败');
   }
 };
 
@@ -89,44 +87,54 @@ onUnmounted(() => {
   gap: 16px;
   height: 100%;
 }
+
 .head {
   display: flex;
   gap: 12px;
   align-items: center;
 }
+
 .hint {
   flex: 1;
   font-size: 12px;
   color: var(--reai-text-muted);
 }
+
 .metrics {
   display: flex;
   gap: 12px;
 }
+
 .metric {
   display: flex;
   flex: 1;
   flex-direction: column;
   gap: 4px;
 }
+
 .metric .label {
   font-size: 12px;
   color: var(--reai-text-muted);
 }
+
 .metric .value {
   font-size: 18px;
   font-weight: 600;
   color: var(--reai-text-main);
 }
+
 .metric.good .value {
   color: var(--reai-online);
 }
+
 .metric.bad .value {
   color: var(--reai-notice);
 }
+
 .metric.warn .value {
   color: var(--reai-notice);
 }
+
 .card {
   padding: 14px 16px;
   background: var(--reai-glass-bg);
@@ -134,23 +142,27 @@ onUnmounted(() => {
   border-radius: 12px;
   box-shadow: var(--reai-glow);
 }
+
 .card-title {
   margin: 0 0 12px;
   font-size: 14px;
   color: var(--reai-text-main);
 }
+
 .bottom {
   display: flex;
   flex: 1;
   gap: 16px;
   min-height: 0;
 }
+
 .chart {
   display: flex;
   flex: 1;
   flex-direction: column;
   min-width: 0;
 }
+
 .bars {
   display: flex;
   flex: 1;
@@ -158,6 +170,7 @@ onUnmounted(() => {
   align-items: flex-end;
   min-height: 0;
 }
+
 .bar-col {
   display: flex;
   flex: 1;
@@ -166,23 +179,28 @@ onUnmounted(() => {
   align-items: center;
   min-width: 0;
 }
+
 .bar {
   width: 100%;
   background: var(--reai-accent);
   border-radius: 6px;
   opacity: 0.75;
 }
+
 .bar-col:last-child .bar {
   opacity: 1;
 }
+
 .bar-label {
   font-size: 11px;
   color: var(--reai-text-muted);
 }
+
 .warns {
   flex: 0 1 360px;
   overflow-y: auto;
 }
+
 .warn {
   padding: 10px;
   margin: 0 0 8px;
@@ -191,19 +209,24 @@ onUnmounted(() => {
   background: var(--reai-card);
   border-radius: 8px;
 }
+
 .warn.bad {
   background: var(--reai-notice-soft);
 }
+
 @media (width <= 1024px) {
   .metrics {
     flex-wrap: wrap;
   }
+
   .metric {
     flex-basis: 40%;
   }
+
   .bottom {
     flex-direction: column;
   }
+
   .warns {
     flex: none;
   }

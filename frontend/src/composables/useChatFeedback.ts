@@ -1,10 +1,9 @@
 // 对话反馈与埋点 composable（赞踩 → mining/feedback；行为 → governance/track；引用点击/错误气泡收口）
-// 链路：ChatView/ChatMessage 事件 → 本模块 → @/api（submitFeedbackApi/trackEventApi）+ mock 兜底；
+// 链路：ChatView/ChatMessage 事件 → 本模块 → @/api（submitFeedbackApi/trackEventApi）；失败中文提示不静默
 // 对齐页面设计 §3.1（赞踩/引用点击/埋点/错误状态完整性）+ API 规范 §4.4/§4.13
 import { ElMessage } from 'element-plus';
 import type { Ref } from 'vue';
 import { submitFeedbackApi, trackEventApi } from '@/api';
-import { mockChatFallback } from '@/mock';
 import type { AgentMessage } from '@/types/agent';
 
 export const useChatFeedback = (messages: Ref<AgentMessage[]>) => {
@@ -38,7 +37,7 @@ export const useChatFeedback = (messages: Ref<AgentMessage[]>) => {
     track('voice.play', {});
   };
 
-  // 流式错误收尾：限流（fatal）给排队话术不留重试；其余友好话术 + mock 兜底 + 可重试
+  // 流式错误收尾：限流（fatal）给排队话术不留重试；其余错误如实透出 + 可重试（不编造回复内容）
   const handleStreamError = (msg: string, limited: boolean) => {
     if (limited) {
       ElMessage.warning(msg);
@@ -53,14 +52,14 @@ export const useChatFeedback = (messages: Ref<AgentMessage[]>) => {
       ];
       return;
     }
-    ElMessage.error(`${msg}，已用本地演示回复`);
+    ElMessage.error(msg);
     messages.value = [
       ...messages.value,
       {
         id: `a-${Date.now()}`,
         role: 'agent',
         modality: 'text',
-        content: mockChatFallback,
+        content: `${msg}，可点击重试`,
         retryable: true,
       },
     ];

@@ -11,7 +11,6 @@
       :skill="skill"
       :skill-groups="skillGroups"
       :loading="queueLoading"
-      :demo="queueDemo"
       @select="pickRow"
       @search="setKeyword"
       @filter="setStatus"
@@ -29,7 +28,6 @@
           <span class="name">{{ currentName }}</span>
           <span class="online">{{ statusText }}</span>
         </span>
-        <el-tag v-if="traceDemo" size="small" type="warning" effect="plain">演示消息</el-tag>
         <AiButton v-if="currentRow?.statusKey === 'pending'" type="primary" @click="claim()">
           认领
         </AiButton>
@@ -71,13 +69,7 @@
     </section>
 
     <!-- 右：订单卡＋本轮 Trace＋上下文用量＋AI 辅助＋内部备注（插槽注入，买家不可见） -->
-    <WorkbenchSide
-      :order="sideOrder"
-      :demo="sideDemo"
-      :traces="sessionTraces"
-      :usage="sideUsage"
-      @fill="draft = $event"
-    >
+    <WorkbenchSide :traces="sessionTraces" :usage="sideUsage" @fill="draft = $event">
       <!-- key 绑 currentId：切会话即重挂，清掉上一会话未提交的备注草稿 -->
       <WorkbenchNotes
         ref="notesRef"
@@ -85,7 +77,6 @@
         :notes="notes"
         :loading="notesLoading"
         :saving="notesSaving"
-        :demo="notesDemo"
         :disabled="notesDisabled"
         @add="saveNote"
       />
@@ -96,7 +87,6 @@
         :score="qcScore"
         :loading="qcLoading"
         :saving="qcSaving"
-        :demo="qcDemo"
         @save="submitQc"
       />
     </WorkbenchSide>
@@ -108,7 +98,7 @@
 <script setup lang="ts">
 // 坐席工作台三栏编排（FR-7 转人工闭环）：队列流转 ▸ 会话流（坐席代回 / AI 代答 / 只读围观）▸ 订单+Trace+备注
 // 链路：WorkbenchView → useWorkbenchQueue / useWorkbenchTrace / useWorkbenchNotes / useWorkbenchSide → 组件
-// 对齐：页面设计 §3.2 + API 规范 §4.11；队列/Trace/备注失败各自回退演示并挂 demo 标，不阻塞使用
+// 对齐：页面设计 §3.2 + API 规范 §4.11；队列/Trace/备注失败各自置空 + 中文提示，不阻塞使用
 import { ElMessage } from 'element-plus';
 import { computed, onMounted, ref, watch } from 'vue';
 import { replyWorkbenchApi } from '@/api';
@@ -141,7 +131,7 @@ const QUICK_TEXT = {
   refund: '商品有点问题，想申请退换货',
 } as const;
 
-// —— 队列与流转动作（失败自动回退演示并挂标；确认框/提示内置在 composable）——
+// —— 队列与流转动作（置空 + 中文提示；确认框/提示内置在 composable）——
 const {
   rows: queueRows,
   total,
@@ -150,7 +140,6 @@ const {
   status,
   skill,
   loading: queueLoading,
-  demo: queueDemo,
   currentId,
   currentRow,
   load: loadQueue,
@@ -171,27 +160,23 @@ const {
 const { skillGroups, assignEnabled, refresh: refreshLoad } = useWorkbenchLoad();
 
 // —— 会话流 / Trace / 内部备注（三者同口径绑定 currentId）——
-const { messages, context, demo: traceDemo, load: loadTrace, append } = useWorkbenchTrace();
+const { messages, context, load: loadTrace, append } = useWorkbenchTrace();
 const {
   notes,
   loading: notesLoading,
   saving: notesSaving,
-  demo: notesDemo,
   load: loadNotes,
   add: addNote,
-  reset: resetNotes,
 } = useWorkbenchNotes();
-const { sideOrder, sideDemo, sessionTraces, sideUsage } = useWorkbenchSide(messages, context);
+const { sessionTraces, sideUsage } = useWorkbenchSide(messages, context);
 
 // —— 质检评分（C 步收官）：resolved 会话自动评分展示 + 人工改评 ——
 const {
   score: qcScore,
   loading: qcLoading,
   saving: qcSaving,
-  demo: qcDemo,
   load: loadQc,
   save: saveQc,
-  reset: resetQc,
 } = useWorkbenchQc();
 
 const perfVisible = ref(false);
@@ -241,7 +226,7 @@ const statusText = computed(() => {
 });
 
 const currentName = computed(() => currentRow.value?.name ?? '');
-const notesDisabled = computed(() => !currentId.value || queueDemo.value);
+const notesDisabled = computed(() => !currentId.value);
 
 const phaseText = computed(() => {
   const p = stream.phase.value;
@@ -255,13 +240,8 @@ watch(currentId, id => {
   if (stream.streaming.value) stream.stop();
   draft.value = '';
   loadTrace(id);
-  if (queueDemo.value) {
-    resetNotes();
-    resetQc();
-  } else {
-    loadNotes(id);
-    loadQc(id);
-  }
+  loadNotes(id);
+  loadQc(id);
 });
 
 const send = async () => {
@@ -269,11 +249,6 @@ const send = async () => {
   if (!content || streaming.value || locked.value) return;
   const id = currentId.value;
   draft.value = '';
-  // 演示数据：后端队列不可用，本地回显避免必然 404 报错刷屏
-  if (queueDemo.value) {
-    append({ id: `d-${Date.now()}`, role: 'agent', modality: 'text', content });
-    return;
-  }
   // 本人认领会话：坐席代回落 agent 行（买家历史即见），不烧 AI
   if (isMine.value) {
     try {
@@ -319,9 +294,9 @@ const submitQc = (payload: { score: number; resolution_ok: boolean; comment: str
   saveQc(currentId.value, payload);
 };
 
-const pickImage = () => ElMessage.info('图片上传后续接多模态接口（演示占位，≤9张/单张≤10M）');
-const recordVoice = () => ElMessage.info('按住录音 ≤60s（演示占位）');
-const playVoice = (id: string) => ElMessage.info(`播放语音 ${id}（演示占位）`);
+const pickImage = () => ElMessage.info('图片上传后续接多模态接口（≤9张/单张≤10M）');
+const recordVoice = () => ElMessage.info('按住录音 ≤60s');
+const playVoice = (id: string) => ElMessage.info(`播放语音 ${id}`);
 const openDoc = (source: string) => ElMessage.info(`打开原文 ${source}（知识库预览就绪后跳转）`);
 
 onMounted(() => {

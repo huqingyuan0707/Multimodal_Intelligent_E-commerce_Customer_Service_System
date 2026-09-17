@@ -1,8 +1,5 @@
 <template>
   <div class="page">
-    <div class="head">
-      <el-tag v-if="fallback" type="info" size="small">演示数据（后端不可用，已回退本地）</el-tag>
-    </div>
     <el-tabs v-model="tab">
       <el-tab-pane label="Prompt" name="prompt">
         <StudioPromptPane
@@ -49,10 +46,9 @@
 
 <script setup lang="ts">
 // Studio 三窗格编排器（唯一调用 composable 处；对齐页面设计 §3.6、design.pen Agent工作室-/studio）
-// 真接口经 @/api/studio，任一失败即整体回退 @/mock/studio 并挂演示标；二次确认与成败提示收口在此
+// 真接口经 @/api/studio，任一失败即中文提示并置空，不编造数据；二次确认与成败提示收口在此
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { computed, onMounted, ref } from 'vue';
-import { mockEvalRun, mockPromptVersions, mockStudioTools } from '@/mock/studio';
 import StudioEvalPane from '@/components/StudioEvalPane.vue';
 import StudioPromptPane from '@/components/StudioPromptPane.vue';
 import StudioToolPane from '@/components/StudioToolPane.vue';
@@ -62,7 +58,6 @@ import { useStudioPrompts } from '@/composables/useStudioPrompts';
 import { useStudioTools } from '@/composables/useStudioTools';
 
 const tab = ref('prompt');
-const fallback = ref(false);
 
 const prompts = useStudioPrompts();
 const tools = useStudioTools();
@@ -85,7 +80,7 @@ const evalCurrent = computed(() => evals.current.value);
 const evalLoading = computed(() => evals.loading.value);
 const evalRunning = computed(() => evals.running.value);
 
-// 首屏：真接口全量拉取，任一失败即整体回退演示数据并挂标（后端不可用页面仍可用）
+// 首屏：真接口全量拉取，失败仅中文提示，各窗格保持空态
 const loadAll = async () => {
   try {
     await prompts.refresh(1);
@@ -94,16 +89,8 @@ const loadAll = async () => {
     await evals.refreshRuns(1);
     const latest = evals.runs.value[0];
     if (latest) await evals.pollRun(latest.id);
-  } catch {
-    fallback.value = true;
-    prompts.versions.value = [...mockPromptVersions];
-    prompts.total.value = mockPromptVersions.length;
-    tools.tools.value = [...mockStudioTools];
-    tools.total.value = mockStudioTools.length;
-    evals.runs.value = [mockEvalRun];
-    evals.total.value = 1;
-    evals.current.value = mockEvalRun;
-    ElMessage.warning('后端不可用，已回退演示数据');
+  } catch (err) {
+    fail(err, '加载失败，请重试');
   }
 };
 
@@ -238,11 +225,5 @@ onMounted(() => {
   flex-direction: column;
   gap: 12px;
   padding: 16px;
-}
-
-.head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 </style>

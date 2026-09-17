@@ -1,5 +1,5 @@
 // 坐席内部备注（/workbench/sessions/{id}/notes）：仅坐席可见，交接/复盘用，买家侧不可见
-// 失败回退空列表 + demo 标（不阻塞主链路）；新增成功本地插入，不重拉全量
+// 加载失败置空并提示（不阻塞主链路）；新增成功本地插入，不重拉全量
 import { ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import { addNoteWorkbenchApi, listNotesWorkbenchApi } from '@/api';
@@ -9,7 +9,6 @@ export const useWorkbenchNotes = () => {
   const notes = ref<WorkbenchNote[]>([]);
   const loading = ref(false);
   const saving = ref(false);
-  const demo = ref(false);
 
   const load = async (id: string) => {
     if (!id) {
@@ -19,10 +18,9 @@ export const useWorkbenchNotes = () => {
     loading.value = true;
     try {
       notes.value = ((await listNotesWorkbenchApi({ id })) ?? []) as WorkbenchNote[];
-      demo.value = false;
-    } catch {
+    } catch (e) {
       notes.value = [];
-      demo.value = true;
+      ElMessage.error(e instanceof Error ? `加载备注失败：${e.message}` : '加载备注失败');
     } finally {
       loading.value = false;
     }
@@ -50,8 +48,7 @@ export const useWorkbenchNotes = () => {
 
   const reset = () => {
     notes.value = [];
-    demo.value = false;
   };
 
-  return { notes, loading, saving, demo, load, add, reset };
+  return { notes, loading, saving, load, add, reset };
 };

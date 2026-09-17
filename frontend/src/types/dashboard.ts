@@ -1,5 +1,5 @@
 // 数据看板类型先行（指标卡 + 按租户/渠道归因表；口径对齐页面设计 §3.7 + FRD FR-9）
-// 链路：DashboardView → api/dashboard → 后端 /observability/summary（未就绪回 mock/dashboard）
+// 链路：DashboardView → api/dashboard → 后端 /observability/summary（失败置空 + 中文提示）
 export type MetricKey = 'qps' | 'p95' | 'resolve' | 'hallucination' | 'tool' | 'cost';
 
 export type DashboardMetric = {

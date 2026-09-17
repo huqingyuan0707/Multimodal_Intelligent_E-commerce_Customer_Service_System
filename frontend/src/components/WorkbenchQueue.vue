@@ -2,7 +2,6 @@
   <section class="queue">
     <div class="head">
       <span class="title">会话队列</span>
-      <el-tag v-if="demo" size="small" type="warning" effect="plain">演示数据</el-tag>
       <span class="count">{{ loading ? '加载中…' : `${total} 条` }}</span>
       <AiButton link size="small" class="perf" @click="emit('performance')">绩效</AiButton>
     </div>
@@ -117,7 +116,6 @@ defineProps<{
   skill: string;
   skillGroups?: { key: string; label: string }[];
   loading: boolean;
-  demo: boolean;
 }>();
 
 const emit = defineEmits(['select', 'search', 'filter', 'skill', 'page', 'size', 'performance']);

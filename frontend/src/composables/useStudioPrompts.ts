@@ -1,5 +1,5 @@
 // Studio Prompt 版本数据（列表/新建/发布/调灰/回滚/线上读取，对齐 API 规范 §4.13）
-// 失败向上传播（页面 catch 回 mock 兜底并挂演示标），本层只管 loading 与状态映射
+// 失败向上传播（页面 catch 后中文提示），本层只管 loading 与状态映射
 import { computed, ref } from 'vue';
 import {
   createPromptApi,

@@ -32,7 +32,7 @@ const queuePage = {
 };
 
 test.beforeEach(async ({ page }) => {
-  // 兜底空信封先注册：其余接口按降级红线回退演示数据，不允许白屏/崩溃。
+  // 兜底空信封先注册：其余接口返回空数据，页面走空态 + 中文提示，不允许白屏/崩溃。
   // login/me/queue 三个关键路径 route.fallback() 落到后面的精确 mock（兼容两种注册序匹配）。
   await page.route('**/api/v1/**', async route => {
     const url = route.request().url();

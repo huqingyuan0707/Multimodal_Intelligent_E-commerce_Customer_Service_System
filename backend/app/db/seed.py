@@ -1,16 +1,21 @@
 """种子数据（首次启动幂等灌入，对齐数据模型与存储设计.md §6 迁移节）
 
-链路：main.lifespan（SEED_ON_START）/ scripts/init_db.py → ensure_seed_user() + ensure_b2b_demo() + ensure_kb_seed() + ensure_prompt_seed()。
+链路：main.lifespan（SEED_ON_START）/ scripts/init_db.py → seed_on_startup()（基线：账号 + 租户行
+     + B 端演示 + 知识库 29 篇 + Prompt v1）+ seed_closed_loop_demo()（页面闭环演示，见下）。
 租户/用户名/密码/角色一律走 Settings（.env 可覆盖），禁止硬编码；生产置 SEED_ON_START=false。
 B 端演示数据由 B2B_SEED_DEMO 控制（商品/SKU/仓库/库存/订单/一条待审改价），已存在商品即跳过。
+闭环演示数据（会话/消息/工具调用/成本/审计/售后/营销/评价/工单/评测/回溯订单/坐席账号）
+同由 B2B_SEED_DEMO 控制、已存在会话即跳过，保证前端删除 @/mock 后每个页面仍有真数据。
+它**不进 seed_on_startup()**：单测靠基线种子断言精确条数（如「队列 total == 0」），
+演示会话混进去会打挂断言，故只由 lifespan / scripts/init_db.py 显式调用。
 知识库种子由 KB_SEED_DEMO/KB_SEED_DIR 控制（docs/knowledge-base 29 篇，SHA256 去重），已存在不覆盖。
+本模块为入口编排：B 端演示常量与落库在 seed_b2b，闭环会话/运维记录在 seed_closed_loop，
+业务记录（售后/营销/评价/工单/评测）在 seed_biz_records，并原样回导以保持 app.db.seed 公开 API 不变。
 """
 
 from __future__ import annotations
 
 import json
-import zlib
-from dataclasses import dataclass
 from pathlib import Path
 
 from sqlalchemy import func, select
@@ -18,17 +23,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import settings
 from app.core.security import hash_password
-from app.db.models import (
-    Approval,
-    Inventory,
-    LogisticsOrder,
-    Product,
-    SalesOrder,
-    Sku,
-    Tenant,
-    User,
-    Warehouse,
-)
+from app.db.models import Product, SalesOrder, Session, Sku, Tenant, User
+from app.db.seed_b2b import _seed_backfill_orders, ensure_b2b_demo
+from app.db.seed_biz_records import _seed_biz_records
+from app.db.seed_closed_loop import _DEMO_AGENTS, _seed_ops_records, _seed_sessions
 from app.db.session import get_engine
 
 
@@ -62,216 +60,6 @@ async def ensure_seed_user(db: AsyncSession) -> bool:
             roles=settings.SEED_ROLES,
         )
     )
-    await db.commit()
-    return True
-
-
-@dataclass(frozen=True)
-class _DemoProduct:
-    """演示 SPU：variants 为 (颜色, 尺码) 组合，default_stock 为 (中心仓, 华东仓) 常规数量。"""
-
-    spu_no: str
-    name: str
-    category: str
-    attrs: dict[str, str]
-    variants: tuple[tuple[str, str], ...]
-    list_price: int
-    sale_price: int
-    default_stock: tuple[int, int]
-
-
-@dataclass(frozen=True)
-class _DemoOrder:
-    """演示订单：lines 为 (spu_no, 颜色, 尺码, 件数)，waybill 非空表示已发货并带面单。"""
-
-    platform: str
-    outer_id: str
-    status: str
-    lines: tuple[tuple[str, str, str, int], ...]
-    waybill: tuple[str, str] | None = None
-
-
-# 扩展属性（材质/洗涤方式）是 workbench 属性卡的数据源，值必须写实。
-_DEMO_PRODUCTS: tuple[_DemoProduct, ...] = (
-    _DemoProduct(
-        spu_no="TSIRT-001",
-        name="重磅纯棉短袖 T 恤",
-        category="男装/T恤",
-        attrs={"材质": "100% 棉 260g 重磅", "洗涤方式": "机洗 30℃，不可漂白，阴凉处晾干"},
-        variants=tuple(
-            (color, size) for color in ("白", "黑", "雾蓝") for size in ("S", "M", "L", "XL")
-        ),
-        list_price=19900,
-        sale_price=12900,
-        default_stock=(80, 30),
-    ),
-    _DemoProduct(
-        spu_no="HOODIE-002",
-        name="加绒连帽卫衣",
-        category="男装/卫衣",
-        attrs={"材质": "棉 70% 涤 30%，内里加绒", "洗涤方式": "反面机洗 30℃，不可烘干"},
-        variants=tuple((color, size) for color in ("米白", "咖啡") for size in ("M", "L", "XL")),
-        list_price=39900,
-        sale_price=29900,
-        default_stock=(40, 15),
-    ),
-)
-
-# 个别 SKU 刻意做成「低于安全线 / 断货 / 有占用」，让 /inventory 首屏就能演示预警与可用量公式：
-# key = f"{spu_no}-{color}-{size}" → (中心仓 qty, 华东仓 qty, reserved, locked)
-_DEMO_STOCK: dict[str, tuple[int, int, int, int]] = {
-    "TSIRT-001-白-M": (6, 4, 2, 0),
-    "TSIRT-001-黑-L": (0, 0, 0, 0),
-    "HOODIE-002-米白-M": (12, 6, 5, 2),
-}
-
-# 三种状态覆盖订单状态机分支：待发货（可打单）/ 待付款（不可发货）/ 已发货（可售后）
-_DEMO_ORDERS: tuple[_DemoOrder, ...] = (
-    _DemoOrder(
-        platform="taobao",
-        outer_id="TB20260912001",
-        status="paid",
-        lines=(("TSIRT-001", "白", "M", 1), ("TSIRT-001", "黑", "L", 2)),
-    ),
-    _DemoOrder(
-        platform="douyin",
-        outer_id="DY20260912002",
-        status="pending_pay",
-        lines=(("HOODIE-002", "咖啡", "M", 1),),
-    ),
-    _DemoOrder(
-        platform="weixin",
-        outer_id="WX20260911003",
-        status="shipped",
-        lines=(("TSIRT-001", "雾蓝", "S", 1),),
-        waybill=("顺丰", "SF1234567890"),
-    ),
-)
-
-
-def _barcode(key: str) -> str:
-    """确定性条码（69 前缀 + 11 位）：用 crc32 而非 hash()，后者跨进程随机化会导致数据不稳定。"""
-    return f"69{zlib.crc32(key.encode()) % 10**11:011d}"
-
-
-async def ensure_b2b_demo(db: AsyncSession) -> bool:
-    """幂等灌 B 端演示数据（商品/SKU 矩阵、双仓库存、三种状态订单、一条待审改价）。
-
-    幂等判据：本租户 products 表已有数据即跳过；生产把 B2B_SEED_DEMO 置 false。
-    """
-    if not settings.B2B_SEED_DEMO:
-        return False
-    tenant = settings.SEED_TENANT
-    existing = (
-        await db.execute(select(func.count()).select_from(Product).where(Product.tenant == tenant))
-    ).scalar_one()
-    if existing:
-        return False
-
-    center = Warehouse(tenant=tenant, name="中心仓")
-    east = Warehouse(tenant=tenant, name="华东仓")
-    db.add_all([center, east])
-    await db.flush()
-
-    skus: dict[str, Sku] = {}
-    for spec in _DEMO_PRODUCTS:
-        product = Product(
-            tenant=tenant,
-            spu_no=spec.spu_no,
-            name=spec.name,
-            category=spec.category,
-            attrs=json.dumps(spec.attrs, ensure_ascii=False),
-            status="on",
-        )
-        db.add(product)
-        await db.flush()
-        for color, size in spec.variants:
-            key = f"{spec.spu_no}-{color}-{size}"
-            sku = Sku(
-                tenant=tenant,
-                product_id=product.id,
-                color=color,
-                size=size,
-                barcode=_barcode(key),
-                list_price=spec.list_price,
-                sale_price=spec.sale_price,
-            )
-            db.add(sku)
-            await db.flush()
-            skus[key] = sku
-            qty_center, qty_east, reserved, locked = _DEMO_STOCK.get(
-                key, (spec.default_stock[0], spec.default_stock[1], 0, 0)
-            )
-            db.add_all(
-                [
-                    Inventory(
-                        tenant=tenant,
-                        warehouse_id=center.id,
-                        sku_id=sku.id,
-                        qty=qty_center,
-                        reserved=reserved,
-                        warn_line=settings.STOCK_WARN_DEFAULT,
-                    ),
-                    Inventory(
-                        tenant=tenant,
-                        warehouse_id=east.id,
-                        sku_id=sku.id,
-                        qty=qty_east,
-                        locked=locked,
-                        warn_line=settings.STOCK_WARN_DEFAULT,
-                    ),
-                ]
-            )
-
-    for order_spec in _DEMO_ORDERS:
-        items: list[dict[str, object]] = []
-        total = 0
-        for spu_no, color, size, qty in order_spec.lines:
-            sku = skus[f"{spu_no}-{color}-{size}"]
-            items.append(
-                {
-                    "sku_id": sku.id,
-                    "sku_code": f"{spu_no}-{color}-{size}",
-                    "color": color,
-                    "size": size,
-                    "qty": qty,
-                    "price": sku.sale_price,
-                }
-            )
-            total += sku.sale_price * qty
-        order = SalesOrder(
-            tenant=tenant,
-            platform=order_spec.platform,
-            outer_id=order_spec.outer_id,
-            items=json.dumps(items, ensure_ascii=False),
-            total=total,
-            status=order_spec.status,
-        )
-        db.add(order)
-        await db.flush()
-        if order_spec.waybill is not None:
-            db.add(
-                LogisticsOrder(
-                    tenant=tenant,
-                    sales_order_id=order.id,
-                    company=order_spec.waybill[0],
-                    tracking_no=order_spec.waybill[1],
-                )
-            )
-
-    # 一条待审改价：让审批中心首屏有真实待办（演示「改价恒进审批」红线）
-    demo_sku = skus.get("TSIRT-001-白-M")
-    if demo_sku is not None:
-        db.add(
-            Approval(
-                tenant=tenant,
-                action="sku.price_change",
-                target=f"TSIRT-001 重磅纯棉短袖 T 恤｜白/M（{demo_sku.id}）",
-                args=json.dumps({"sku_id": demo_sku.id, "new_price": 11900}),
-                reason="9 月大促报名要求降至 119 元",
-                applicant=settings.SEED_USERNAME,
-            )
-        )
     await db.commit()
     return True
 
@@ -378,6 +166,79 @@ async def ensure_prompt_seed(db: AsyncSession) -> bool:
     )
     await db.commit()
     return True
+
+
+async def ensure_closed_loop_demo(db: AsyncSession) -> bool:
+    """幂等灌「闭环演示数据」：一次让全部页面都有真实 DB 数据（前端无 mock 兜底）。
+
+    幂等判据：本租户 sessions 表已有数据即整体跳过（含 B2B_SEED_DEMO=false 时）。
+    依赖：需在 ensure_seed_user / ensure_seed_tenant / ensure_b2b_demo 之后调用
+    （坐席账号挂租户、售后单挂已有订单、回溯订单挂已有 SKU）。
+    """
+    if not settings.B2B_SEED_DEMO:
+        return False
+    tenant = settings.SEED_TENANT
+    username = settings.SEED_USERNAME
+    existing = (
+        await db.execute(select(func.count()).select_from(Session).where(Session.tenant == tenant))
+    ).scalar_one()
+    if existing:
+        return False
+
+    for name, roles, _note in _DEMO_AGENTS:
+        found = (
+            await db.execute(select(User).where(User.tenant == tenant, User.username == name))
+        ).scalar_one_or_none()
+        if found is None:
+            db.add(
+                User(
+                    tenant=tenant,
+                    username=name,
+                    pwd_hash=hash_password(settings.SEED_PASSWORD.get_secret_value()),
+                    roles=roles,
+                )
+            )
+    await db.flush()
+
+    skus = list(
+        (await db.execute(select(Sku).where(Sku.tenant == tenant).order_by(Sku.id))).scalars()
+    )
+    spu_of: dict[str, str] = {}
+    for pid, spu_no in (
+        await db.execute(select(Product.id, Product.spu_no).where(Product.tenant == tenant))
+    ).all():
+        spu_of[str(pid)] = str(spu_no)
+    orders: list[SalesOrder] = []
+    if skus:
+        orders = await _seed_backfill_orders(db, tenant=tenant, skus=skus, spu_of=spu_of)
+    orders.extend(
+        list(
+            (
+                await db.execute(
+                    select(SalesOrder)
+                    .where(SalesOrder.tenant == tenant)
+                    .order_by(SalesOrder.created_at.desc())
+                )
+            ).scalars()
+        )
+    )
+
+    sessions_results = await _seed_sessions(db, tenant=tenant, username=username)
+    await _seed_ops_records(db, tenant=tenant, username=username, sessions_results=sessions_results)
+    await _seed_biz_records(db, tenant=tenant, orders=orders)
+    await db.commit()
+    return True
+
+
+async def seed_closed_loop_demo() -> bool:
+    """页面闭环演示入口（lifespan / scripts/init_db.py 调用）：自建会话灌一次，有写入即 True。
+
+    刻意独立于 seed_on_startup()：单测只跑基线种子，演示会话一旦混入会打挂
+    「队列 total == 0」「绩效 items == []」这类精确条数断言。
+    """
+    factory = async_sessionmaker(get_engine(), expire_on_commit=False)
+    async with factory() as db:
+        return await ensure_closed_loop_demo(db)
 
 
 async def seed_on_startup() -> bool:

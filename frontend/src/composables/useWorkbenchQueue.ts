@@ -1,5 +1,5 @@
 // 坐席工作台队列（真实 /workbench/queue：服务端分页 20 + 状态/技能组过滤 + 关键字搜索 + 流转动作）
-// 失败回退 @/mock 演示数据并打 demo 标；对齐 API 规范 §4.11 + 页面设计 §3.2
+// 加载失败置空并提示，不混入任何占位数据；对齐 API 规范 §4.11 + 页面设计 §3.2
 import { computed, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import {
@@ -11,7 +11,6 @@ import {
   transferWorkbenchApi,
 } from '@/api';
 import type { WorkbenchRow } from '@/api';
-import { mockWorkSessions } from '@/mock';
 
 // 流转态 → 标签文案与色。按状态键取值（不用中文标签当键，避免后端改文案即失效）
 export const HANDOFF_TAG = {
@@ -75,27 +74,9 @@ export const useWorkbenchQueue = () => {
   const skill = ref('');
   const keyword = ref('');
   const loading = ref(false);
-  const demo = ref(false);
   const currentId = ref('');
 
   const currentRow = computed(() => rows.value.find(r => r.id === currentId.value) ?? null);
-
-  const demoRows = (): QueueRow[] =>
-    mockWorkSessions.map((s, i) => ({
-      id: s.id,
-      name: s.name,
-      title: s.tag,
-      statusKey: i === 0 ? 'pending' : 'handling',
-      statusLabel: handoffTag(i === 0 ? 'pending' : 'handling').label,
-      assignee: i === 0 ? '' : 'admin',
-      reason: '演示数据（后端队列不可用）',
-      skill: 'general',
-      skillLabel: '通用',
-      queuePosition: i === 0 ? 1 : 0,
-      lastMessage: '演示会话预览',
-      updatedAt: '',
-      vip: Boolean(s.vip),
-    }));
 
   // 拉取队列：patch 只覆盖传入项；keep=true 时当前会话离开筛选集也不切走（解决后仍可看 Trace）
   type QueuePatch = {
@@ -129,11 +110,10 @@ export const useWorkbenchQueue = () => {
       });
       rows.value = ((res?.items ?? []) as WorkbenchRow[]).map(toRow);
       total.value = Number(res?.total ?? rows.value.length);
-      demo.value = false;
-    } catch {
-      rows.value = demoRows();
-      total.value = rows.value.length;
-      demo.value = true;
+    } catch (e) {
+      rows.value = [];
+      total.value = 0;
+      ElMessage.error(e instanceof Error ? `加载队列失败：${e.message}` : '加载队列失败');
     } finally {
       loading.value = false;
     }
@@ -260,7 +240,6 @@ export const useWorkbenchQueue = () => {
     skill,
     keyword,
     loading,
-    demo,
     currentId,
     currentRow,
     load,

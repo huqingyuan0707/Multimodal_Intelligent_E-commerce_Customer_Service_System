@@ -1,9 +1,5 @@
 <template>
   <div class="page">
-    <div class="head">
-      <el-tag v-if="demo" type="warning" size="small">演示数据</el-tag>
-    </div>
-
     <!-- 预警卡（自拉 only_warn=true；出入库/盘点/补货后 reload） -->
     <StockWarnCard ref="warnRef" />
 
@@ -119,7 +115,6 @@ import {
 } from 'element-plus';
 import { onMounted, ref } from 'vue';
 import { listInventoryApi, listMovesApi, listWarehousesApi, moveStockApi } from '@/api';
-import { mockInventory } from '@/mock';
 import AiButton from '@/shared/components/AiButton.vue';
 import AiInput from '@/shared/components/AiInput.vue';
 import StockWarnCard from './StockWarnCard.vue';
@@ -136,7 +131,6 @@ const onlyWarn = ref(false);
 const warehouses = ref<{ id: string; name: string }[]>([]);
 const warehouseId = ref('');
 const loading = ref(false);
-const demo = ref(false);
 const movesDrawer = ref(false);
 const movesTitle = ref('出入库流水');
 const movesLoading = ref(false);
@@ -158,38 +152,22 @@ const load = async () => {
     });
     rows.value = res.items;
     total.value = res.total;
-    demo.value = false;
-  } catch {
-    // mock 分支仍走前端过滤（keyword / warehouseId / onlyWarn）
-    const kw = keyword.value.trim().toLowerCase();
-    rows.value = mockInventory.filter(r => {
-      if (onlyWarn.value && !r.warning) return false;
-      if (warehouseId.value && r.warehouse_id !== warehouseId.value) return false;
-      if (kw) {
-        const haystack = `${r.sku_code} ${r.product_name} ${r.warehouse}`.toLowerCase();
-        if (!haystack.includes(kw)) return false;
-      }
-      return true;
-    });
-    total.value = rows.value.length;
-    demo.value = true;
+  } catch (e) {
+    rows.value = [];
+    total.value = 0;
+    ElMessage.error(e instanceof Error ? `加载库存失败：${e.message}` : '加载库存失败');
   } finally {
     loading.value = false;
   }
 };
 
-// 仓库下拉：真接口优先，失败从演示行里去重凑合
+// 仓库下拉：真接口优先，失败置空并提示
 const loadWarehouses = async () => {
   try {
     warehouses.value = await listWarehousesApi();
-  } catch {
-    const seen = new Map<string, string>();
-    mockInventory.forEach(r => {
-      if (!seen.has(r.warehouse_id)) {
-        seen.set(r.warehouse_id, r.warehouse);
-      }
-    });
-    warehouses.value = [...seen.entries()].map(([id, name]) => ({ id, name }));
+  } catch (e) {
+    warehouses.value = [];
+    ElMessage.error(e instanceof Error ? `加载仓库失败：${e.message}` : '加载仓库失败');
   }
 };
 
@@ -336,12 +314,6 @@ onMounted(() => {
 <style scoped>
 .page {
   padding: 16px;
-}
-
-.head {
-  display: flex;
-  gap: 12px;
-  align-items: center;
 }
 
 .filters {

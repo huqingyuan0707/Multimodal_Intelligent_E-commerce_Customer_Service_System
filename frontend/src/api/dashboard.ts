@@ -1,5 +1,5 @@
 // 数据看板接口（可观测汇总；对齐 API 规范 §4.6 + 页面设计 §3.7）
-// 链路：DashboardView → 本文件 dispatch → GET /observability/summary；失败回 mock 演示
+// 链路：DashboardView → 本文件 dispatch → GET /observability/summary；失败由页面空态 + 中文提示
 import { dispatch } from './http';
 import type { AttributionRow, DashboardMetric } from '@/types/dashboard';
 

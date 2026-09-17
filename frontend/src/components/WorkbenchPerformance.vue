@@ -9,7 +9,6 @@
       质检通过线 {{ data?.pass_score ?? '-' }} 分 · 自动评分{{
         data?.auto_enabled ? '已开启' : '已关闭'
       }}
-      <el-tag v-if="demo" type="warning" size="small">演示数据</el-tag>
     </p>
     <el-table v-loading="loading" :data="rows" size="small" empty-text="暂无已解决会话">
       <el-table-column prop="assignee" label="坐席" min-width="90" />
@@ -31,8 +30,9 @@
 
 <script setup lang="ts">
 // 坐席绩效弹窗（C 步收官）：按 assignee 聚合已解决会话的质检口径
-// 打开时拉 /workbench/performance，失败回退空表 + demo 标；对齐 API 规范 §4.11
+// 打开时拉 /workbench/performance，失败置空表 + 中文提示；对齐 API 规范 §4.11
 import { computed, ref, watch } from 'vue';
+import { ElMessage } from 'element-plus';
 import { performanceWorkbenchApi } from '@/api';
 import type { WorkbenchAgentPerf, WorkbenchPerformance } from '@/api';
 
@@ -41,17 +41,15 @@ const emit = defineEmits(['update:modelValue']);
 
 const data = ref<WorkbenchPerformance | null>(null);
 const loading = ref(false);
-const demo = ref(false);
 const rows = computed<WorkbenchAgentPerf[]>(() => data.value?.agents ?? []);
 
 const load = async () => {
   loading.value = true;
   try {
     data.value = (await performanceWorkbenchApi()) as WorkbenchPerformance;
-    demo.value = false;
-  } catch {
+  } catch (e) {
     data.value = null;
-    demo.value = true;
+    ElMessage.error(e instanceof Error ? `加载绩效失败：${e.message}` : '加载绩效失败');
   } finally {
     loading.value = false;
   }

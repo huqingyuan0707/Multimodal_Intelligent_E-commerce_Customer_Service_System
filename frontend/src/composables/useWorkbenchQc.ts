@@ -1,6 +1,6 @@
 // 坐席质检评分（FR-7 质检打分）：resolved 会话自动评分读取 + 人工改评
 // 链路：切到 resolved 会话 → GET score 展示（judge/rule/manual 来源可回溯）→ 改评 POST score 覆盖
-// 失败回退空态 + demo 标（不阻塞工作台主链路）；对齐 API 规范 §4.11 + 页面设计 §3.2
+// 加载失败置空并提示（不阻塞工作台主链路）；对齐 API 规范 §4.11 + 页面设计 §3.2
 import { ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import { getScoreWorkbenchApi, saveScoreWorkbenchApi } from '@/api';
@@ -16,7 +16,6 @@ export const useWorkbenchQc = () => {
   const score = ref<WorkbenchScore | null>(null);
   const loading = ref(false);
   const saving = ref(false);
-  const demo = ref(false);
 
   const load = async (id: string) => {
     if (!id) {
@@ -26,10 +25,9 @@ export const useWorkbenchQc = () => {
     loading.value = true;
     try {
       score.value = (await getScoreWorkbenchApi({ id })) as WorkbenchScore;
-      demo.value = false;
-    } catch {
+    } catch (e) {
       score.value = null;
-      demo.value = true;
+      ElMessage.error(e instanceof Error ? `加载质检评分失败：${e.message}` : '加载质检评分失败');
     } finally {
       loading.value = false;
     }
@@ -55,8 +53,7 @@ export const useWorkbenchQc = () => {
 
   const reset = () => {
     score.value = null;
-    demo.value = false;
   };
 
-  return { score, loading, saving, demo, load, save, reset };
+  return { score, loading, saving, load, save, reset };
 };

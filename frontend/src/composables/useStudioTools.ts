@@ -1,5 +1,5 @@
 // Studio 工具试调数据（清单 + 沙箱试调，对齐 API 规范 §4.12；与 ToolCallCard 同源）
-// 失败向上传播（页面 catch 回 mock 兜底），试调参数非 JSON 直接抛中文错
+// 失败向上传播（页面 catch 后中文提示），试调参数非 JSON 直接抛中文错
 import { ref } from 'vue';
 import { invokeToolApi, listToolsApi } from '@/api';
 import type { StudioTool, ToolCall } from '@/types/agent';

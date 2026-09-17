@@ -1,7 +1,7 @@
 <!-- 对话页快捷入口三件套（尺码助手三步表单 / 查物流订单选择器 / 退换申请证据+原因，对齐页面设计 §3.1） -->
 <!-- 链路：ChatView 挂载 → 尺码/物流组装成人话走 ask 事件回页面发对话（复用 RAG+编排链路）；
      退换申请直调 POST /aftersales（trace_id 关联），need_approval 提示「待客服确认」。
-     口径：买家演示账号可能无 order:fulfill 权限，退换按钮走 v-permission；接口失败中文提示不静默。 -->
+     口径：买家账号可能无 order:fulfill 权限，退换按钮走 v-permission；接口失败中文提示不静默。 -->
 <template>
   <div class="quick-row">
     <AiButton @click="sizeOpen = true">尺码助手</AiButton>

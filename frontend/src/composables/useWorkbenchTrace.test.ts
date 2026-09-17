@@ -1,4 +1,4 @@
-// useWorkbenchTrace 单测（真实 Trace 映射历史/引用/上下文 + 失败回退演示种子 + append 本地追加）
+// useWorkbenchTrace 单测（真实 Trace 映射历史/引用/上下文 + 失败置空 + append 本地追加）
 // traceWorkbenchApi 打桩，toAgentMessages 走真实实现（页面消费形状由 API 层收口，对齐前端 Skill §8）
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { traceWorkbenchApi } from '@/api';
@@ -8,6 +8,9 @@ vi.mock('@/api', async importOriginal => {
   const mod = await importOriginal<typeof import('@/api')>();
   return { ...mod, traceWorkbenchApi: vi.fn() };
 });
+
+// node 环境无 DOM，桩掉 ElMessage（失败提示走它，真实实现在无 document 时会抛错）
+vi.mock('element-plus', () => ({ ElMessage: { error: vi.fn(), success: vi.fn() } }));
 
 const trace = {
   session: { handoff_reason: '买家投诉瑕疵', resolution: '已按 15 天质量问题换货' },
@@ -35,7 +38,7 @@ describe('useWorkbenchTrace', () => {
 
   it('load 映射真实 Trace：消息/引用/上下文/流转字段', async () => {
     vi.mocked(traceWorkbenchApi).mockResolvedValue(trace);
-    const { messages, context, summary, reasoning, demo, load } = useWorkbenchTrace();
+    const { messages, context, summary, reasoning, load } = useWorkbenchTrace();
     await load('s-1');
     expect(traceWorkbenchApi).toHaveBeenCalledWith({ id: 's-1' });
     expect(messages.value).toHaveLength(2);
@@ -45,7 +48,6 @@ describe('useWorkbenchTrace', () => {
     expect(context.value?.tokens).toBe(900);
     expect(reasoning.value).toBe('买家投诉瑕疵');
     expect(summary.value).toBe('已按 15 天质量问题换货');
-    expect(demo.value).toBe(false);
   });
 
   it('空会话 id 直接清空不打接口', async () => {
@@ -56,12 +58,11 @@ describe('useWorkbenchTrace', () => {
     expect(context.value).toBeNull();
   });
 
-  it('后端不可用回退演示种子并挂 demo 标（不阻塞工作台）', async () => {
+  it('后端不可用置空并提示（不阻塞工作台）', async () => {
     vi.mocked(traceWorkbenchApi).mockRejectedValue(new Error('网络错误'));
-    const { messages, context, demo, load, loading } = useWorkbenchTrace();
+    const { messages, context, load, loading } = useWorkbenchTrace();
     await load('s-1');
-    expect(demo.value).toBe(true);
-    expect(messages.value.length).toBeGreaterThan(0);
+    expect(messages.value).toEqual([]);
     expect(context.value).toBeNull();
     expect(loading.value).toBe(false);
   });

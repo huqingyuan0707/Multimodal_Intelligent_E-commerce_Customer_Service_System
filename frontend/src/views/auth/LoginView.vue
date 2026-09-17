@@ -183,7 +183,7 @@ onMounted(() => {
 });
 
 const forgot = () => {
-  ElMessage.info('请联系管理员重置密码（演示占位）');
+  ElMessage.info('请联系管理员重置密码');
 };
 
 const submit = async () => {

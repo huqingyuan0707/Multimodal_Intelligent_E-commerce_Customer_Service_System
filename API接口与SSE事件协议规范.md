@@ -120,7 +120,7 @@ api_router.include_router(chat.router, dependencies=[Depends(get_current_user)])
 - `GET /observability/summary?range=today|week&page=1&size=20` → `{metrics[{key,label,value,desc,overBudget}], trend[{label,value}], slow_traces[{trace_id,latency_ms,tool}], items[{id,tenant,channel,sessions,resolveRate,costCents,overBudget,slowTraceId}], total, page, size, range}`（`ops/admin`；admin 看全租户否则本租户；range 非法 `1001`；指标 6 项 QPS/首字P95/解决率/幻觉率/工具成功率/Token成本，无运行时数据的回 `—` 不编数；趋势为用户消息 today-24 小时桶/week-7 天桶；慢 Trace 取 tool_calls latency 倒序 Top5）。
 
 ### 4.7 B端商家后台（对齐 FRDv2 附录 D，同基座 JWT/Scope/幂等键/审计）
-> 已实现（本期，路由级 `get_current_user` + 端点 `require_any_perm`）；采购/财务/大屏为 P2 待建。
+> 已实现（本期，路由级 `get_current_user` + 端点 `require_any_perm`）；采购/财务为 P2 待建（大屏已实现，见下行）。
 - 商品：`GET /goods?keyword=&status=&page=&size=`（SPU 列表含 SKU 矩阵与聚合 attrs/**库存可用量 available**/**销量 sales（近 90 天已支付口径）**，`goods:read|write`）、`POST /goods/skus/{sku_id}/price-change {new_price,reason}`（**reason 必填**，恒进审批返回审批单，`goods:write`）、`PUT /goods/skus/{sku_id} {barcode?,status?}`（行内编辑不含价格，返回 `{id,barcode,status,kb_doc}`）、`PUT /goods/{product_id}/status {status}`（on|off|draft|archived，返回 `{id,status,kb_doc}`）。
   - **知识同步（FR-10.1）**：商品变更（行内编辑 / 上下架 / 改价审批通过生效）自动 upsert 一篇《商品知识｜{spu_no} {name}》到知识库（`kb_docs`，按标题幂等：同一 SPU 永远一篇，内容变才 version+1 并重切块）；正文含**面料成分 / 尺码范围 / 价格段 / SKU 明细（售价、条码、可售库存、状态）**，`##` 分节对齐切分器。同步与商品变更同事务（成则同成）。行内编辑与上下架的响应以 `kb_doc: {doc_id,title,version}` 透出同步结果供前端提示「已同步客服知识」。
 - 库存：`GET /inventory?warehouse_id=&sku_id=&keyword=&only_warn=`（qty/reserved/locked/available/warning，available=qty-reserved-locked 唯一口径；`keyword` 搜 SKU 编码/SPU/品名/颜色/尺码/仓库名，服务端分页前过滤）、`GET /inventory/warehouses`、`GET /inventory/moves?sku_id=`（流水审计，`stock:read|write`）；`POST /inventory/moves {kind:in|out|move,…}`（move 带 `to_warehouse_id` 自动拆两行流水，缺货 `3004`；`adjust` 仅系统内部盘点审批写入，不接受直接提交）、`POST /inventory/stocktake {lines[{warehouse_id,sku_id,counted}],reason}`（差异恒进审批、账实一致免审）、`POST /inventory/replenish {sku_id,qty,reason}`（恒进审批）（`stock:write`）。
@@ -129,7 +129,7 @@ api_router.include_router(chat.router, dependencies=[Depends(get_current_user)])
 - 审批联动：`POST /approvals/{id}/approve|reject` 已对接 `approval_service` 处理器——改价应用 / 补货入库 / 盘点调账（可传 `modified_args.lines` 修正实盘数）/ 退款执行；执行前服务端复校验，非法则整体回滚。
 - 采购：`POST /purchase`、`POST /purchase/{id}/approve|receive|qc`（`purchase:write`，P2）；供应商 `GET/POST /suppliers`（P2）。
 - 财务：`GET /finance/bills`、`POST /finance/settle`（`finance:read/write`，P2）。
-- 大屏：`GET /screen/summary?range=today|week`（`screen:read`，Redis 缓存 1min，PII 脱敏，P2）。
+- 大屏（**已实现**）：`GET /screen/summary?range=today|week`（`screen:read`，`shop`/`admin` 亦放行；`range` 仅支持 today|week 否则 `1001`，当前仅参与缓存分键）。返回 `{metrics[4], trend[7], warnings[]}`——`metrics` 为 `{key,label,value,tone}`（gmv/solve/return/stock 四卡，`tone ∈ up|good|bad|warn`，无运行时采集的指标值回 `—` 不编数）；`trend` 为近 7 日 GMV 按日分桶 `{label:"MM-DD",value:分}`（只计 `paid|shipped|completed`）；`warnings` 为 `{id,content,level:"bad"|"info"}`（缺货/低于安全线 + 退货率超 `Settings.SCREEN_RETURN_WARN_RATIO` 突增置顶，最多 5 条）。admin 看全租户聚合，缓存键 `screen:{all|<tenant>}:{range}` 分键防跨租户命中，TTL 1min，PII 脱敏。
 - B端单据写操作必须带 `Idempotency-Key`；采购/调拨/报损/超阈值退款恒进审批流。
 
 ### 4.8 横向域端点（对齐 FRDv2 FR-10.6-10.8/FR-12，附录 D 同源）

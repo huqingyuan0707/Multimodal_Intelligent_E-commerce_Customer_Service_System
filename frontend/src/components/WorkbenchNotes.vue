@@ -3,7 +3,6 @@
     <div class="head">
       <span class="title">内部备注</span>
       <el-tag size="small" type="info" effect="plain">仅坐席可见</el-tag>
-      <el-tag v-if="demo" size="small" type="warning" effect="plain">演示数据</el-tag>
       <span class="count">{{ loading ? '加载中…' : `${notes.length} 条` }}</span>
     </div>
 
@@ -23,9 +22,7 @@
       type="textarea"
       :rows="2"
       :disabled="disabled"
-      :placeholder="
-        disabled ? '暂不可写（演示数据或未选中会话）' : '记录买家诉求 / 处理动作，买家不可见'
-      "
+      :placeholder="disabled ? '未选中会话，暂不可写' : '记录买家诉求 / 处理动作，买家不可见'"
     />
     <AiButton size="small" type="primary" :loading="saving" :disabled="disabled" @click="submit">
       保存备注
@@ -45,7 +42,6 @@ defineProps<{
   notes: WorkbenchNote[];
   loading: boolean;
   saving: boolean;
-  demo: boolean;
   disabled: boolean;
 }>();
 
@@ -78,6 +74,7 @@ defineExpose({ reset });
   flex-direction: column;
   gap: 8px;
   padding: 12px;
+
   /* 与 WorkbenchSide 其余区块同一种玻璃卡，避免右栏出现两种卡面 */
   background: var(--reai-glass-bg);
   border: 1px solid var(--reai-glass-border);
@@ -135,7 +132,7 @@ defineExpose({ reset });
   font-size: var(--reai-fs-body-sm);
   line-height: var(--reai-lh-body);
   color: var(--reai-text-main);
-  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .empty {

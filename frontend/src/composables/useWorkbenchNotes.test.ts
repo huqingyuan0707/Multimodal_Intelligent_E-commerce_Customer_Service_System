@@ -1,4 +1,4 @@
-// useWorkbenchNotes 单测（真实备注列表 + 新增本地插入不重拉 + 失败回退不打断主链路，对齐前端 Skill §8）
+// useWorkbenchNotes 单测（真实备注列表 + 新增本地插入不重拉 + 失败置空不打断主链路，对齐前端 Skill §8）
 // listNotesWorkbenchApi/addNoteWorkbenchApi 打桩；ElMessage 弹 DOM，node 环境桩掉
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { addNoteWorkbenchApi, listNotesWorkbenchApi, type WorkbenchNote } from '@/api';
@@ -24,11 +24,10 @@ const note = (id: string, content = '已核对订单，走换货流程'): Workbe
 describe('useWorkbenchNotes', () => {
   beforeEach(() => vi.resetAllMocks());
 
-  it('load 拉取真实备注列表并撤 demo 标', async () => {
+  it('load 拉取真实备注列表', async () => {
     vi.mocked(listNotesWorkbenchApi).mockResolvedValue([note('n-1')]);
-    const { notes, demo, loading, load } = useWorkbenchNotes();
+    const { notes, loading, load } = useWorkbenchNotes();
     await load('s-1');
-    expect(demo.value).toBe(false);
     expect(loading.value).toBe(false);
     expect(notes.value).toHaveLength(1);
   });
@@ -40,11 +39,10 @@ describe('useWorkbenchNotes', () => {
     expect(notes.value).toEqual([]);
   });
 
-  it('load 失败回退空列表并挂 demo 标（不打断主链路）', async () => {
+  it('load 失败置空并提示（不打断主链路）', async () => {
     vi.mocked(listNotesWorkbenchApi).mockRejectedValue(new Error('网络错误'));
-    const { notes, demo, load } = useWorkbenchNotes();
+    const { notes, load } = useWorkbenchNotes();
     await load('s-1');
-    expect(demo.value).toBe(true);
     expect(notes.value).toEqual([]);
   });
 
@@ -73,12 +71,11 @@ describe('useWorkbenchNotes', () => {
     expect(saving.value).toBe(false);
   });
 
-  it('reset 清空列表与 demo 标', async () => {
+  it('reset 清空列表', async () => {
     vi.mocked(listNotesWorkbenchApi).mockRejectedValue(new Error('网络错误'));
-    const { notes, demo, load, reset } = useWorkbenchNotes();
+    const { notes, load, reset } = useWorkbenchNotes();
     await load('s-1');
     reset();
     expect(notes.value).toEqual([]);
-    expect(demo.value).toBe(false);
   });
 });

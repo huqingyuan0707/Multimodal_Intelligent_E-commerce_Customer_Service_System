@@ -1,4 +1,4 @@
-// useWorkbenchSide 单测（演示订单挂标 + Trace 去重 + 空摘要兜底 + 上下文用量折算，对齐前端 Skill §8）
+// useWorkbenchSide 单测（Trace 去重 + 空摘要兜底 + 上下文用量折算，对齐前端 Skill §8）
 import { ref } from 'vue';
 import { describe, expect, it } from 'vitest';
 import type { WorkbenchContext } from '@/api';
@@ -24,12 +24,6 @@ const ctx = (patch: Partial<WorkbenchContext>): WorkbenchContext => ({
 });
 
 describe('useWorkbenchSide', () => {
-  it('演示订单带 demo 旗标', () => {
-    const { sideOrder, sideDemo } = useWorkbenchSide(ref([]), ref(null));
-    expect(sideOrder.value.no).toBe('2024091400821');
-    expect(sideDemo.value).toBe(true);
-  });
-
   it('Trace 按 trace_id 去重并截摘要', () => {
     const messages = ref([
       msg('a-1', 'tr-1', '袖口脱线约2cm可换货处理'),

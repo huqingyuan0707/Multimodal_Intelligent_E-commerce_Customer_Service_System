@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     APP_NAME: str = "multimodal-cs"
     # 项目版本唯一口径三源之一（另两源：执行步骤.md 头部版本 / frontend/package.json），
     # 三处必须一致（门禁 scripts/check_version.py），发版 tag 以此为准（release.yml 门禁）。
-    APP_VERSION: str = "0.3.20"
+    APP_VERSION: str = "0.3.25"
     ENV: str = "dev"
     DATABASE_URL: str = "sqlite+aiosqlite:///./dev.db"
     REDIS_URL: str = "redis://localhost:6379/0"
@@ -50,13 +50,14 @@ class Settings(BaseSettings):
         "cs,kb,shop,stock,ops,admin,"
         "goods:read,goods:write,stock:read,stock:write,order:read,order:fulfill,"
         "promo:read,promo:write,review:read,review:write,ticket:read,ticket:write,"
+        # 经营大屏读权限（endpoints/screen.py 的 require_any_perm 口径之一）
+        "screen:read,"
         # Agent 工具 Scope（FRDv2 附录 A）：kb.retrieve/refund.create 的 Scope 令牌，
         # 缺了会让客服账号调不动工具（seed 侧只并集补齐，不覆盖存量密码与角色）。
         "kb:read,vision:inspect,trade:refund"
     )
 
-    # RAG 热更字段（_HOT_FIELDS 子集，详见 RAG 规范）
-    TOP_K: int = 5
+    TOP_K: int = 5  # RAG 热更字段（_HOT_FIELDS 子集，详见 RAG 规范）
     RAG_THRESHOLD: float = 0.6
     # P0 stdlib 双路召回口径（BGE/reranker 接入后调高阈值，业务代码只读 Settings）
     RRF_K: int = 60  # RRF 融合常数
@@ -266,12 +267,9 @@ class Settings(BaseSettings):
     # 成本单价（元/单位），用于 cost_cents 折算（_HOT_FIELDS 可热更，生产按真实报价填）
     # LLM: 元/千 tokens（prompt+completion 分开算更精准，暂按总量均价）
     LLM_COST_PER_1K_TOKENS: float = 0.002
-    # VLM: 元/张图
-    VLM_COST_PER_IMAGE: float = 0.005
-    # ASR: 元/秒音频
-    ASR_COST_PER_SEC: float = 0.001
-    # TTS: 元/字符
-    TTS_COST_PER_CHAR: float = 0.0001
+    VLM_COST_PER_IMAGE: float = 0.005  # VLM: 元/张图
+    ASR_COST_PER_SEC: float = 0.001  # ASR: 元/秒音频
+    TTS_COST_PER_CHAR: float = 0.0001  # TTS: 元/字符
     # 人工单通成本基线（分/通，默认 ¥15）：单会话成本对照的分母，生产按财务口径覆盖；
     # 归因误差度量 = 估算单占比（pricing_source=estimate 的费用占比，越低越准）
     HUMAN_COST_PER_TICKET_CENTS: int = 1500
@@ -364,6 +362,8 @@ class Settings(BaseSettings):
     )
     # 物流单号格式（打单发货校验，非法返回 1001）：8~24 位字母数字
     TRACKING_NO_PATTERN: str = r"^[A-Za-z0-9]{8,24}$"
+    # 经营大屏（screen_service）红线：退货率超此比值即亮 bad 预警（0.08 = 8%）
+    SCREEN_RETURN_WARN_RATIO: float = 0.08
     # 快递公司白名单（发货校验 + 物流公司列表唯一口径，8 家全量；order/logistics 双服务同源）
     LOGISTICS_COMPANIES: list[str] = [
         "顺丰",

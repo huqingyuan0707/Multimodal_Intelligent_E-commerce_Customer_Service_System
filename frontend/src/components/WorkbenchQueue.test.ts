@@ -51,7 +51,6 @@ const baseProps = {
   skill: '',
   skillGroups: [],
   loading: false,
-  demo: false,
 };
 
 const mountQueue = (props: object = {}) =>

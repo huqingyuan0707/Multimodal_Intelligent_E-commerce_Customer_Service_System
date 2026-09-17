@@ -1,9 +1,7 @@
 <template>
   <div class="side">
     <div class="card">
-      <h3 class="card-title">
-        当前订单 <el-tag v-if="demo" type="warning" size="small">演示数据</el-tag>
-      </h3>
+      <h3 class="card-title">当前订单</h3>
       <el-empty v-if="!order" description="暂无关联订单" />
       <template v-else>
         <p class="kv">订单号：{{ order.no }}</p>
@@ -75,8 +73,7 @@ export type TraceRef = {
 };
 
 defineProps<{
-  order: SideOrder | null;
-  demo: boolean;
+  order?: SideOrder | null;
   traces: TraceRef[];
   usage: SideUsage | null;
 }>();
@@ -109,6 +106,7 @@ const copyTrace = async (id: string) => {
   gap: 16px;
   min-width: 0;
 }
+
 .card {
   padding: 16px;
   background: var(--reai-glass-bg);
@@ -117,6 +115,7 @@ const copyTrace = async (id: string) => {
   box-shadow: var(--reai-glow);
   backdrop-filter: blur(12px);
 }
+
 .card-title {
   margin: 0;
   font-size: var(--reai-fs-title);
@@ -124,20 +123,24 @@ const copyTrace = async (id: string) => {
   line-height: var(--reai-lh-tight);
   color: var(--reai-text-main);
 }
+
 .kv {
   margin: 8px 0;
   font-size: var(--reai-fs-body-sm);
   line-height: var(--reai-lh-body);
   color: var(--reai-text-main);
 }
+
 .warn {
   font-weight: var(--reai-fw-semibold);
   color: var(--reai-notice);
 }
+
 .ok {
   font-weight: var(--reai-fw-semibold);
   color: var(--reai-online);
 }
+
 .bar {
   height: 6px;
   margin-top: 8px;
@@ -145,28 +148,34 @@ const copyTrace = async (id: string) => {
   background: var(--reai-card-2);
   border-radius: 999px;
 }
+
 .bar i {
   display: block;
   height: 100%;
   background: var(--reai-primary);
 }
+
 .mono {
   font-family: var(--reai-font-mono);
   font-size: var(--reai-fs-micro);
 }
+
 .tsum {
   margin-left: 6px;
   font-size: var(--reai-fs-micro);
   color: var(--reai-text-muted);
 }
+
 .money {
   font-weight: 600;
   color: var(--reai-notice);
 }
+
 .grow-card {
   flex: 1;
   overflow-y: auto;
 }
+
 .hint {
   padding: 12px;
   font-size: var(--reai-fs-caption);
@@ -175,6 +184,7 @@ const copyTrace = async (id: string) => {
   background: var(--reai-card-2);
   border-radius: 8px;
 }
+
 .sub {
   margin: 12px 0 8px;
   font-size: var(--reai-fs-caption);
@@ -182,6 +192,7 @@ const copyTrace = async (id: string) => {
   line-height: var(--reai-lh-tight);
   color: var(--reai-text-soft);
 }
+
 .suggest {
   display: block;
   width: 100%;
@@ -196,14 +207,17 @@ const copyTrace = async (id: string) => {
   border: 1px solid var(--reai-border);
   border-radius: 8px;
 }
+
 .suggest:hover {
   border-color: var(--reai-primary);
 }
+
 /* 原生 button 不继承 Element Plus 焦点环，显式给键盘焦点 */
 .suggest:focus-visible {
   outline: 2px solid var(--reai-primary);
   outline-offset: 2px;
 }
+
 @media (width <= 1024px) {
   .side {
     flex: none;

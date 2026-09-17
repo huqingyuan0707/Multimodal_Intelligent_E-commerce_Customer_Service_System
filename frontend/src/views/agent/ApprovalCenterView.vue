@@ -1,7 +1,6 @@
 <template>
   <div class="page">
     <div class="head">
-      <el-tag v-if="demo" type="warning" size="small">演示数据</el-tag>
       <span class="sla">超时自动升级 · 记录不可篡改</span>
     </div>
     <div class="filters">
@@ -171,7 +170,6 @@ import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { getApprovalDetailApi, listApprovalsApi } from '@/api';
 import { useApproval } from '@/composables/useApproval';
-import { mockApprovals } from '@/mock';
 import AiButton from '@/shared/components/AiButton.vue';
 import AiInput from '@/shared/components/AiInput.vue';
 import {
@@ -194,7 +192,6 @@ const action = ref('');
 const keyword = ref('');
 const overdueOnly = ref(false);
 const loading = ref(false);
-const demo = ref(false);
 const drawer = ref(false);
 const current = ref<ApprovalItem | null>(null);
 // 政策引用：抽屉打开时调详情接口拿，点击跳知识库按标题筛选；失败回空不断渲染
@@ -216,19 +213,10 @@ const load = async () => {
     });
     rows.value = data.items;
     total.value = data.total;
-    demo.value = false;
-  } catch {
-    const kw = keyword.value.trim();
-    const filtered = mockApprovals.filter(
-      a =>
-        (!status.value || a.status === status.value) &&
-        (!action.value || a.action === action.value) &&
-        (!kw || `${a.target}${a.applicant}${a.reason}`.includes(kw)),
-    );
-    total.value = filtered.length;
-    rows.value = filtered.slice((page.value - 1) * size.value, page.value * size.value);
-    demo.value = true;
-    ElMessage.warning('后端不可用，已显示演示数据');
+  } catch (e) {
+    rows.value = [];
+    total.value = 0;
+    ElMessage.error(e instanceof Error ? `加载审批单失败：${e.message}` : '加载审批单失败');
   } finally {
     loading.value = false;
   }
@@ -265,7 +253,7 @@ const open = async (row: ApprovalItem) => {
   current.value = row;
   drawer.value = true;
   policyRefs.value = [];
-  // 详情接口带超期标记 + 政策引用；演示模式/失败时回退行数据不断抽屉
+  // 详情接口带超期标记 + 政策引用；失败时回退行数据不断抽屉
   try {
     const detail = await getApprovalDetailApi(row.id);
     policyRefs.value = Array.isArray(detail?.policy_refs) ? detail.policy_refs : [];

@@ -45,9 +45,7 @@ def main() -> int:
     headers = {"Authorization": f"Bearer {token}"}
 
     # 1. 列表：分页信封 + SKU 矩阵含 available/sales（FR-10.1 库存同步显示）
-    r = client.get(
-        "/api/v1/goods", params={"page": 1, "size": 20}, headers=headers
-    )
+    r = client.get("/api/v1/goods", params={"page": 1, "size": 20}, headers=headers)
     body = r.json()
     data = body.get("data") or {}
     items = data.get("items") or []
@@ -69,7 +67,9 @@ def main() -> int:
     # 2. 状态筛选 + 非法状态 1001
     r = client.get("/api/v1/goods", params={"status": "on", "page": 1, "size": 5}, headers=headers)
     check("filter on ok", r.json().get("code") == 0, r.text[:200])
-    r = client.get("/api/v1/goods", params={"status": "bogus", "page": 1, "size": 5}, headers=headers)
+    r = client.get(
+        "/api/v1/goods", params={"status": "bogus", "page": 1, "size": 5}, headers=headers
+    )
     check("bad status -> 1001", r.json().get("code") == 1001, r.text[:200])
 
     # 3. 上下架：下架后 SPU 状态变化 + kb_doc 知识同步透出（FR-10.1）
@@ -93,7 +93,9 @@ def main() -> int:
 
     # 4. 销量筛选：按关键词命中 SPU
     spu_no = product0["spu_no"]
-    r = client.get("/api/v1/goods", params={"keyword": spu_no, "page": 1, "size": 20}, headers=headers)
+    r = client.get(
+        "/api/v1/goods", params={"keyword": spu_no, "page": 1, "size": 20}, headers=headers
+    )
     hit = r.json().get("data") or {}
     check(
         "keyword hit spu",
@@ -119,15 +121,20 @@ def main() -> int:
         )
         check("approve ok", r.json().get("code") == 0, r.text[:300])
         r = client.get(
-            "/api/v1/goods", params={"keyword": product0["name"], "page": 1, "size": 20}, headers=headers
+            "/api/v1/goods",
+            params={"keyword": product0["name"], "page": 1, "size": 20},
+            headers=headers,
         )
         row = r.json().get("data") or {}
         sku_row = next(
             (s for g in row.get("items", []) for s in g.get("skus", []) if s["id"] == sku0["id"]),
             None,
         )
-        check("price applied after approve", sku_row is not None and sku_row["sale_price"] == new_price,
-              str(sku_row or {})[:200])
+        check(
+            "price applied after approve",
+            sku_row is not None and sku_row["sale_price"] == new_price,
+            str(sku_row or {})[:200],
+        )
 
     # 6. 恢复商品状态（避免污染后续冒烟）
     r = client.put(

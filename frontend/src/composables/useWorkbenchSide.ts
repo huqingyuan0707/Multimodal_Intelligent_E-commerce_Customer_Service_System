@@ -1,5 +1,5 @@
-// 工作台右栏数据：演示订单 + 会话级 Trace 概览（取真 trace_id 去重，不伪造规划步骤）+ 上下文用量
-// 链路：WorkbenchView（/workbench/.../trace 真数据）→ 本模块 → WorkbenchSide 展示；订单接口就绪前挂 demo 标
+// 工作台右栏数据：会话级 Trace 概览（取真 trace_id 去重，不伪造规划步骤）+ 上下文用量
+// 链路：WorkbenchView（/workbench/.../trace 真数据）→ 本模块 → WorkbenchSide 展示；订单卡暂无接口，保持空态
 import { computed } from 'vue';
 import type { Ref } from 'vue';
 import type { WorkbenchContext } from '@/api';
@@ -38,9 +38,6 @@ export const useWorkbenchSide = (
   messages: Ref<AgentMessage[]>,
   context: Ref<WorkbenchContext | null>,
 ) => {
-  // 右栏订单：会话关联订单接口就绪前用演示数据并挂标（由 demo 旗标明示，不伪装真实）
-  const sideOrder = computed(() => ({ no: '2024091400821', status: '待发货', amount: '￥129.00' }));
-  const sideDemo = computed(() => true);
   // 本轮 Trace 概览：坐席看过程（trace_id 去重）
   const sessionTraces = computed<TraceRef[]>(() => {
     const seen: string[] = [];
@@ -55,5 +52,5 @@ export const useWorkbenchSide = (
     return out;
   });
   const sideUsage = computed(() => toSideUsage(context.value));
-  return { sideOrder, sideDemo, sessionTraces, sideUsage };
+  return { sessionTraces, sideUsage };
 };

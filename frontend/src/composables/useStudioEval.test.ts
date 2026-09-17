@@ -66,7 +66,7 @@ describe('useStudioEval', () => {
     expect(runs.value[0].pass).toBe(true);
   });
 
-  it('接口失败向上传播（页面 catch 回 mock）', async () => {
+  it('接口失败向上传播（页面置空并中文提示）', async () => {
     vi.mocked(listEvalRunsApi).mockRejectedValue(new Error('网络错误'));
     const { refreshRuns } = useStudioEval();
     await expect(refreshRuns()).rejects.toThrow('网络错误');

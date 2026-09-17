@@ -61,7 +61,7 @@ export type DonePayload = {
   faithfulness: number;
   trace_id: string;
   session_id: string;
-  // 赞踩反馈定位键（done.message_id → POST /mining/feedback 入参；空=本地演示行不显按钮）
+  // 赞踩反馈定位键（done.message_id → POST /mining/feedback 入参；空=本地占位行不显按钮）
   message_id?: string;
   vision?: VisionInspection[];
   need_human?: boolean;
