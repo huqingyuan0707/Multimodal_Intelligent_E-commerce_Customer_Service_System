@@ -83,7 +83,7 @@ api_router.include_router(chat.router, dependencies=[Depends(get_current_user)])
 ### 4.3 会话与记忆（三层：Session→Message→Context，对齐 FR-1.4）
 - `GET /sessions?page=1&size=20` → 分页对象 `{items[{id,title,summary,message_count,created_at,updated_at}], total, page, size}`（按 `tenant+username` 隔离、最近活跃倒序；空数据 `items=[]` 不报错）。
 - `POST /sessions {title?}` → 新会话落库（前端本地先建 `t-${Date.now()}` 占位，成功后以后端 `id` 为准）。
-- `GET /sessions/{id}?page=1&size=50` → `{id,title,summary,messages[倒序],total,page,size,has_more}`（page=1 最新页；`has_more` 供前端“加载更早消息”；前端渲染前反转即正序）。404（跨租户/跨用户同 404）则回退 `@/mock` 演示数据。
+- `GET /sessions/{id}?page=1&size=50` → `{id,title,summary,messages[倒序],total,page,size,has_more}`（page=1 最新页；`has_more` 供前端“加载更早消息”；前端渲染前反转即正序）。404（跨租户/跨用户同 404）前端明确提示，不回退模拟数据。
 - `PUT /sessions/{id} {title}` → 重命名（空标题 1001，超长截 20 字）。
 - `GET /sessions/{id}/context` → 上下文视图 `{summary, rounds, tokens, dropped, memory_recent, memory_prefs, budget, window_rounds}`（与 `run_text_turn` 装配同源：`context_service.describe`，所见即所算，供坐席 Trace 调试）。
 - `DELETE /sessions/{id}` → 需 confirm + 消息级联遗忘（含线程记忆快照 `sess` 键清扫）。

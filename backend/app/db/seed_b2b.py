@@ -245,9 +245,14 @@ _ORDERS_PER_DAY = 3
 async def _seed_backfill_orders(
     db: AsyncSession, *, tenant: str, skus: list[Sku], spu_of: dict[str, str]
 ) -> list[SalesOrder]:
-    """回溯订单：近 _BACKFILL_DAYS 日每天 _ORDERS_PER_DAY 单，为 GMV 趋势提供分桶。"""
+    """回溯订单：近 _BACKFILL_DAYS 日每天 _ORDERS_PER_DAY 单，为 GMV 趋势提供分桶。
+
+    含「今日」（day_offset=0）：否则大屏「今日 GMV」恒 ￥0，看着像接口没通。
+    时间基准与 screen_service/dashboard_service 的本地日桶一致（local naive），
+    不随 db/base._now() 的 UTC 口径漂到昨日。
+    """
     created: list[SalesOrder] = []
-    for day_offset in range(_BACKFILL_DAYS, 0, -1):
+    for day_offset in range(_BACKFILL_DAYS, -1, -1):
         day = datetime.now() - timedelta(days=day_offset)
         for index in range(_ORDERS_PER_DAY):
             picks = [

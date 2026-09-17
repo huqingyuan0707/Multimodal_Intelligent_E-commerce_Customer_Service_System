@@ -80,7 +80,7 @@ Out（v1 不做，预留接口）：实时电话外呼、视频客服、跨境�
 - RAG 检索后生成，System Prompt 强制“仅基于引用回答”。
 - SSE 流式，统一事件协议（前后端契约，**唯一权威源：《API接口与SSE事件协议规范.md》§5**，此处仅为摘要，不得偏离）：
   事件名固定 `source / phase(retrieving[/inspecting]/generating/validating) / message / done`（任务类另有 `progress/complete/error`；图文轮多一帧 `inspecting`）；`done` 载荷必含 `references + guard + faithfulness + trace_id`（另有 `session_id/tool_calls[]/orchestration/handoff/context` 等加法字段，老前端忽略即可）。前端按 `event: / data:` 正则分帧解析，`done` 的 `JSON.parse` 必须 try/catch，请求必带 `Authorization: Bearer <reai_token>`。注意与旧设计差异：**工具调用不是独立事件类型**（经 `done.tool_calls[]` 透出），**审批不是事件**（走 `WAITING_APPROVAL` 状态机 + `/approvals` 接口，FR-7），错误不单独占事件（信封 `fail` + 错误码号段 §2）。
-- 断线重连 + 事件 ID 幂等，前端增量渲染 + 虚拟列表（长会话），乐观更新；新会话本地先建 `t-${Date.now()}`，成功后以后端为准；后端不可用回退 `@/mock` 演示，模型不可用走演示降级绝不 500。
+- 断线重连 + 事件 ID 幂等，前端增量渲染 + 虚拟列表（长会话），乐观更新；新会话本地先建 `t-${Date.now()}`，成功后以后端为准；数据一律后端真实（禁止模拟数据兜底），后端不可用明确报错提示；模型不可用走演示降级绝不 500。
 
 **FR-1.2 图文客服（VLM 瑕疵检测）**
 - 限制：≤9 张 / 单张 ≤10M / JPG-PNG-WEBP；超限前端压缩 + 后端拒收码 `2004 IMAGE_TOO_LARGE`（号段口径见 API 规范 §2）。

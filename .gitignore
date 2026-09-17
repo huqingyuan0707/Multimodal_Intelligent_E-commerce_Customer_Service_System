@@ -36,6 +36,7 @@ playwright-report/
 
 # ---- 本地数据库与数据 ----
 *.db
+*.db.bak*
 *.sqlite
 *.sqlite3
 data/

@@ -2,7 +2,7 @@
 
 链路：GET/POST /sessions → session_service（tenant+username 口径）→ ok()。
 列表分页对象 + 详情消息翻页 + 重命名 + 上下文视图；前端本地先建 t-xxx 占位，
-成功后以后端 id 为准；详情 404 回退 mock。
+成功后以后端 id 为准；详情 404 明确提示不存在（禁止 mock/模拟数据兜底）。
 """
 
 from __future__ import annotations
@@ -68,7 +68,7 @@ async def get_session(
 ) -> object:
     """会话详情（含摘要 + 消息倒序翻页；page=1 最新页，has_more 供加载更早）。
 
-    跨租户 404，前端回退 mock；messages 倒序，前端渲染前反转即正序。
+    跨租户 404，前端明确提示不存在（禁止 mock/模拟数据兜底）；messages 倒序，前端渲染前反转即正序。
     """
     return ok(
         await session_service.get_session_detail(

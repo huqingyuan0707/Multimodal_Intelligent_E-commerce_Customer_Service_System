@@ -124,7 +124,7 @@ async def get_session_detail(
 ) -> dict[str, Any]:
     """会话详情（含摘要 + 消息倒序翻页；page=1 为最新页，has_more 供前端加载更早）。
 
-    跨租户/跨用户 404，前端回退 mock 演示；messages 倒序，前端渲染前反转即正序。
+    跨租户/跨用户 404，前端明确提示不存在（禁止 mock/模拟数据兜底）；messages 倒序，前端渲染前反转即正序。
     """
     session = await _owned_session(db, tenant=tenant, username=username, session_id=session_id)
     total = (

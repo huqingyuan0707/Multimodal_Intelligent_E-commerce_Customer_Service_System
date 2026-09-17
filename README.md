@@ -339,7 +339,7 @@ Smoke 脚本（`backend/tests/smoke_*.py`）强制风格：头 docstring 写覆�
 - Pinia 只用 setup 风格；可复用逻辑抽 `composables/useXxx.ts`，页面只做编排。
 - 优先 `AiButton` / `AiInput`；Element Plus 按需引入；样式用设计 token `var(--reai-primary / --reai-card / --reai-text-main / --reai-text-muted / --reai-border / --reai-shadow-*)`，**禁止硬编码主色**。
 - 成功 / 失败一律 `ElMessage`；删除 / 停用 / 归档先 `ElMessageBox.confirm`；枚举中文化走映射表。
-- 列表页 `onMounted` 调真实接口，`catch` 回退 `@/mock`，保证后端不可用时页面可用；新会话本地先建 `t-${Date.now()}` 占位。
+- **数据一律后端真实**（`@/mock` 已整体移除，禁止模拟数据兜底）：列表页 `onMounted` 调真接口，失败置空 + 报错不编造；新会话本地先建 `t-${Date.now()}` 占位。
 - 跨文件共享的消息形状统一取 `src/types/agent.ts`，禁止各文件自造。
 
 ## 12. 后端编码红线（扼要）

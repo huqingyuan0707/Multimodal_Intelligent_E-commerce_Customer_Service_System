@@ -58,9 +58,10 @@ fetch(`${BASE}/chat`, {
 - 反馈规范：成功/失败一律 `ElMessage`；删除/停用/归档等破坏性操作先 `ElMessageBox.confirm`。
 - 枚举中文化用映射表（如 `LEVEL_TAG = { public: '公开', internal: '内部', confidential: '机密' }`），禁止模板里散落字面量。
 
-## 6. 数据与降级
-- 列表页 `onMounted` 调真实接口，`catch` 回退 `@/mock` 演示数据（参考 `KnowledgeView::loadDocs`），保证后端不可用时页面可用。
-- 新会话本地先建 `t-${Date.now()}`，发送成功后以后端记忆为准；切会话优先 `api.getSession(id)` 恢复，404 再回退 mock。
+## 6. 数据来源（必须后端真数据，禁止模拟数据）
+- **一切页面数据必须来自后端真实接口，禁止任何模拟数据**（`@/mock` 已整体移除；模块内联演示常量/硬编码占位数据同样禁止兜底）。
+- 列表页 `onMounted` 调真实接口，失败置空 + `ElMessage` 报错，不编造数据；后端不可用显示空态/错误态。
+- 新会话本地先建 `t-${Date.now()}` 占位，发送成功后以后端记忆为准；切会话优先 `api.getSession(id)` 恢复，404 明确提示不存在。
 - **列表分页默认 20、可切换 10/20/50/100**：列表页必须 `el-pagination`（`layout="sizes, prev, pager, next, total"` + `:page-sizes="[10, 20, 50, 100]"` + `@size-change` 回第 1 页重拉）+ 服务端 `page`/`size`；默认页大小统一 `ref(20)`，API 层分页默认 `?? 20`，禁止散写默认值；存量未分页页面为债务，触碰即补。
 
 ## 7. 文案与注释
