@@ -14,8 +14,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base, _now, _uid
 
 # 前置地基表（messages/tasks/tool_calls/kb_docs/kb_chunks/cost_records）见 models_foundation，
-# 质检评分表见 models_quality，Studio（Prompt 版本/评测 runs）见 models_studio；
+# 质检评分表见 models_quality，Studio（Prompt 版本/评测 runs）见 models_studio，
+# 管理后台扩展（密钥/SLO 规则/消息模板/排班）见 models_admin；
 # 此处重导出以保持 `from app.db.models import X` 口径唯一，Alembic env 同步 import 各模块。
+from app.db.models_admin import ApiKey, MessageTemplate, Shift, SloRule
 from app.db.models_foundation import (
     CostRecord,
     Feedback,
@@ -31,6 +33,7 @@ from app.db.models_quality import SessionScore
 from app.db.models_studio import EvalRun, PromptVersion
 
 __all__ = [
+    "ApiKey",
     "Base",
     "CostRecord",
     "EvalRun",
@@ -39,10 +42,13 @@ __all__ = [
     "KbDoc",
     "KbDocVersion",
     "Message",
+    "MessageTemplate",
     "PromptVersion",
     "Session",
     "SessionNote",
     "SessionScore",
+    "Shift",
+    "SloRule",
     "Task",
     "ToolCall",
     "User",
@@ -51,7 +57,12 @@ __all__ = [
 
 
 class User(Base):
-    """登录用户（租户内用户名唯一，角色逗号分隔存文本）。"""
+    """登录用户（租户内用户名唯一，角色逗号分隔存文本）。
+
+    status：active 正常 / frozen 离职冻结（FR-12.4「离职一键冻结，审计可查」）——
+    冻结后 authenticate 直接拒登，但**行保留**：会话、绩效、审计仍需回溯到人，
+    与「删账号」是两件事（删了历史就断了引用）。
+    """
 
     __tablename__ = "users"
     __table_args__ = (UniqueConstraint("tenant", "username", name="uq_users_tenant_username"),)
@@ -61,6 +72,7 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(64), nullable=False)
     pwd_hash: Mapped[str] = mapped_column(String(256), nullable=False)
     roles: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(16), default="active", index=True)
     created_at: Mapped[datetime] = mapped_column(default=_now)
 
 

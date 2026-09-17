@@ -9,6 +9,8 @@ from fastapi import APIRouter, Depends
 
 from app.api.v1.endpoints import (
     admin,
+    admin_ops,
+    admin_org,
     agent,
     approvals,
     auth,
@@ -60,3 +62,6 @@ api_router.include_router(tickets.router, dependencies=[Depends(get_current_user
 api_router.include_router(workbench.router, dependencies=[Depends(get_current_user)])
 api_router.include_router(logistics.router, dependencies=[Depends(get_current_user)])
 api_router.include_router(admin.router, dependencies=[Depends(get_current_user)])
+# 管理后台扩展面（密钥/SLO/消息模板/排班）：同前缀 /admin，同 admin 权限口径
+api_router.include_router(admin_ops.router, dependencies=[Depends(get_current_user)])
+api_router.include_router(admin_org.router, dependencies=[Depends(get_current_user)])

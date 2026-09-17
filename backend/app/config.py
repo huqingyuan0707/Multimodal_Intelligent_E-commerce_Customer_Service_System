@@ -201,6 +201,18 @@ class Settings(BaseSettings):
     DEFAULT_QUOTA_CONCURRENCY: int = 50
     TENANT_PLANS: list[str] = ["trial", "basic", "pro", "enterprise"]
 
+    # API 密钥（FR-8 密钥管理）：明文只在创建/轮换响应里回一次，落库只存 sha256 摘要。
+    # 明文形态 `<prefix>_<token_urlsafe(API_KEY_BYTES)>`；列表掩码保留正文首尾各 MASK_KEEP 位。
+    API_KEY_PREFIX: str = "sk_live"
+    API_KEY_BYTES: int = 18
+    API_KEY_MASK_KEEP: int = 4
+    API_KEY_SCOPES_DEFAULT: str = "read"
+
+    # 消息发送频控（FR-12.2）：同一 user_ref 在 WINDOW 秒内最多 MAX 条；0=关闭频控。
+    # 计数走 core/cache.py 适配层（Redis 可用走 Redis，不可用进程内降级，与对话限流同源）。
+    NOTIFY_RATE_MAX: int = 1
+    NOTIFY_RATE_WINDOW_SECONDS: int = 86400
+
     # Agent Runtime / 工具注册中心（FRD FR-3/FR-5，执行步骤 B）：超时、重试、熔断一律进 Settings，
     # 业务代码禁止硬编码；改这里即改全站工具行为（同时在 _HOT_FIELDS 内可热更）。
     AGENT_TOOL_TIMEOUT_SECONDS: float = 30.0  # 附录 A：单次工具调用超时 30s

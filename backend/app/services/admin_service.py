@@ -20,9 +20,12 @@ from app.db.models import AuditLog, Tenant, User
 TENANT_STATUSES = ("active", "suspended", "disabled")
 TENANT_STATUS_LABELS = {"active": "正常", "suspended": "欠费停服", "disabled": "禁用"}
 TENANT_PLAN_LABELS = {"trial": "试用", "basic": "基础版", "pro": "专业版", "enterprise": "旗舰版"}
+# 用户状态（FR-12.4 离职一键冻结）：active 正常 / frozen 已冻结（拒登但保留行，便于回溯到人）
+USER_STATUSES = ("active", "frozen")
+USER_STATUS_LABELS = {"active": "正常", "frozen": "已冻结"}
 
 
-def _dt_text(value) -> str:
+def dt_text(value) -> str:
     """时间统一口径：空格秒（与商品/订单/审批一致）。"""
     return value.isoformat(sep=" ", timespec="seconds") if value else ""
 
@@ -47,7 +50,7 @@ def tenant_to_dict(row: Tenant) -> dict[str, Any]:
         "quota_tokens": row.quota_tokens,
         "quota_concurrency": row.quota_concurrency,
         "note": row.note,
-        "created_at": _dt_text(row.created_at),
+        "created_at": dt_text(row.created_at),
     }
 
 
@@ -59,7 +62,7 @@ def audit_to_dict(row: AuditLog) -> dict[str, Any]:
         "action": row.action,
         "target": row.target,
         "detail": _parse_json(row.detail, {}),
-        "created_at": _dt_text(row.created_at),
+        "created_at": dt_text(row.created_at),
     }
 
 
@@ -67,12 +70,15 @@ def user_to_dict(row: User) -> dict[str, Any]:
     from app.core.security import split_roles
 
     roles = split_roles(row.roles or "")
+    status = row.status or "active"
     return {
         "id": row.id,
         "tenant": row.tenant,
         "username": row.username,
         "roles": roles,
-        "created_at": _dt_text(row.created_at),
+        "status": status,
+        "status_label": USER_STATUS_LABELS.get(status, status),
+        "created_at": dt_text(row.created_at),
     }
 
 
@@ -255,15 +261,20 @@ async def list_users(
     *,
     tenant: str = "",
     keyword: str = "",
+    status: str = "",
     page: int = 1,
     size: int = 20,
 ) -> dict[str, Any]:
-    """用户分页（全局视角；tenant 传空=全部，keyword 匹配用户名）。"""
+    """用户分页（全局视角；tenant 传空=全部，keyword 匹配用户名，status 精确筛冻结态）。"""
+    if status and status not in USER_STATUSES:
+        raise BusinessError(ErrorCode.PARAM_INVALID, f"用户状态非法：{status}")
     stmt = select(User)
     if tenant.strip():
         stmt = stmt.where(User.tenant == tenant.strip())
     if keyword.strip():
         stmt = stmt.where(User.username.like(f"%{keyword.strip()}%"))
+    if status:
+        stmt = stmt.where(User.status == status)
     total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
     rows = list(
         (
