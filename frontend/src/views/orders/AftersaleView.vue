@@ -20,9 +20,9 @@
     </div>
     <el-empty v-if="!rows.length && !loading" description="暂无售后单" />
     <el-table v-loading="loading" :data="rows" style="width: 100%">
-      <el-table-column prop="id" label="售后单ID" min-width="150" />
-      <el-table-column prop="order_id" label="订单ID" min-width="150" />
-      <el-table-column prop="reason" label="原因" min-width="140" />
+      <el-table-column prop="id" label="售后单ID" min-width="130" />
+      <el-table-column prop="order_id" label="订单ID" min-width="130" />
+      <el-table-column prop="reason" label="原因" min-width="140" show-overflow-tooltip />
       <el-table-column label="金额" width="100">
         <template #default="s">{{ formatCents(s.row.amount) }}</template>
       </el-table-column>
@@ -40,15 +40,54 @@
           }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="280">
+      <el-table-column label="证据" width="120">
         <template #default="s">
-          <AiButton v-permission="['cs', 'stock', 'admin']" link @click="locate(s.row)">
+          <span v-if="!s.row.evidence?.length" class="muted">-</span>
+          <el-image
+            v-for="(url, i) in (s.row.evidence || []).slice(0, 2)"
+            :key="i"
+            :src="url"
+            :preview-src-list="s.row.evidence"
+            :initial-index="i"
+            preview-teleported
+            fit="cover"
+            class="thumb"
+          />
+          <span v-if="(s.row.evidence || []).length > 2" class="muted"
+            >+{{ (s.row.evidence || []).length - 2 }}</span
+          >
+        </template>
+      </el-table-column>
+      <el-table-column label="trace_id" width="120">
+        <template #default="s">
+          <span class="mono">{{ s.row.trace_id || '-' }}</span>
+        </template>
+      </el-table-column>
+      <el-table-column prop="created_at" label="创建时间" width="160" />
+      <el-table-column label="操作" width="300">
+        <template #default="s">
+          <AiButton
+            v-permission="['cs', 'stock', 'admin']"
+            link
+            size="small"
+            @click="openDetail(s.row)"
+          >
+            详情
+          </AiButton>
+          <AiButton
+            v-permission="['cs', 'stock', 'admin']"
+            link
+            size="small"
+            :disabled="!s.row.trace_id"
+            @click="locate(s.row)"
+          >
             定位会话
           </AiButton>
           <AiButton
             v-permission="['cs', 'stock', 'admin']"
             link
             type="primary"
+            size="small"
             :disabled="s.row.disposition !== 'pending'"
             @click="dispose(s.row, 'restocked')"
           >
@@ -58,6 +97,7 @@
             v-permission="['cs', 'stock', 'admin']"
             link
             type="warning"
+            size="small"
             :disabled="s.row.disposition !== 'pending'"
             @click="dispose(s.row, 'scrapped')"
           >
@@ -67,6 +107,7 @@
             v-permission="['cs', 'stock', 'admin']"
             link
             type="danger"
+            size="small"
             :disabled="s.row.disposition !== 'pending'"
             @click="dispose(s.row, 'returned')"
           >
@@ -86,41 +127,33 @@
         @size-change="onSize"
       />
     </div>
-    <el-dialog v-model="dialog" title="新建售后单" width="480px">
-      <el-form :model="form" label-width="90px">
-        <el-form-item label="订单ID">
-          <AiInput v-model="form.order_id" placeholder="sales_orders.id" />
-        </el-form-item>
-        <el-form-item label="原因">
-          <AiInput v-model="form.reason" placeholder="如：袖口脱线" />
-        </el-form-item>
-        <el-form-item label="金额(元)">
-          <AiInput v-model="form.amount" placeholder="0.00" />
-        </el-form-item>
-        <el-form-item label="会话trace">
-          <AiInput v-model="form.trace_id" placeholder="客服会话 trace_id（可空）" />
-        </el-form-item>
-        <el-form-item label="证据图">
-          <AiInput v-model="form.evidence" placeholder="图片 URL，逗号分隔，可空" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <AiButton @click="close">取消</AiButton>
-        <AiButton type="primary" :loading="submitting" @click="submit">提交</AiButton>
-      </template>
-    </el-dialog>
+    <AftersaleCreateDialog v-model="dialog" @created="loadRows" />
+    <AftersaleDetailDrawer v-model="drawer" :detail="detail" @locate="locate" @dispose="dispose" />
   </div>
 </template>
 
 <script setup lang="ts">
-// 售后单：服务端分页列表 + 新建（关联会话 trace_id）+ 质检处置（二次入库/报损/退供，对齐 FRD FR-10.4/页面设计 §3.13）
-// 处置红线：报损恒进审批（sensitive），二次入库/退供直接生效；已处置的售后单按钮置灰（disposition !== pending）
-import { ElMessage, ElMessageBox, ElPagination, ElTag } from 'element-plus';
+// 售后单：服务端分页列表（真接口优先，失败置空 + 中文提示，不编造数据）+ 质检处置 + 详情抽屉
+// 新建对话框拆 AftersaleCreateDialog.vue（订单远程搜索、元→分、证据图），详情拆 AftersaleDetailDrawer.vue
+// 对齐 FRD FR-10.4 / 页面设计 §3.13 / API 规范 §4.7
+// 红线：①处置按钮按 disposition !== pending 置灰；②报损恒进审批（sensitive），二次入库/退供直接生效；
+// ③后端金额一律分，页面只收元、只展示格式化元；④列表默认 20 可切 10/20/50/100。
+import {
+  ElMessage,
+  ElMessageBox,
+  ElEmpty,
+  ElImage,
+  ElPagination,
+  ElSelect,
+  ElOption,
+  ElTag,
+} from 'element-plus';
 import { onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { createAftersaleApi, disposeAftersaleApi, listAftersalesApi } from '@/api';
+import { disposeAftersaleApi, listAftersalesApi } from '@/api';
+import AftersaleCreateDialog from '@/components/AftersaleCreateDialog.vue';
+import AftersaleDetailDrawer from '@/components/AftersaleDetailDrawer.vue';
 import AiButton from '@/shared/components/AiButton.vue';
-import AiInput from '@/shared/components/AiInput.vue';
 import type { AftersaleItem } from '@/types/shop';
 import { aftersaleTagOf, dispositionTagOf, formatCents } from '@/types/shop';
 
@@ -138,15 +171,15 @@ const DISPOSITION_OPTIONS = [
 
 const rows = ref<AftersaleItem[]>([]);
 const loading = ref(false);
-// 售后列表服务端分页（前端红线：列表页必须服务端分页，默认 20 可切 10/20/50/100）
+// 售后列表服务端分页（前端红线：默认 20，可切 10/20/50/100）
 const page = ref(1);
 const size = ref(20);
 const total = ref(0);
 const status = ref('');
 const disposition = ref('');
 const dialog = ref(false);
-const submitting = ref(false);
-const form = ref({ order_id: '', reason: '', amount: '', trace_id: '', evidence: '' });
+const drawer = ref(false);
+const detail = ref<AftersaleItem | null>(null);
 const router = useRouter();
 
 const loadRows = async () => {
@@ -161,9 +194,10 @@ const loadRows = async () => {
     rows.value = res.items;
     total.value = res.total;
   } catch (e) {
+    // 后端不可用 → 置空列表 + 中文可操作提示，不编造数据
     rows.value = [];
     total.value = 0;
-    ElMessage.error(e instanceof Error ? e.message : '加载售后单失败');
+    ElMessage.error(e instanceof Error ? `加载售后单失败：${e.message}` : '加载售后单失败');
   } finally {
     loading.value = false;
   }
@@ -187,7 +221,7 @@ const onSize = (s: number) => {
 
 const DISPOSE_LABEL = { restocked: '二次入库', scrapped: '报损', returned: '退供' } as const;
 
-// 质检处置（退货质检 → 二次入库/报损/退供）：报损转审批，其余直接生效
+// 质检处置：报损转审批，其余直接生效；已处置/审批中由后端再校验（前端只按 disposition 置灰）
 const dispose = async (row: AftersaleItem, kind: 'restocked' | 'scrapped' | 'returned') => {
   const label = DISPOSE_LABEL[kind];
   try {
@@ -216,53 +250,12 @@ const dispose = async (row: AftersaleItem, kind: 'restocked' | 'scrapped' | 'ret
 };
 
 const openCreate = () => {
-  form.value = { order_id: '', reason: '', amount: '', trace_id: '', evidence: '' };
   dialog.value = true;
 };
 
-const close = () => {
-  dialog.value = false;
-};
-
-const submit = async () => {
-  if (!form.value.order_id) {
-    ElMessage.warning('请填写订单ID');
-    return;
-  }
-  try {
-    await ElMessageBox.confirm('确认创建售后单吗？', '提示');
-  } catch {
-    return;
-  }
-  submitting.value = true;
-  try {
-    // 后端金额一律分，页面禁止裸展示/提交分：元→分；证据图按逗号/空格/换行切分
-    const cents = Math.round(Number(form.value.amount || 0) * 100);
-    const evidence = form.value.evidence
-      .split(/[,，\s\n]+/)
-      .map(u => u.trim())
-      .filter(Boolean);
-    const res = await createAftersaleApi({
-      order_id: form.value.order_id,
-      reason: form.value.reason,
-      amount: cents,
-      trace_id: form.value.trace_id,
-      evidence,
-    });
-    if (res.need_approval) {
-      ElMessage.warning(
-        `退款超阈值，已转审批${res.approval_id ? `（${res.approval_id}）` : ''}，批准后生效`,
-      );
-    } else {
-      ElMessage.success('售后单已创建');
-    }
-    dialog.value = false;
-    await loadRows();
-  } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : '创建失败');
-  } finally {
-    submitting.value = false;
-  }
+const openDetail = (row: AftersaleItem) => {
+  detail.value = { ...row };
+  drawer.value = true;
 };
 
 const locate = (row: AftersaleItem) => {
@@ -297,9 +290,30 @@ onMounted(() => {
   width: 140px;
 }
 
+.order-sel {
+  width: 100%;
+}
+
 .pager {
   display: flex;
   justify-content: flex-end;
   margin-top: 12px;
+}
+
+.muted {
+  color: var(--reai-text-muted);
+  font-size: var(--reai-fs-caption);
+}
+
+.mono {
+  font-family: var(--reai-font-mono);
+  font-size: var(--reai-fs-caption);
+}
+
+.thumb {
+  width: 36px;
+  height: 36px;
+  margin-right: 4px;
+  border-radius: 4px;
 }
 </style>

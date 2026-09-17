@@ -8,6 +8,7 @@ admin 看全租户汇总（指标 6 项 + 今日 24 桶趋势 + 慢 Trace + 归�
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -68,8 +69,20 @@ async def _seed_chat() -> None:
     async with session_mod._SessionFactory() as db:
         db.add(Session(id="s-a", tenant=TENANT, username="buyer1", handoff_status="pending"))
         db.add(Session(id="s-b", tenant=TENANT, username="buyer1", handoff_status="none"))
-        db.add(Message(session_id="s-a", tenant=TENANT, role="user", content="问价"))
-        db.add(Message(session_id="s-a", tenant=TENANT, role="user", content="问尺码"))
+        # created_at 显式用本地时间（与 dashboard_service._trend 的 datetime.now() 同基准）：
+        # 落库默认是 naive UTC（models_foundation/base._now），本地凌晨时 UTC 仍在昨天，
+        # 会被 today 的 day_start 过滤导致 24 桶全空（时序敏感，白天跑才会绿）。
+        local_now = datetime.now()
+        db.add(
+            Message(
+                session_id="s-a", tenant=TENANT, role="user", content="问价", created_at=local_now
+            )
+        )
+        db.add(
+            Message(
+                session_id="s-a", tenant=TENANT, role="user", content="问尺码", created_at=local_now
+            )
+        )
         db.add(
             Message(
                 session_id="s-a",
@@ -77,6 +90,7 @@ async def _seed_chat() -> None:
                 role="user",
                 content="问发货",
                 cost_cents=120,
+                created_at=local_now,
             )
         )
         db.add(Message(session_id="s-a", tenant=TENANT, role="agent", content="答"))
