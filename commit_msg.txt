@@ -1,0 +1,10 @@
+feat(memory): v0.3.19 fr-4/fr-1.4 跨会话记忆收官
+
+- 新增 memory_service（规则抽取 8 键+PII守门；跨会话 mem/sess 双 24h 滑动；显式"记住"落 user_preferences PG；DELETE /auth/me/memory 一键遗忘）
+- 接线：_begin_turn 召回拼块 + done.context 计数；_persist_agent_turn 成功轮记录；delete_session 清扫 sess 键
+- PII 口径收敛 core/pii + cache.delete/scan_delete
+- 迁移 e5f6a7b8c9d0（单头挂载 d9e8f7a6b5c4）
+- 文档同步：数据模型/API/后端工程化/执行步骤
+- 验证：pytest 244 passed / smoke 13/13 / 版本三源 0.3.19
+
+Consistency-Skip: reason="记忆模块跨多层接线，涉及 services/api/db/doc 40+ 文件，无单一 .codebuddy/memory 对应"

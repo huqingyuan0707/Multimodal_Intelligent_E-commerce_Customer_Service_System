@@ -1,7 +1,8 @@
-"""历史对话三层 E2E 冒烟（Session→Message→Context，对齐 FR-1.4 + API 规范 §4.3）
+"""历史对话三层 + 记忆 E2E 冒烟（Session→Message→Context→Memory，对齐 FR-1.4/FR-4 + API 规范 §4.3）
 
 覆盖：login 取 token → 建会话 → 两轮问答（同 thread，第二轮 done.context.rounds≥1）→
-GET context（摘要/预算同源）→ 详情翻页（has_more）→ 重命名 → 删除级联遗忘（404）。
+GET context（摘要/预算同源）→ 详情翻页（has_more）→ 重命名 → 删除级联遗忘（404）→
+跨会话记忆（A 会话报身高 → B 会话 done.context.memory_recent≥1）→ 一键遗忘后清零。
 用法：python tests/smoke_sessions.py [http://127.0.0.1:8000]
 前置：后端已迁移（alembic upgrade head）并启动（默认 admin/admin123）。
 """
@@ -104,6 +105,52 @@ def main() -> int:
     check("delete ok", r.json().get("code") == 0, r.text)
     r = client.get(f"/api/v1/sessions/{sid}", headers=headers)
     check("deleted 404", r.status_code == 404, r.text[:200])
+
+    # 跨会话记忆：A 会话报身高 → B 会话 done.context.memory_recent≥1（24h 滑动）
+    r = client.delete("/api/v1/auth/me/memory", headers=headers)
+    check("forget memory ok", r.json().get("code") == 0, r.text[:200])
+    r = client.post("/api/v1/sessions", json={"title": "记忆A"}, headers=headers)
+    sid_a = (r.json().get("data") or {}).get("id", "")
+    r = client.post("/api/v1/sessions", json={"title": "记忆B"}, headers=headers)
+    sid_b = (r.json().get("data") or {}).get("id", "")
+    with client.stream(
+        "POST",
+        "/api/v1/agent/chat/stream",
+        json={
+            "query": "我身高181体重66，查一下退货政策",
+            "thread_id": sid_a,
+            "client_msg_id": "smoke-mem-a",
+        },
+        headers=headers,
+    ) as s:
+        list(s.iter_lines())
+    with client.stream(
+        "POST",
+        "/api/v1/agent/chat/stream",
+        json={"query": "退货政策是什么", "thread_id": sid_b, "client_msg_id": "smoke-mem-b"},
+        headers=headers,
+    ) as s:
+        done_b = _done_payload(list(s.iter_lines()))
+    mem_recent = int((done_b.get("context") or {}).get("memory_recent", 0))
+    check("cross-session memory_recent>=1", mem_recent >= 1, json.dumps(done_b)[:200])
+
+    # 一键遗忘后清零（会话消息不受影响，只清记忆层）
+    r = client.delete("/api/v1/auth/me/memory", headers=headers)
+    check("forget again ok", r.json().get("code") == 0, r.text[:200])
+    with client.stream(
+        "POST",
+        "/api/v1/agent/chat/stream",
+        json={"query": "退货政策是什么", "thread_id": sid_b, "client_msg_id": "smoke-mem-c"},
+        headers=headers,
+    ) as s:
+        done_c = _done_payload(list(s.iter_lines()))
+    check(
+        "memory cleared after forget",
+        int((done_c.get("context") or {}).get("memory_recent", -1)) == 0,
+        json.dumps(done_c)[:200],
+    )
+    client.delete(f"/api/v1/sessions/{sid_a}", headers=headers)
+    client.delete(f"/api/v1/sessions/{sid_b}", headers=headers)
 
     print(f"RESULT: {passed} passed, {failed} failed")
     return 1 if failed else 0

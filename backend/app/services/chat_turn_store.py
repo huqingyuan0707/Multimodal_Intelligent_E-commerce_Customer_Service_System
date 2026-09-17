@@ -17,7 +17,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.core.user_context import CurrentUser
-from app.services import context_service, handoff_service, rag_governance, session_service
+from app.services import (
+    context_service,
+    handoff_service,
+    memory_service,
+    rag_governance,
+    session_service,
+)
 from app.services.chat_stream import loads_dict, loads_list
 from app.services.vision_service import sanitize_inspections
 
@@ -136,6 +142,7 @@ async def _persist_agent_turn(
     notes: list[str] | None = None,
     empty: bool = False,
     approval: bool = False,
+    rulebot: bool = False,
 ) -> dict[str, object]:
     """agent 行落库 + 规则表挂起判定 + 成本审计 + 会话刷新 + commit，返回 run_text_turn 同形 result。
 
@@ -170,6 +177,8 @@ async def _persist_agent_turn(
             "approval_pending": bool(approval),
         },
     )
+    # FR-4 记忆：成功轮才记（拒答轮不记，避免把"没查到"当事实）；失败只跳过不阻断落库
+    await memory_service.record_turn(db, tenant=user.tenant, username=user.username, query=query)
     result: dict[str, object] = {
         "answer": text,
         "references": refs,
@@ -184,6 +193,7 @@ async def _persist_agent_turn(
         "context": history_ctx,
         "tool_calls": list(tool_calls or []),
         "orchestration": {"notes": list(notes or [])},
+        "rulebot": rulebot,
         "handoff": handoff,
         # 赞踩反馈定位键（mining/feedback 的 message_id，落库行 id，刷新/重放同键）
         "message_id": agent_row.id,
@@ -262,21 +272,28 @@ async def _persist_reject(
 async def _record_cost_and_audit(
     db: AsyncSession, *, user: CurrentUser, session_id: str, result: dict[str, object], query: str
 ) -> None:
-    """落库第 12 步：cost_records 成本归因 + audit_logs 问答审计（同事务 flush）。
+    """落库第 12 步：cost_records 成本归因 + agent 消息行成本回填 + 问答审计（同事务 flush）。
 
-    token 无上游 usage 时走 context_service.estimate_tokens 统一估算（中文 1.5 字/token，
-    与预算裁剪同源），保证看板不断流。
+    token 有上游 usage 用实数（source=usage），否则 estimate_tokens 估算
+    （source=estimate）；单价走 costing 单实现（Settings 可热更）。
     """
+    from sqlalchemy import update
+
     from app.db.models import CostRecord
+    from app.db.models_foundation import Message
+    from app.services import costing
 
     usage = result.get("usage")
     usage_map = dict(usage) if isinstance(usage, dict) else {}
     prompt_tok = int(usage_map.get("prompt_tokens", 0) or 0)
     comp_tok = int(usage_map.get("completion_tokens", 0) or 0)
+    # 上游双双有数才算实数单；任一缺失即整单记估算（误差口径不掺水）
+    source = "usage" if prompt_tok > 0 and comp_tok > 0 else "estimate"
     if not prompt_tok:
         prompt_tok = context_service.estimate_tokens(query + str(result.get("answer", "")))
     if not comp_tok:
         comp_tok = context_service.estimate_tokens(str(result.get("answer", "")))
+    cents = costing.price_llm_turn(prompt_tok, comp_tok)
     db.add(
         CostRecord(
             tenant=user.tenant,
@@ -284,9 +301,13 @@ async def _record_cost_and_audit(
             model=str(result.get("model", "template")),
             prompt_tokens=prompt_tok,
             completion_tokens=comp_tok,
-            cost_cents=0,
+            cost_cents=cents,
+            pricing_source=source,
         )
     )
+    message_id = str(result.get("message_id", "") or "")
+    if message_id:
+        await db.execute(update(Message).where(Message.id == message_id).values(cost_cents=cents))
     await db.flush()
     await rag_governance.audit_write(
         db,

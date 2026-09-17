@@ -7,7 +7,8 @@ sessions/messages/tool_calls 聚合 + observability.snapshot()。
 - 自动解决率：未进转人工会话占比（handoff_status=='none' / 全部会话）
 - 首字 P95 / 幻觉率：运行时无采集 → '—'（压测/黄金集离线口径）
 - 工具成功率：observability agent.tool.ok 占比（无调用 → '—'）
-- Token 成本：messages.cost_cents 求和（当前恒 0，成本归因未接）
+- Token 成本：messages.cost_cents 求和（costing 单实现按 Settings 单价折算；
+  人工对照 + 估算单占比见成本卡 desc）
 - 趋势：今日 24 小时桶 / 近 7 日按天桶（用户消息数，DB created_at 分桶）
 - 归因：按租户（admin 看全租户，否则本租户）+ 服务端分页
 - 慢 Trace：tool_calls 按 latency_ms 倒序 Top5（trace_id + 耗时 + 工具名）
@@ -21,10 +22,12 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.core.observability import snapshot as obs_snapshot
 from app.core.user_context import CurrentUser
-from app.db.models import Session
+from app.db.models import CostRecord, Session
 from app.db.models_foundation import Message, ToolCall
+from app.services import costing
 
 _TREND_TODAY_BUCKETS = 24
 _TREND_WEEK_DAYS = 7
@@ -103,9 +106,35 @@ async def summary(
             )
         ).scalar_one()
     )
+    est_cents = int(
+        (
+            await db.execute(
+                select(func.coalesce(func.sum(CostRecord.cost_cents), 0))
+                .select_from(CostRecord)
+                .where(
+                    CostRecord.tenant.in_(tenants),
+                    CostRecord.pricing_source == "estimate",
+                )
+            )
+        ).scalar_one()
+    )
+    all_cents = int(
+        (
+            await db.execute(
+                select(func.coalesce(func.sum(CostRecord.cost_cents), 0))
+                .select_from(CostRecord)
+                .where(CostRecord.tenant.in_(tenants))
+            )
+        ).scalar_one()
+    )
     snap = obs_snapshot()
     tool_rate = snap.get("tool_ok_rate")
     answer_rate = snap.get("handoff", {}).get("answer_rate")
+    human_yuan = settings.HUMAN_COST_PER_TICKET_CENTS / 100
+    human_ratio = costing.vs_human_ratio(cost_cents)
+    human_text = f"{human_ratio}%" if human_ratio is not None else "—"
+    est_text = f"{est_cents / all_cents * 100:.0f}%" if all_cents else "—"
+    answer_text = f"{answer_rate * 100:.1f}%" if answer_rate is not None else "—"
 
     metrics = [
         {
@@ -126,8 +155,7 @@ async def summary(
             "key": "resolve",
             "label": "自动解决率",
             "value": _pct(total_sessions - applied, total_sessions),
-            "desc": "未进转人工会话占比（30s 接起率 %s）"
-            % (f"{answer_rate * 100:.1f}%" if answer_rate is not None else "—"),
+            "desc": f"未进转人工会话占比（30s 接起率 {answer_text}）",
             "overBudget": False,
         },
         {
@@ -148,7 +176,7 @@ async def summary(
             "key": "cost",
             "label": "Token 成本",
             "value": f"¥{cost_cents / 100:.2f}",
-            "desc": "messages.cost_cents 求和（成本归因未接，恒 0）",
+            "desc": f"messages.cost_cents 求和（单价 Settings 可热更；约为人工 ¥{human_yuan:.2f}/通的 {human_text}；估算单占比 {est_text}，越低越准）",
             "overBudget": False,
         },
     ]

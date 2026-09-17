@@ -69,13 +69,13 @@ api_router.include_router(chat.router, dependencies=[Depends(get_current_user)])
 - 本地演示账号：租户/用户名/角色走 `Settings.SEED_*`（默认值见 `backend/.env.example`，本机演示专用，禁止用于生产）。种子幂等且**不覆盖已存在账号**，改 `SEED_PASSWORD` 只对新建账号生效。生产分家：`ENV=prod` 时 `SEED_ON_START/B2B_SEED_DEMO/KB_SEED_DEMO` 必须全 `false`（`Settings._guard_prod` 缺一即启动报错），首个管理员走 `backend/scripts/create_admin.py` 创建，不经过演示通道。
 
 ### 4.2 对话（非流式，调试/短问答）
-- `POST /agent/chat {query, thread_id?, security_level?, client_msg_id?, image_ids[]?, inspections[]?}` → `ok({answer, references[], guard:{pass,degraded,empty,rejected}, faithfulness, model, degraded, trace_id, session_id, vision[], need_human, context{rounds,tokens,dropped,summarized}, tool_calls[], orchestration{notes[],empty,approval}, handoff{hit,enabled,code,label,reason,priority,matched[],matched_rules[],applied,handoff_status,session_id}})`（规范路径；`/chat` 为兼容别名，行为一致）。
+- `POST /agent/chat {query, thread_id?, security_level?, client_msg_id?, image_ids[]?, inspections[]?}` → `ok({answer, references[], guard:{pass,degraded,empty,rejected}, faithfulness, model, degraded, trace_id, session_id, vision[], need_human, context{rounds,tokens,dropped,summarized}, tool_calls[], orchestration{notes[],empty,approval}, rulebot, handoff{hit,enabled,code,label,reason,priority,matched[],matched_rules[],applied,handoff_status,session_id}})`（规范路径；`/chat` 为兼容别名，行为一致）。
 - 入参 `thread_id` 命中本人会话则复用，否则新建（标题取问题前 20 字，他人/异租户 id 视为未传）；`client_msg_id` 为前端每次发送生成的幂等键，同（会话，键）重调只落一行，重放不再调模型。
 - 用户消息与助手回复（含引用/guard/忠实度/trace）双双落 `messages` 表，刷新后 `GET /sessions/{id}` 可回放。
-- 生成走适配层 `llm_service`（本地 Ollama `qwen2.5`，ADR-0001）；模型不可用**不 500**：降级片段摘要，`degraded=true`、`model="template"`。
+- 生成走适配层 `llm_service`（本地 Ollama `qwen2.5`，ADR-0001）；模型不可用**不 500**：降级片段摘要，`degraded=true`、`model="template"`。网关类故障（模型不可用 / 工具熔断 `4007` / 超时 `4002` / 上游失败 `4008`）切规则机器人（FR-5 第三级）：用已验证的检索引用 + 编排业务事实 + 故障状态行确定性组装（`services/rulebot_service.py`），`rulebot=true`（文本内明示未经过模型生成），组装不出任何依据才回落静态模板；转人工照常触发。
 - `faithfulness`：回答内 `[n]` 引用越界按比例扣分（无引用记 0.9），低分前端可提示核对来源。
 - `tool_calls[]`：本轮检索段经 Agent 编排真调的工具记录（形状同 `POST /agent/tools/{name}/invoke` 出参，含 `scope/attempts/latency_ms/trace_id`，前端 `ToolCallCard` 直接渲染）；走回落直调时为空数组，帧形不随分支变化。
-- `orchestration{notes[]}`：编排说明（中文可读，空数组 = 规划按预期命中）。固定文案：`命中「退款」但缺少必填参数（如订单号/SKU），已回落知识库检索` / `当前身份无权调用 X，已回落知识库检索` / `X 未返回可用结果，已转人工跟进` / `该动作需人工审批，已生成审批单（账目未变动）` / `编排不可用，已回落直连检索`。
+- `orchestration{notes[]}`：编排说明（中文可读，空数组 = 规划按预期命中）。固定文案：`命中「退款」但缺少必填参数（如订单号/SKU），已回落知识库检索` / `当前身份无权调用 X，已回落知识库检索` / `X 未返回可用结果，已转人工跟进` / `该动作需人工审批，已生成审批单（账目未变动）` / `编排不可用，已回落直连检索` / `X 网关类故障，已切规则机器人兜底`。
 - `2001` 表示无据拒答，前端渲染拒答话术 + 转人工按钮，不当错误抛异常（拒答同样落库，`guard.rejected=true`）。
 - **输入域守卫（`services/guard_service.py`，问答第一道闸）**：`/agent/chat[/stream]` 检索前先 `check(query)`，命中「注入诱导（越权/套提示词/绕过风控…正则）」或「域外闲聊（天气/股票/代码…黑名单）」即直接 `2001` 拒答转人工（话术即守卫 `reason`），**不烧检索与模型**；记 `guard.reject` trace + `chat.guard_reject` 可观测事件（`category=injection/off_domain` 归因）。词表与正则全在 `Settings.GUARD_*`（进 `_HOT_FIELDS` 可热更），`GUARD_ENABLED=false` 整体旁路（回滚位，同 `AGENT_CHAT_ORCHESTRATE`）。口径：只拦「确定注入/确定域外」，拿不准一律放行交 RAG 检索阈值兜底——误拦比漏拦更伤体验；黄金集 `eval_golden.py` 按守卫→检索两道闸分别归因拦截量。
 - `handoff`：本轮转人工规则表判定结果（C 步）。`hit=true` 表示命中某条规则（`code/label/reason` 是坐席可读依据，`matched[]` 列出所有命中规则，取 `priority` 最小者挂起）；`applied=true` 表示确实把会话挂进了待接队列（已 `handling/resolved` 或已 `pending` 时为 `false`，`handoff_status` 回当前状态）。`guard.empty`（工具空手）与 `guard.degraded` 是「连续未解决 / 连续降级」的计数依据，坐席代回（`guard.by="agent"`）即清零。
@@ -85,8 +85,11 @@ api_router.include_router(chat.router, dependencies=[Depends(get_current_user)])
 - `POST /sessions {title?}` → 新会话落库（前端本地先建 `t-${Date.now()}` 占位，成功后以后端 `id` 为准）。
 - `GET /sessions/{id}?page=1&size=50` → `{id,title,summary,messages[倒序],total,page,size,has_more}`（page=1 最新页；`has_more` 供前端“加载更早消息”；前端渲染前反转即正序）。404（跨租户/跨用户同 404）则回退 `@/mock` 演示数据。
 - `PUT /sessions/{id} {title}` → 重命名（空标题 1001，超长截 20 字）。
-- `GET /sessions/{id}/context` → 上下文视图 `{summary, rounds, tokens, dropped, budget, window_rounds}`（与 `run_text_turn` 装配同源：同 `load_window/build_history_block`，所见即所算，供坐席 Trace 调试）。
-- `DELETE /sessions/{id}` → 需 confirm + 消息级联遗忘。
+- `GET /sessions/{id}/context` → 上下文视图 `{summary, rounds, tokens, dropped, memory_recent, memory_prefs, budget, window_rounds}`（与 `run_text_turn` 装配同源：`context_service.describe`，所见即所算，供坐席 Trace 调试）。
+- `DELETE /sessions/{id}` → 需 confirm + 消息级联遗忘（含线程记忆快照 `sess` 键清扫）。
+- 跨会话记忆 FR-4（`services/memory_service`）：成功轮规则抽取事实（身高/体重/三围/版型/预算/尺码，白名单键 + 范围校验，PII 永不进）→ 跨会话近况 Redis 24h 滑动（`mem` 键）+ 线程快照 Redis 24h 滑动（`sess` 键，`updated_at` 对上才命中）；显式"记住"授权 + `MEMORY_LONG_ENABLED` 才落长期偏好 PG（`user_preferences`）；历史块顺序摘要→偏好→近况→窗口，记忆块钉死不参与预算裁剪；`done.context` 加法带 `memory_recent/memory_prefs`（向后兼容）。
+- `DELETE /auth/me/memory` → 一键遗忘我的记忆（长期偏好按户清 + 近况键删 + 线程快照按前缀扫，记 `memory.forget` 审计；会话消息原文不动，会话级遗忘走 DELETE sessions）。
+- openapi 自查说明：`backend/openapi.json` 尚未落库，本轮以 `app.openapi()` 导出核对：新增 `DELETE /auth/me/memory` 1 条 path（`GET /sessions/{id}/context` 只加法出参 `memory_recent/memory_prefs`），其余端点未变。
 - 上下文装配（每轮）：落库本轮前取最近 `SESSION_HISTORY_ROUNDS`（默认 20）轮 → 满窗刷新 `sessions.summary` 规则摘要 → 摘要 + 窗口（多模态附件转写成 `[图：破洞 0.85]` 行）拼 `history` 进 LLM 解指代；超 `SESSION_TOKEN_BUDGET`（默认 8000，中文 1.5 字/token 统一口径）从旧往新丢轮；历史先经手机/身份证/邮箱正则脱敏。`done` 加法带 `context{rounds,tokens,dropped,summarized}`（向后兼容）。
 - 前置地基：`sessions/messages` 表由 Alembic 基线迁移建表 + `d3f1a2b4c5e6` 补 `summary/updated_at`（只加列，旧库 server_default 回填）。
 
@@ -113,7 +116,7 @@ api_router.include_router(chat.router, dependencies=[Depends(get_current_user)])
 
 ### 4.6 治理与可观测
 - `GET /governance/status` → `{llm, vector{backend,model,dim,vectors}, keyword{backend: bm25-stdlib}, reranker{weights}, thresholds{top_k,rrf_k,db_threshold,diversity_per_doc,faithfulness_warn,bm25_k1/bm25_b,rerank_w,rag_cache_ttl,vlm/asr_confidence}, hot_fields}`（`llm_service.probe()` + `vector_store.status()` + `rerank_service.status()` 实测，绝不抛异常）。
-- `POST /mining/feedback {message_id, vote, comment?}` → `ok({id})`（跨租户 404；记 `mining.feedback` 审计）；`GET /mining/candidates` → `{items[{feedback_id,message_id,session_id,vote,comment,query}], total}`（差评 + 无引用拒答补位，租户隔离）。
+- `POST /mining/feedback {message_id, vote, comment?}` → `ok({id})`（跨租户 404；记 `mining.feedback` 审计）；`GET /mining/candidates` → `{clusters[{key(簇内最高频原问法), count, members[]}] 按 count 倒序, total_clusters, total_items}`（差评 + 无引用拒答自动进池，问法归一化 bigram-Dice≥`MINING_CLUSTER_SIM` 贪心成簇，单例簇保留；候选池上限 `MINING_CLUSTER_POOL`；只读，租户隔离）。
 - `GET /observability/summary?range=today|week&page=1&size=20` → `{metrics[{key,label,value,desc,overBudget}], trend[{label,value}], slow_traces[{trace_id,latency_ms,tool}], items[{id,tenant,channel,sessions,resolveRate,costCents,overBudget,slowTraceId}], total, page, size, range}`（`ops/admin`；admin 看全租户否则本租户；range 非法 `1001`；指标 6 项 QPS/首字P95/解决率/幻觉率/工具成功率/Token成本，无运行时数据的回 `—` 不编数；趋势为用户消息 today-24 小时桶/week-7 天桶；慢 Trace 取 tool_calls latency 倒序 Top5）。
 
 ### 4.7 B端商家后台（对齐 FRDv2 附录 D，同基座 JWT/Scope/幂等键/审计）
@@ -177,6 +180,7 @@ api_router.include_router(chat.router, dependencies=[Depends(get_current_user)])
 > 状态机：`IDLE → PLANNING → ACTING → OBSERVING → REFLECTING → DONE`，分支 `WAITING_APPROVAL / WAITING_HUMAN / FAILED`；非法流转 `4009`「状态流转非法：X → Y」（白名单见 `modules/agent/contracts.py::TRANSITIONS`）。
 > 工具契约（附录 A 逐条对齐）：`order.query`/`logistics.query` = `order:read`、`stock.query` = `stock:read`、`coupon.query` = `promo:read`、`kb.retrieve` = `kb:read`、`refund.create` = `trade:refund`（`requires_approval=true`，非幂等）。
 > 执行口径：超时 30s（`AGENT_TOOL_TIMEOUT_SECONDS`）→ 幂等工具退避重试 3 次（`AGENT_TOOL_MAX_RETRIES`，**非幂等工具恒 1 次**）→ 连续失败 3 次熔断 60s（`AGENT_TOOL_CIRCUIT_*`）。**业务拒绝（`BusinessError`，如订单不存在）不重试、不计熔断，原码上抛**；超时给 `4002`，其他依赖失败给 `4008`。全部分支（含被拒/超时/熔断）都写 `tool_calls` 审计，工具调用可回放。
+- FR-5 第三级规则机器人：`runtime.orchestrate()` 收集被拒步骤 `{tool,code,message}`，网关码（`4007/4002/4008`）即拼确定性 `rulebot_block` 服务状态行（进提示词 verified 上下文，不占引用编号）并记 `agent.rulebot` 可观测；`run()` 路径同类失败注记 notes 但任务态仍按 `FAILED` 诚实收敛。业务拒绝/权限/参数错误不触发（原分支不变）。
 - `GET /agent/tools` → `ok({total, items[{name, scope, description, params(JSON Schema), idempotent, requires_approval, approval_action, timeout_seconds, max_retries, breaker{failures, open, last_error, recent_latency_ms}}]})`。登录即可读（Agent Studio 工具页直接渲染）；注册中心为空时 `msg` 提示且不报错。**出参绝不含 handler**（可调用对象不下发）。
 - `GET /agent/tools/{name}` → `ok(同上单项)`；未注册 → `4005`「工具不存在：X，可用：A/B/C」。
 - `POST /agent/tools/{name}/invoke {args, session_id?, trace_id?}` → `ok({tool, status:"ok", scope, idempotent, requires_approval, approval_required, approval_id, args, result, attempts, latency_ms, timeout_seconds, trace_id})`。受控试调（ToolCallCard 透明展示）：Scope 不命中 → `4006` + HTTP 403；入参不全 → `1001`（附中文逐条原因）；熔断中 → `4007` + HTTP 503。敏感工具调用后 `approval_required=true` 且返回 `approval_id`，**账不动**（`msg` 明示「已提交审批，待人工确认后生效」）。
@@ -206,7 +210,7 @@ api_router.include_router(chat.router, dependencies=[Depends(get_current_user)])
 
 ## 5. SSE 流式协议（项目实际形态）
 
-后端事件名固定：`source / phase(retrieving[/inspecting]/generating/validating) / message / done`（任务类另有 `progress/complete/error`；图文轮多一帧 `inspecting`，纯文本轮无此帧）。`done` 载荷必含 `references + guard + faithfulness + trace_id + session_id + tool_calls[] + orchestration{notes[]} + handoff{hit,code,reason,applied,handoff_status}`（`handoff` 是转人工规则表判定结果，加法，老前端忽略即可），图文轮加带 `vision[] + need_human`（前端渲染检测卡 + 低置信转人工按钮），多轮加带 `context{rounds,tokens,dropped,summarized}`（前端气泡小字透出用量）。每帧必带 `id:` 行（`{stream_id}:{seq}`，`stream_id` 由 `client_msg_id` 确定性派生，重放帧 id 相同），前端同流内按 id 去重，断线重连不重复拼接。`message` 负载为模型 token 级增量（在线时首字不等全文拼完）；降级模板/重放命中时为整段按 `SSE_CHUNK_CHARS` 切片，帧形与幂等语义一致。`validating` 帧在全文到齐后发出（流式下位于末尾 `message` 之后、`done` 之前）。
+后端事件名固定：`source / phase(retrieving[/inspecting]/generating/validating) / message / done`（任务类另有 `progress/complete/error`；图文轮多一帧 `inspecting`，纯文本轮无此帧）。`done` 载荷必含 `references + guard + faithfulness + trace_id + session_id + tool_calls[] + orchestration{notes[]} + handoff{hit,code,reason,applied,handoff_status}`（`handoff` 是转人工规则表判定结果，加法，老前端忽略即可），图文轮加带 `vision[] + need_human`（前端渲染检测卡 + 低置信转人工按钮），多轮加带 `context{rounds,tokens,dropped,summarized}`（前端气泡小字透出用量）。规则机器人兜底时 `done` 加带 `rulebot=true`（未经过模型生成，文本内明示），老前端忽略即可。每帧必带 `id:` 行（`{stream_id}:{seq}`，`stream_id` 由 `client_msg_id` 确定性派生，重放帧 id 相同），前端同流内按 id 去重，断线重连不重复拼接。`message` 负载为模型 token 级增量（在线时首字不等全文拼完）；降级模板/重放命中时为整段按 `SSE_CHUNK_CHARS` 切片，帧形与幂等语义一致。`validating` 帧在全文到齐后发出（流式下位于末尾 `message` 之后、`done` 之前）。
 
 ```python
 """聊天流 endpoint（对齐 API 规范 §5）"""

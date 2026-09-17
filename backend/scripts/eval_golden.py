@@ -3,7 +3,7 @@
 链路：seed/golden_set.tsv（200 条）→ 临时库灌 29 篇种子 → 逐条走线上同款检索
       （knowledge_service.retrieve 三路召回+治理）→ 分场景算指标 → PASS/FAIL + RESULT。
 指标口径：grounded（可答题命中预期资料）；幻觉（拒答题被抬进引用）；自动解决率仅网关模式
-      统计（真答 + guard.pass + grounded）。两档判定：棘轮基线（CI 防退化）与
+      统计（真答 + guard.pass + grounded）；单会话成本仅网关模式统计（usage 定价均值 + 人工基线对照）。两档判定：棘轮基线（CI 防退化）与
       FRD 验收线（发布门禁）——离线词法检索段先如实亮出与验收线的差距，不粉饰。
 模式：默认 retrieval（纯检索，无外部依赖，CI 可跑）；--gateway 追加 chat_service.answer
       真模型作答（Ollama 不可用自动跳过生成段指标，绝不报错中断——降级红线同款）。
@@ -98,6 +98,15 @@ def _score(samples: list[dict[str, Any]]) -> dict[str, Any]:
         cell["total"] += 1
         cell["hit"] += 1 if s.get("hit") else 0
     n_ans, n_ref = len(answerable), len(refuse)
+    priced = [s for s in answerable if isinstance(s.get("cost_cents"), int)]
+    # 均价不走逐轮取整（0.5b 小模型单轮不足 1 分，取整后恒 0）：
+    # 用 tokens 均值 × 单价直算，保留 4 位小数，DB 落库仍为整数分
+    toks = [s["cost_tokens"] for s in answerable if isinstance(s.get("cost_tokens"), int)]
+    avg_cost = (
+        round(sum(toks) / len(toks) / 1000 * float(settings.LLM_COST_PER_1K_TOKENS) * 100, 4)
+        if toks
+        else None
+    )
     return {
         "total": len(samples),
         "answerable": n_ans,
@@ -105,6 +114,8 @@ def _score(samples: list[dict[str, Any]]) -> dict[str, Any]:
         "grounded": round(grounded / n_ans, 4) if n_ans else 0.0,
         "hallucination": round(hallucinated / n_ref, 4) if n_ref else 0.0,
         "auto_resolved": round(resolved / n_ans, 4) if n_ans else 0.0,
+        "avg_cost_cents": avg_cost,
+        "cost_priced": len(priced),
         "per_scene": per_scene,
         "misses": [
             {
@@ -126,9 +137,10 @@ async def _run_one(db: AsyncSession, sample: dict[str, Any], gateway: bool) -> N
 
     拒答题 hit=True 当且仅当「守卫拦下 或 检索空手」；可答题 hit=True 当「守卫放行
     且 检索命中预期资料」（守卫误拦的域内题记 got=GUARD-BLOCKED 便于归因）。
-    网关模式再走 chat_service.answer 统计 resolved（真答 + guard.pass + grounded）。
+    网关模式再走 chat_service.answer 统计 resolved（真答 + guard.pass + grounded），
+    同时记 usage tokens 与定价分（costing 单实现，人工基线对照见汇总）。
     """
-    from app.services import guard_service
+    from app.services import costing, guard_service
 
     expect = set(sample["expect_titles"])
     verdict = guard_service.check(sample["query"])
@@ -157,6 +169,12 @@ async def _run_one(db: AsyncSession, sample: dict[str, Any], gateway: bool) -> N
             guard: object = result.get("guard", {})
             passed = bool(guard.get("pass")) if isinstance(guard, dict) else False
             sample["resolved"] = passed and bool(expect & set(titles))
+            usage = result.get("usage")
+            usage_map = dict(usage) if isinstance(usage, dict) else {}
+            prompt_tok = int(usage_map.get("prompt_tokens", 0) or 0)
+            comp_tok = int(usage_map.get("completion_tokens", 0) or 0)
+            sample["cost_tokens"] = prompt_tok + comp_tok
+            sample["cost_cents"] = costing.price_llm_turn(prompt_tok, comp_tok)
         except chat_service.NoEvidenceError:
             pass  # 有据样本被拒答：不算 resolved，由 hits 段暴露
         except Exception as exc:
@@ -205,6 +223,20 @@ async def main() -> int:
             f"自动解决率={score['auto_resolved']:.3f}（≥{ACCEPT_AUTO_RESOLVE_MIN}） "
             f"网关异常样本={errs}（异常不中断，计未解决）"
         )
+        if score["avg_cost_cents"] is not None:
+            base = int(settings.HUMAN_COST_PER_TICKET_CENTS)
+            ratio_raw = score["avg_cost_cents"] / base * 100 if base > 0 else None
+            ratio_text = (
+                f"{ratio_raw:.3f}"
+                if ratio_raw is not None and ratio_raw < 0.1
+                else (f"{ratio_raw:.1f}" if ratio_raw is not None else "—")
+            )
+            print(
+                f"单会话成本≈¥{score['avg_cost_cents'] / 100:.4f}"
+                f"（{score['cost_priced']} 轮有定价，"
+                f"人工基线¥{settings.HUMAN_COST_PER_TICKET_CENTS / 100:.2f}/通的"
+                f"{ratio_text}%）"
+            )
     if score["misses"]:
         print(f"未达标样本 {len(score['misses'])} 条：")
         for m in score["misses"][:20]:

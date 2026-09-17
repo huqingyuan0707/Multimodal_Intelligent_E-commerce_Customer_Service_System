@@ -181,7 +181,13 @@ async def touch_session(db: AsyncSession, *, tenant: str, username: str, session
 
 
 async def delete_session(db: AsyncSession, *, tenant: str, username: str, session_id: str) -> None:
-    """删除会话（含消息级联遗忘；不存在 404；附件文件随 media_store TTL 清理不阻塞删除）。"""
+    """删除会话（含消息级联遗忘；不存在 404；附件文件随 media_store TTL 清理不阻塞删除）。
+
+    FR-4 会话级遗忘：消息行删完后清线程记忆快照（sess 键），跨会话近况与长期偏好是用户级，
+    走 DELETE /auth/me/memory 一键遗忘，不随单会话删除。
+    """
+    from app.services import memory_service
+
     session = await _owned_session(db, tenant=tenant, username=username, session_id=session_id)
     msgs = list(
         (await db.execute(select(Message).where(Message.session_id == session_id))).scalars()
@@ -190,6 +196,7 @@ async def delete_session(db: AsyncSession, *, tenant: str, username: str, sessio
         await db.delete(m)
     await db.delete(session)
     await db.commit()
+    await memory_service.forget_thread(tenant, username, session_id)
 
 
 async def ensure_session(

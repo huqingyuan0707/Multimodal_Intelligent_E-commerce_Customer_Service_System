@@ -19,10 +19,15 @@ from app.config import settings
 from app.core.observability import record
 from app.core.user_context import CurrentUser, access_context
 from app.modules.agent import runtime as agent_runtime
-from app.services import guard_service, knowledge_service, llm_service, rag_governance
+from app.services import (
+    guard_service,
+    knowledge_service,
+    llm_service,
+    rag_governance,
+    rulebot_service,
+)
 from app.services.chat_prompt import (
     build_messages,
-    fallback_answer,
     validate_references,
 )
 from app.services.vision_service import build_vision_context, sanitize_inspections
@@ -50,6 +55,8 @@ async def _assemble_generation(
     两条路治理口径一致（租户/密级/生效期/渠道过滤都在 knowledge_service 内）。
     vision 为已清洗的 inspections；返回 messages/refs/need_human/trace_id/vision_block/tool_calls/notes。
     无据（引用与业务事实皆空）时与 answer 原逻辑一致记 trace + 直接抛 NoEvidenceError。
+    tool_block 已并入规则状态块（网关类故障时的确定性服务状态行，LLM 可直接复述）；
+    rulebot/failures 随 asm 透给降级分支组装规则机器人回复。
     """
     trace_id = uuid.uuid4().hex[:16]
     ctx = access_context()
@@ -69,7 +76,9 @@ async def _assemble_generation(
     refs: list[dict[str, object]] = []
     tool_calls: list[dict[str, object]] = []
     notes: list[str] = []
+    failures: list[dict[str, object]] = []
     tool_block = ""
+    rulebot_block = ""
     orch = await _orchestrate(db, user=user, query=query, session_id=session_id, trace_id=trace_id)
     if orch is None:
         notes = ["编排不可用，已回落直连检索"]
@@ -81,12 +90,17 @@ async def _assemble_generation(
         tool_calls = list(orch["tool_calls"])
         notes = list(orch["notes"])
         tool_block = str(orch["tool_block"])
+        failures = [dict(item) for item in orch.get("failures") or [] if isinstance(item, dict)]
+        rulebot_block = str(orch.get("rulebot_block") or "")
     if not refs and not tool_block:
         rag_governance.trace_step(
             "rag.reject", tenant=ctx["tenant"], trace_id=trace_id, extra={"refs": 0}
         )
         record("chat", {"trace_id": trace_id, "refs": 0, "reject": True})
         raise NoEvidenceError("这个问题我暂时没查到权威政策，已为你转人工")
+    if rulebot_block:
+        # 规则状态行进 verified 上下文（与业务事实同等待遇，模型可直接复述，不占引用编号）
+        tool_block = "\n".join(part for part in (tool_block, rulebot_block) if part.strip())
     if need_human:
         rag_governance.trace_step(
             "vlm.human", tenant=ctx["tenant"], trace_id=trace_id, extra={"vision": len(vision)}
@@ -107,6 +121,10 @@ async def _assemble_generation(
         "vision_block": vision_block,
         "tool_calls": tool_calls,
         "notes": notes,
+        # 规则机器人透传：tool_block 已含规则状态块；failures/rulebot 供降级分支组装用
+        "tool_block": tool_block,
+        "failures": failures,
+        "rulebot": bool(rulebot_block),
         # 转人工规则表信号（C 步）：工具空手而归 / 敏感动作已送审 —— 落库时交给 handoff_rules 判定
         "empty": bool(orch["empty"]) if orch is not None else False,
         "approval": bool(orch["approval"]) if orch is not None else False,
@@ -161,6 +179,7 @@ def _finalize_turn(
     refs: list[dict[str, object]],
     *,
     degraded: bool,
+    rulebot: bool = False,
     model: str,
     usage: dict[str, int],
     trace_id: str,
@@ -193,6 +212,7 @@ def _finalize_turn(
         "faithfulness": faith,
         "model": model,
         "degraded": degraded,
+        "rulebot": rulebot,
         "trace_id": trace_id,
         "usage": usage,
         "vision": vision,
@@ -264,6 +284,7 @@ async def answer(
     ctx = access_context()
 
     degraded = False
+    rulebot = False
     model = "template"
     usage: dict[str, int] = {}
     # 低置信图文轮：不硬答，直接转人工话术（仍走 RAG 退换政策引用透出）
@@ -275,18 +296,32 @@ async def answer(
         )
     except llm_service.LlmUnavailableError as exc:
         degraded = True
-        text = fallback_answer(query, refs, vision_block)
+        # FR-5 第三级：网关类故障切规则机器人（已验证数据确定性组装；
+        # 组装不出任何依据时回落静态模板，与今日行为一致）
+        text, rulebot = rulebot_service.answer_or_fallback(
+            query,
+            refs=refs,
+            tool_block=str(asm.get("tool_block") or ""),
+            failures=[dict(item) for item in asm.get("failures") or [] if isinstance(item, dict)],
+            vision_block=vision_block,
+        )
         rag_governance.trace_step(
             "llm.degraded",
             tenant=ctx["tenant"],
             trace_id=trace_id,
-            extra={"reason": str(exc)[:120]},
+            extra={"reason": str(exc)[:120], "rulebot": rulebot},
         )
-        record("chat", {"trace_id": trace_id, "llm_degraded": str(exc)[:200]})
+        record(
+            "chat",
+            {"trace_id": trace_id, "llm_degraded": str(exc)[:200], "rulebot": rulebot},
+        )
+        if rulebot:
+            record("agent.rulebot", {"tenant": ctx["tenant"], "trace_id": trace_id})
     return _finalize_turn(
         text,
         refs,
         degraded=degraded,
+        rulebot=rulebot,
         model=model,
         usage=usage,
         trace_id=trace_id,

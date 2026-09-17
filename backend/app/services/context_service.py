@@ -12,12 +12,15 @@ from __future__ import annotations
 
 import json
 import re
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.core.pii import CTRL, EMAIL, IDCARD, MOBILE
 from app.db.models import Message, Session
+from app.services import memory_service
 
 # ---------------- Token 估算 ----------------
 
@@ -28,11 +31,7 @@ def estimate_tokens(text: str) -> int:
 
 
 # ---------------- PII 清洗 ----------------
-
-_MOBILE = re.compile(r"(?<!\d)1[3-9]\d{9}(?!\d)")
-_IDCARD = re.compile(r"(?<!\d)\d{17}[\dXx](?!\d)")
-_EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+")
-_CTRL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+# 正则唯一出处 app.core.pii（记忆守门共用，禁止此处再写一份）。
 
 
 def sanitize_text(text: str, limit: int = 0) -> str:
@@ -40,10 +39,10 @@ def sanitize_text(text: str, limit: int = 0) -> str:
 
     脱敏口径与售中展示一致（138****1234）；limit>0 则截断，默认不截由调用方定预算。
     """
-    cleaned = _CTRL.sub("", text or "")
-    cleaned = _MOBILE.sub(lambda m: m.group(0)[:3] + "****" + m.group(0)[-4:], cleaned)
-    cleaned = _IDCARD.sub(lambda m: m.group(0)[:6] + "********" + m.group(0)[-4:], cleaned)
-    cleaned = _EMAIL.sub("***@***", cleaned)
+    cleaned = CTRL.sub("", text or "")
+    cleaned = MOBILE.sub(lambda m: m.group(0)[:3] + "****" + m.group(0)[-4:], cleaned)
+    cleaned = IDCARD.sub(lambda m: m.group(0)[:6] + "********" + m.group(0)[-4:], cleaned)
+    cleaned = EMAIL.sub("***@***", cleaned)
     cleaned = re.sub(r"[ \t]+", " ", cleaned).strip()
     width = limit if limit and limit > 0 else settings.SESSION_MSG_CHARS
     return cleaned[:width]
@@ -155,39 +154,105 @@ async def refresh_summary(db: AsyncSession, *, session: Session, window: int = 0
 
 
 async def assemble(db: AsyncSession, *, session: Session) -> tuple[str, dict[str, int], str]:
-    """上下文装配（run_text_turn 唯一入口）：窗口 → 摘要 → 块（摘要刷新随事务提交）。
+    """上下文装配（run_text_turn 唯一入口）：快照命中直返 → 窗口 → 摘要 → 块（摘要刷新随事务提交）。
 
-    返回 (history_block, {rounds, tokens, dropped}, summary)；窗口满（行数顶满
-    ROUNDS*2+2）才触发 refresh_summary 查全量，短会话省一次查询。
+    块顺序：【上文摘要】→【长期偏好】→【用户近况】→【历史对话】；记忆块钉死不参与丢轮
+    （预算只裁窗口行，记忆是跨轮高信号）；stats 加 memory_recent/memory_prefs/snapshot
+    计数透给 done.context（加法，向后兼容）。
+    返回 (history_block, {rounds, tokens, dropped, memory_recent, memory_prefs, snapshot}, summary)。
     """
+    updated = session.updated_at.isoformat() if session.updated_at else ""
+    snap = await memory_service.snapshot_read(session.tenant, session.username, session.id, updated)
+    if snap is not None:
+        stats = dict(snap["stats"])
+        stats["snapshot"] = 1
+        return snap["block"], stats, snap["summary"]
     window = await load_window(db, session_id=session.id)
     cap = settings.SESSION_HISTORY_ROUNDS * 2 + 2
     summary = session.summary or ""
     if len(window) >= cap:
         summary = await refresh_summary(db, session=session) or summary
         window = window[-settings.SESSION_HISTORY_ROUNDS * 2 :]
-    block, stats = build_history_block(window, summary)
+    prefs = await memory_service.recall_prefs(db, tenant=session.tenant, username=session.username)
+    recent = await memory_service.recall_short(session.tenant, session.username)
+    extra = tuple(
+        b
+        for b in (
+            memory_service.render_prefs(prefs),
+            memory_service.render_recent(recent),
+        )
+        if b
+    )
+    block, stats = build_history_block(window, summary, extra_blocks=extra)
+    stats["memory_recent"] = len(recent)
+    stats["memory_prefs"] = len(prefs)
+    stats["snapshot"] = 0
+    await memory_service.snapshot_write(
+        session.tenant,
+        session.username,
+        session.id,
+        updated_at=updated,
+        block=block,
+        stats={k: int(v) for k, v in stats.items() if k != "snapshot"},
+        summary=summary,
+    )
     return block, stats, summary
 
 
 def build_history_block(
-    window: list[Message], summary: str = "", budget: int = 0
+    window: list[Message],
+    summary: str = "",
+    budget: int = 0,
+    extra_blocks: tuple[str, ...] = (),
 ) -> tuple[str, dict[str, int]]:
-    """拼历史块（纯函数）：【上文摘要】+【历史对话】近 N 轮，超预算从旧往新丢轮。
+    """拼历史块（纯函数）：【上文摘要】+ 记忆块（偏好/近况，钉死）+【历史对话】近 N 轮。
 
-    返回 (block, {rounds, tokens, dropped})；空窗口返回 ("", {0,0,0})。
+    超预算从旧往新丢窗口行，记忆块不参与裁剪；空窗口且无块返回 ("", {0,0,0})。
+    返回 (block, {rounds, tokens, dropped})。
     """
     cap = budget if budget and budget > 0 else settings.SESSION_TOKEN_BUDGET
     summary_part = f"【上文摘要】\n{(summary or '').strip()}\n" if (summary or "").strip() else ""
-    summary_tokens = estimate_tokens(summary_part)
+    pinned = "".join(f"{b.rstrip()}\n" for b in extra_blocks if b and b.strip())
+    pinned_tokens = estimate_tokens(summary_part + pinned)
     lines = [message_line(r) for r in window]
     dropped = 0
-    while lines and summary_tokens + estimate_tokens("\n".join(lines)) > cap:
+    while lines and pinned_tokens + estimate_tokens("\n".join(lines)) > cap:
         lines.pop(0)
         dropped += 1
-    if not lines and not summary_part:
+    if not lines and not summary_part and not pinned:
         return "", {"rounds": 0, "tokens": 0, "dropped": 0}
     body = "\n".join(lines)
-    block = f"{summary_part}【历史对话】\n{body}" if body else summary_part.rstrip("\n")
+    head = f"{summary_part}{pinned}".rstrip("\n")
+    block = f"{head}\n【历史对话】\n{body}" if body else head
     rounds = (len(lines) + 1) // 2
     return block, {"rounds": rounds, "tokens": estimate_tokens(block), "dropped": dropped}
+
+
+async def describe(db: AsyncSession, *, session: Session) -> dict[str, Any]:
+    """上下文视图口径（GET context / workbench trace 同源：窗口+摘要+记忆块，只读不写快照）。
+
+    与 assemble 同一 composer（recall + build_history_block），坐席所见即 LLM 所算；
+    快照是纯性能缓存，不影响视图内容。
+    """
+    window = await load_window(db, session_id=session.id)
+    prefs = await memory_service.recall_prefs(db, tenant=session.tenant, username=session.username)
+    recent = await memory_service.recall_short(session.tenant, session.username)
+    extra = tuple(
+        b
+        for b in (
+            memory_service.render_prefs(prefs),
+            memory_service.render_recent(recent),
+        )
+        if b
+    )
+    _block, stats = build_history_block(window, session.summary or "", extra_blocks=extra)
+    return {
+        "summary": session.summary or "",
+        "rounds": stats["rounds"],
+        "tokens": stats["tokens"],
+        "dropped": stats["dropped"],
+        "memory_recent": len(recent),
+        "memory_prefs": len(prefs),
+        "budget": settings.SESSION_TOKEN_BUDGET,
+        "window_rounds": settings.SESSION_HISTORY_ROUNDS,
+    }

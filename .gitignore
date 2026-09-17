@@ -57,3 +57,6 @@ pencil-shadcn.pen
 
 # ---- 根目录一次性探针脚本（用完即删，禁止入库）----
 /_*.py
+
+# Pytest temp files
+.pytest-tmp*/

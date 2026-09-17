@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     APP_NAME: str = "multimodal-cs"
     # 项目版本唯一口径三源之一（另两源：执行步骤.md 头部版本 / frontend/package.json），
     # 三处必须一致（门禁 scripts/check_version.py），发版 tag 以此为准（release.yml 门禁）。
-    APP_VERSION: str = "0.3.17"
+    APP_VERSION: str = "0.3.19"
     ENV: str = "dev"
     DATABASE_URL: str = "sqlite+aiosqlite:///./dev.db"
     REDIS_URL: str = "redis://localhost:6379/0"
@@ -90,6 +90,9 @@ class Settings(BaseSettings):
     # 引用统计扫描上限（GET /documents/stats 遍历 messages.citations）
     RAG_STATS_SCAN_LIMIT: int = 5000
     MINING_BAD_VOTE: str = "down"  # 差评口径（进待补知识候选）
+    # 高频问聚类：归一化问法 bigram-Dice 相似度≥阈值归一簇；候选池上限防 O(n²) 爆炸
+    MINING_CLUSTER_SIM: float = 0.5
+    MINING_CLUSTER_POOL: int = 200
     # 对话限流（错误码 2002 / 数据模型 §4 rl: 键）：每租户+账号每分钟窗口计数，0=关闭；
     # 计数走 core/cache.py 适配层（Redis 可用走 Redis，不可用进程内降级）。
     CHAT_RATE_LIMIT_PER_MIN: int = 30
@@ -109,6 +112,8 @@ class Settings(BaseSettings):
         "RERANK_TITLE_BONUS",
         "RAG_CACHE_TTL",
         "RAG_STATS_SCAN_LIMIT",
+        "MEMORY_SHORT_TTL",
+        "MINING_CLUSTER_SIM",
         "LLM_REF_CHARS",
         "LLM_TEMPERATURE",
         "SSE_CHUNK_CHARS",
@@ -131,6 +136,7 @@ class Settings(BaseSettings):
         "VLM_COST_PER_IMAGE",
         "ASR_COST_PER_SEC",
         "TTS_COST_PER_CHAR",
+        "HUMAN_COST_PER_TICKET_CENTS",
     )
 
     # 大模型：本地 Ollama（OpenAI 兼容协议 /v1），见 ADR-0001。业务代码只调 llm_service，禁止写地址/模型名。
@@ -156,6 +162,10 @@ class Settings(BaseSettings):
     SESSION_TOKEN_BUDGET: int = 8000  # 历史块 Token 预算上限（估算口径见 context_service）
     SESSION_SUMMARY_CHARS: int = 600  # 会话摘要截断长度（sessions.summary）
     SESSION_MSG_CHARS: int = 800  # 单条历史消息进上下文的截断长度
+
+    # 跨会话记忆 FR-4（执行步骤记忆收官）：短期 Redis 24h 滑动 + 长期 PG 偏好（需显式授权）。
+    MEMORY_SHORT_TTL: int = 86400  # 短期记忆/线程快照 TTL（秒），每轮回写即滑动续期
+    MEMORY_LONG_ENABLED: bool = True  # 长期偏好总开关（False 则只记短期不落 PG）
 
     # 多模态 FR-1（执行步骤 A）：图片走对象存储布局，VLM/ASR/TTS 沿 llm_service 单出口，
     # 业务只读 Settings，禁止散落硬编码模型名/阈值/URL（数据模型 §5 对象存储布局）。
@@ -242,7 +252,7 @@ class Settings(BaseSettings):
     # 词表可热更；误拦率优先于拦全率——拿不准一律放行给 RAG 治理兜底。
     GUARD_ENABLED: bool = True  # false=整体旁路（回滚位，同 AGENT_CHAT_ORCHESTRATE）
     # 成本单价（元/单位），用于 cost_cents 折算（_HOT_FIELDS 可热更，生产按真实报价填）
-    # LLM: 元/万 tokens（prompt+completion 分开算更精准，暂按总量均价）
+    # LLM: 元/千 tokens（prompt+completion 分开算更精准，暂按总量均价）
     LLM_COST_PER_1K_TOKENS: float = 0.002
     # VLM: 元/张图
     VLM_COST_PER_IMAGE: float = 0.005
@@ -250,6 +260,9 @@ class Settings(BaseSettings):
     ASR_COST_PER_SEC: float = 0.001
     # TTS: 元/字符
     TTS_COST_PER_CHAR: float = 0.0001
+    # 人工单通成本基线（分/通，默认 ¥15）：单会话成本对照的分母，生产按财务口径覆盖；
+    # 归因误差度量 = 估算单占比（pricing_source=estimate 的费用占比，越低越准）
+    HUMAN_COST_PER_TICKET_CENTS: int = 1500
     # 域外黑名单：确定与电商客服无关的闲聊/套话/越权话题词，命中即拒（先于白名单；
     # 只收无歧义词，宁可少拦不误伤——域内无据由检索阈值负责拒答）
     GUARD_OFF_DOMAIN_KEYWORDS: list[str] = [

@@ -119,6 +119,44 @@ async def set_json(key: str, value: Any, ttl: int) -> None:
     _mem_set(key, value, ttl)
 
 
+async def delete(key: str) -> None:
+    """删键（记忆遗忘用；Redis DEL + 内存弹出，失败静默，绝不打断删除主流程）。"""
+    global _off
+    r = await _get_redis()
+    if r is not None:
+        try:
+            await r.delete(key)
+            return
+        except Exception:
+            _off = True
+    with _lock:
+        _mem.pop(key, None)
+
+
+async def scan_delete(prefix: str, limit: int = 500) -> int:
+    """按前缀清扫（用户级遗忘扫线程快照；Redis SCAN 分批，内存遍历；返回删除数）。"""
+    global _off
+    removed = 0
+    r = await _get_redis()
+    if r is not None:
+        try:
+            async for key in r.scan_iter(match=f"{prefix}*", count=100):
+                await r.delete(key)
+                removed += 1
+                if removed >= limit:
+                    break
+            return removed
+        except Exception:
+            _off = True
+    with _lock:
+        for key in [k for k in _mem if k.startswith(prefix)]:
+            _mem.pop(key, None)
+            removed += 1
+            if removed >= limit:
+                break
+    return removed
+
+
 def reset() -> None:
     """测试夹具：清降级粘性与内存窗口（不触碰真 Redis）。"""
     global _off, _connected

@@ -15,7 +15,6 @@ from typing import Any
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
 from app.core.exceptions import BusinessError, ErrorCode
 from app.core.observability import snapshot as obs_snapshot
 from app.core.user_context import CurrentUser
@@ -312,8 +311,8 @@ async def trace_view(
 ) -> dict[str, Any]:
     """坐席 Trace 详情（会话行 + 最新消息含引用/trace + 上下文用量，同源可验）。
 
-    口径与买家侧 get_session_detail/context 完全同源（同 message_to_dict、
-    同 load_window/build_history_block），坐席所见即买家所得。
+    口径与买家侧 get_session_detail/context 完全同源（context_service.describe），
+    坐席所见即买家所得。
     """
     row = await _tenant_session(db, tenant=tenant, session_id=session_id)
     msgs = list(
@@ -326,17 +325,8 @@ async def trace_view(
             )
         ).scalars()
     )
-    window = await context_service.load_window(db, session_id=row.id)
-    _block, stats = context_service.build_history_block(window, row.summary or "")
     return {
         "session": handoff_to_dict(row, await _message_count(db, row.id)),
         "messages": [session_service.message_to_dict(m) for m in reversed(msgs)],
-        "context": {
-            "summary": row.summary or "",
-            "rounds": stats["rounds"],
-            "tokens": stats["tokens"],
-            "dropped": stats["dropped"],
-            "budget": settings.SESSION_TOKEN_BUDGET,
-            "window_rounds": settings.SESSION_HISTORY_ROUNDS,
-        },
+        "context": await context_service.describe(db, session=row),
     }

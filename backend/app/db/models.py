@@ -25,6 +25,7 @@ from app.db.models_foundation import (
     Message,
     Task,
     ToolCall,
+    UserPreference,
 )
 from app.db.models_quality import SessionScore
 from app.db.models_studio import EvalRun, PromptVersion
@@ -45,6 +46,7 @@ __all__ = [
     "Task",
     "ToolCall",
     "User",
+    "UserPreference",
 ]
 
 

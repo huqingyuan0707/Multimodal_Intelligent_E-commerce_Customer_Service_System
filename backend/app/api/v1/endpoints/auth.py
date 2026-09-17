@@ -91,3 +91,18 @@ async def switch(
         {"token": auth_service.to_token(target), "user": _user_payload(target)},
         f"已切换到用户{target.username}",
     )
+
+
+@router.delete("/me/memory")
+async def forget_my_memory(
+    db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
+) -> object:
+    """一键遗忘我的记忆（FR-4 GDPR/个保：长期偏好按户清 + 跨会话近况 + 线程快照全扫，审计留痕）。
+
+    只清记忆层（本人数据，无需额外权限）；会话消息原文不动，会话级遗忘走 DELETE sessions。
+    """
+    from app.services import memory_service
+
+    data = await memory_service.forget_user(db, tenant=user.tenant, username=user.username)
+    return ok(data, "已清除我的跨会话记忆与长期偏好")

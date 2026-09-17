@@ -13,7 +13,6 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
 from app.core.rbac import get_current_user
 from app.core.responses import ok
 from app.core.user_context import CurrentUser
@@ -116,26 +115,14 @@ async def get_session_context(
 ) -> object:
     """上下文视图（三层之 Context：摘要 + 窗口轮数 + Token 估算 + 预算，供坐席 Trace 调试）。
 
-    口径与 run_text_turn 装配完全同源（同 load_window/build_history_block），所见即所算。
+    口径与 run_text_turn 装配完全同源（context_service.describe），所见即所算。
     """
     from app.services import context_service
 
     session = await session_service._owned_session(
         db, tenant=user.tenant, username=user.username, session_id=session_id
     )
-    window = await context_service.load_window(db, session_id=session.id)
-    _block, stats = context_service.build_history_block(window, session.summary or "")
-    return ok(
-        {
-            "summary": session.summary or "",
-            "rounds": stats["rounds"],
-            "tokens": stats["tokens"],
-            "dropped": stats["dropped"],
-            "budget": settings.SESSION_TOKEN_BUDGET,
-            "window_rounds": settings.SESSION_HISTORY_ROUNDS,
-        },
-        "获取成功",
-    )
+    return ok(await context_service.describe(db, session=session), "获取成功")
 
 
 @router.delete("/{session_id}")

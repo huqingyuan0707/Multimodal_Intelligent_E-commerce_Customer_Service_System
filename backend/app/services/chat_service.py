@@ -145,6 +145,7 @@ async def run_text_turn(
         notes=list(orch_map.get("notes") or []) if isinstance(orch_map.get("notes"), list) else [],
         empty=bool(orch_map.get("empty")),
         approval=bool(orch_map.get("approval")),
+        rulebot=bool(result.get("rulebot", False)),
     )
 
 
@@ -220,6 +221,7 @@ async def stream_text_turn(
     ctx = access_context()
     started = time.perf_counter()
     degraded = False
+    rulebot = False
     model = settings.LLM_MODEL
     usage: dict[str, int] = {}
     buf: list[str] = []
@@ -237,7 +239,20 @@ async def stream_text_turn(
         if buf:
             text = "".join(buf).strip() + "\n（后续内容生成中断，可重试或转人工继续跟进）"
         else:
-            text = fallback_answer(query, refs, vision_block)
+            # FR-5 第三级：无增量即按非流式同口径切规则机器人（组装不出回落静态模板）
+            from app.services import rulebot_service
+
+            text, rulebot = rulebot_service.answer_or_fallback(
+                query,
+                refs=refs,
+                tool_block=str(asm.get("tool_block") or ""),
+                failures=[
+                    dict(item) for item in asm.get("failures") or [] if isinstance(item, dict)
+                ],
+                vision_block=vision_block,
+            )
+            if rulebot:
+                record("agent.rulebot", {"tenant": ctx["tenant"], "trace_id": trace_id})
             yield text
         degraded = True
         model = "template"
@@ -245,13 +260,17 @@ async def stream_text_turn(
             "llm.degraded",
             tenant=ctx["tenant"],
             trace_id=trace_id,
-            extra={"reason": str(exc)[:120]},
+            extra={"reason": str(exc)[:120], "rulebot": rulebot},
         )
-        record("chat", {"trace_id": trace_id, "llm_degraded": str(exc)[:200]})
+        record(
+            "chat",
+            {"trace_id": trace_id, "llm_degraded": str(exc)[:200], "rulebot": rulebot},
+        )
     checked = _finalize_turn(
         text,
         refs,
         degraded=degraded,
+        rulebot=rulebot,
         model=model,
         usage=usage,
         trace_id=trace_id,
@@ -285,5 +304,6 @@ async def stream_text_turn(
         need_human=bool(checked.get("need_human", False)),
         tool_calls=list(asm["tool_calls"]),
         notes=list(asm["notes"]),
+        rulebot=bool(checked.get("rulebot", False)),
     )
     yield result

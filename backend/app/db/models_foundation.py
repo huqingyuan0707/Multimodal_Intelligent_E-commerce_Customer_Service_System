@@ -154,6 +154,9 @@ class CostRecord(Base):
     prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
     completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
     cost_cents: Mapped[int] = mapped_column(Integer, default=0)
+    # 定价来源：usage=上游 tokens 实数，estimate=estimate_tokens 估算；
+    # 归因误差度量 = estimate 费用占比（越低越准），看板成本卡同口径
+    pricing_source: Mapped[str] = mapped_column(String(16), default="estimate")
     created_at: Mapped[datetime] = mapped_column(default=_now)
 
 
@@ -172,3 +175,26 @@ class Feedback(Base):
     vote: Mapped[str] = mapped_column(String(16), default="down")
     comment: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(default=_now)
+
+
+class UserPreference(Base):
+    """长期偏好（FR-4：用户级键值记忆，需显式"记住"授权才写，PII 永不进）。
+
+    链路：memory_service.record_turn（显式信号）→ upsert → recall_prefs 拼【长期偏好】进 LLM；
+         forget_user 按户清（GDPR 一键遗忘）。
+    口径：(tenant, username, key) 唯一；value 短文本（≤64 字）；source=explicit（写死，防未来杂源）。
+    """
+
+    __tablename__ = "user_preferences"
+    __table_args__ = (
+        UniqueConstraint("tenant", "username", "key", name="uq_prefs_tenant_user_key"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uid)
+    tenant: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    username: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    key: Mapped[str] = mapped_column(String(32), nullable=False)
+    value: Mapped[str] = mapped_column(String(64), nullable=False)
+    source: Mapped[str] = mapped_column(String(16), default="explicit")
+    created_at: Mapped[datetime] = mapped_column(default=_now)
+    updated_at: Mapped[datetime] = mapped_column(default=_now, onupdate=_now)

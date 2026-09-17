@@ -1,7 +1,7 @@
-"""Mining 闭环服务（第 13 步，对齐 RAG 规范 §4/§5 + 数据模型 §2）
+"""Mining 闭环服务（第 13 步，对齐 RAG 规范 §4/§5 + 数据模型 §2 + FR-13.5）
 
-链路：问答落库 → feedback（差评/拒答/低忠实度）→ candidates 聚类
-      → 运营补知识 → reindex → 回归评测。
+链路：问答落库 → feedback（差评/拒答/低忠实度）→ candidates 候选池
+      → cluster_candidates 高频聚类 → 运营补知识 → reindex → 回归评测。
 红线：全部按 tenant 隔离；审计只追加；候选只读不自动改知识（运营确认后才入库）。
 """
 
@@ -12,6 +12,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.db.models import Feedback, Message
 from app.services import rag_governance
 
@@ -142,3 +143,67 @@ async def count_feedbacks(db: AsyncSession, *, tenant: str) -> int:
         )
     ).scalar_one()
     return int(total)
+
+
+# ---------------- 高频问聚类 ----------------
+
+
+def normalize_query(text: str) -> str:
+    """问法归一（纯函数）：去空白标点，ASCII 小写，中文原样保留，供聚类与去重。"""
+    return "".join(c.lower() if c.isascii() else c for c in (text or "") if c.isalnum())
+
+
+def query_sim(left: str, right: str) -> float:
+    """归一化问法 bigram-Dice 相似度 0-1（纯函数可单测；双空=1，涉空=0）。"""
+    if not left and not right:
+        return 1.0
+    if not left or not right:
+        return 0.0
+
+    def _grams(text: str) -> set[str]:
+        chars = list(text)
+        if len(chars) < 2:
+            return set(chars)
+        return {chars[i] + chars[i + 1] for i in range(len(chars) - 1)}
+
+    lset, rset = _grams(left), _grams(right)
+    if not lset and not rset:
+        return 1.0
+    if not lset or not rset:
+        return 0.0
+    return 2.0 * len(lset & rset) / (len(lset) + len(rset))
+
+
+def cluster_candidates(
+    items: list[dict[str, Any]], threshold: float | None = None
+) -> list[dict[str, Any]]:
+    """高频问聚类（纯函数）：候选按归一化问法贪心成簇，按簇大小倒序。
+
+    簇形 {key(簇内最高频原问法), count, members[]}；count==1 的单例簇保留不丢；
+    相似度阈值走 Settings.MINING_CLUSTER_SIM（热更），候选池上限见端点。
+    """
+    sim_floor = threshold if threshold is not None else settings.MINING_CLUSTER_SIM
+    clusters: list[dict[str, Any]] = []
+    for item in items:
+        norm = normalize_query(str(item.get("query") or ""))
+        best: dict[str, Any] | None = None
+        for cluster in clusters:
+            if query_sim(norm, str(cluster["_norm"])) >= sim_floor:
+                best = cluster
+                break
+        if best is None:
+            clusters.append({"key": str(item.get("query") or ""), "_norm": norm, "members": [item]})
+            continue
+        best["members"].append(item)
+        freq: dict[str, int] = {}
+        for member in best["members"]:
+            key = normalize_query(str(member.get("query") or ""))
+            freq[key] = freq.get(key, 0) + 1
+        top_norm = max(freq, key=lambda k: (freq[k], len(k)))
+        best["_norm"] = top_norm
+        for member in best["members"]:
+            if normalize_query(str(member.get("query") or "")) == top_norm:
+                best["key"] = str(member.get("query") or "")
+                break
+    ordered = sorted(clusters, key=lambda c: (-len(c["members"]), str(c["key"])))
+    return [{"key": c["key"], "count": len(c["members"]), "members": c["members"]} for c in ordered]

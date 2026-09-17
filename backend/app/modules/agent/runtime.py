@@ -31,7 +31,7 @@ from app.modules.agent.contracts import (
     state_label,
     validate_args,
 )
-from app.services import approval_service, handoff_service, task_service
+from app.services import approval_service, handoff_service, rulebot_service, task_service
 
 RUN_TASK_TYPE = "agent.run"
 # 规划规则（规则版先行：可解释、可测、无模型依赖；命中即用第一个）
@@ -320,6 +320,20 @@ async def _drive(
             )
         except BusinessError as exc:
             checkpoint["error"] = {"code": int(exc.code), "message": exc.msg}
+            if rulebot_service.is_gateway_failure(exc.code):
+                # FR-5 第三级：run 路径任务态仍按 FAILED 诚实收敛（任务确实没做成），
+                # 但 notes 留下规则机器人兜底说明 + 可观测，调用方可据此组织降级回复。
+                failed_tool = str(checkpoint["steps"][index].get("tool", ""))
+                checkpoint["notes"].append(f"{failed_tool} 网关类故障：已切规则机器人兜底")
+                record(
+                    "agent.rulebot",
+                    {
+                        "trace_id": trace_id,
+                        "task_id": checkpoint["task_id"],
+                        "tool": failed_tool,
+                        "code": int(exc.code),
+                    },
+                )
             await _settle(db, user=user, checkpoint=checkpoint, state=AgentState.FAILED)
             if exc.code == ErrorCode.TOOL_SCOPE_DENIED:
                 raise  # 权限问题必须显式暴露（403），但任务态已落 FAILED，不留假 running
@@ -400,9 +414,12 @@ async def orchestrate(
     - 工具业务拒绝（订单不存在/无权调用）不外抛：转成一条 rejected 结果交生成段据实说明，
       整轮仍走既有降级链路（对齐「外部服务不可用绝不返回 500」）。
 
-    返回 {"refs","tool_calls","notes","tool_block","approval","empty","trace_id"}：
+    返回 {"refs","tool_calls","notes","tool_block","approval","empty","trace_id",
+    "failures","rulebot","rulebot_block"}：
     refs 直接喂 build_messages/validate_references；tool_calls 直接透给 done（前端 ToolCallCard）；
-    tool_block 是拼给 LLM 的业务事实块。
+    tool_block 是拼给 LLM 的业务事实块；failures 记录被拒步骤的工具/码/话术（审计可查）；
+    rulebot 为 True 表示出现网关类故障（熔断 4007/超时 4002/上游失败 4008），
+    rulebot_block 为确定性服务状态行（拼进提示词 verified 上下文，模型不可用时规则机器人复用组装）。
     **返回 None = 编排内核未装载**（bootstrap 失败 / 单测未注册连接器）：由调用方回落直连检索，
     绝不把「工具没装上」放大成「无据拒答」。
     """
@@ -413,6 +430,7 @@ async def orchestrate(
     notes = list(planned.get("notes") or [])
     refs: list[dict[str, Any]] = []
     tool_calls: list[dict[str, Any]] = []
+    failures: list[dict[str, Any]] = []
     facts: list[str] = []
     approval: dict[str, Any] = {}
     empty = False
@@ -432,9 +450,12 @@ async def orchestrate(
             outcome = await executor.call(ctx, name=step.tool, args=args, trace_id=trace)
         except BusinessError as exc:
             code = int(exc.code)
+            failures.append({"tool": step.tool, "code": code, "message": str(exc)})
             if code == int(ErrorCode.TOOL_SCOPE_DENIED):
                 notes.append(f"当前身份无权调用 {step.tool}，已回落知识库检索")
                 continue
+            if rulebot_service.is_gateway_failure(code):
+                notes.append(f"{step.tool} 网关类故障，已切规则机器人兜底")
             tool_calls.append(
                 {
                     "tool": step.tool,
@@ -469,6 +490,8 @@ async def orchestrate(
         fact = summarize(step.tool, args, result)
         if fact:
             facts.append(fact)
+    rulebot_block = rulebot_service.status_block(failures)
+    rulebot = bool(rulebot_block)
     record(
         "agent.orchestrate",
         {
@@ -477,6 +500,7 @@ async def orchestrate(
             "refs": len(refs),
             "approval": bool(approval),
             "empty": empty,
+            "rulebot": rulebot,
         },
     )
     return {
@@ -487,6 +511,9 @@ async def orchestrate(
         "approval": approval,
         "empty": empty,
         "trace_id": trace,
+        "failures": failures,
+        "rulebot": rulebot,
+        "rulebot_block": rulebot_block,
     }
 
 

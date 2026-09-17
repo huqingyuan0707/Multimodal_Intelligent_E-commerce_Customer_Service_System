@@ -156,6 +156,8 @@ async def chat_stream(
                 ),
                 "tool_calls": result.get("tool_calls", []),
                 "orchestration": result.get("orchestration", {"notes": []}),
+                # FR-5 第三级规则机器人：降级回复是否由确定性规则组装（未经过模型生成）
+                "rulebot": result.get("rulebot", False),
                 # 转人工规则表判定（C 步）：帧形不随分支变化（重放/降级同样带此字段）
                 "handoff": result.get("handoff")
                 or handoff_service.blank_handoff(session_id=str(result.get("session_id") or "")),

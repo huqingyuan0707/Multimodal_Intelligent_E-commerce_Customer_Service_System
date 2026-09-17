@@ -1,6 +1,6 @@
-"""Mining 闭环端点（第 13 步，对齐 RAG 规范 §4/§5 + API 规范 §4.4）
+"""Mining 闭环端点（第 13 步，对齐 RAG 规范 §4/§5 + API 规范 §4.4 + FR-13.5）
 
-链路：POST /mining/feedback（差评落库+审计）→ GET /mining/candidates（待补知识）
+链路：POST /mining/feedback（差评落库+审计）→ GET /mining/candidates（高频聚类簇）
       → 运营补知识 → POST /documents/reindex → 回归评测。
 红线：全部按 tenant 隔离；message 跨租户 404。
 """
@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.core.rbac import get_current_user
 from app.core.responses import ok
 from app.core.user_context import CurrentUser
@@ -54,7 +55,15 @@ async def list_candidates(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """待补知识候选（差评 + 无引用拒答，租户隔离倒序）。"""
-    items = await mining_service.list_candidates(db, tenant=user.tenant)
-    total = await mining_service.count_feedbacks(db, tenant=user.tenant)
-    return ok({"items": items, "total": total}, "获取成功")
+    """待补知识候选（FR-13.5）：差评 + 无引用拒答自动进池，按问法高频聚类成簇返回。
+
+    簇形 {key(簇内最高频原问法), count, members[]} 按 count 倒序；单例簇保留不丢。
+    候选池上限走 Settings.MINING_CLUSTER_POOL，相似度阈值走 MINING_CLUSTER_SIM。
+    """
+    pool = max(int(settings.MINING_CLUSTER_POOL or 200), 1)
+    items = await mining_service.list_candidates(db, tenant=user.tenant, limit=pool)
+    clusters = mining_service.cluster_candidates(items)
+    return ok(
+        {"clusters": clusters, "total_clusters": len(clusters), "total_items": len(items)},
+        "获取成功",
+    )

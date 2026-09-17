@@ -22,7 +22,7 @@ from app.core.exceptions import BusinessError, ErrorCode
 from app.db import session as session_mod
 from app.db.models import KbDoc, Message
 from app.db.session import get_engine, init_models
-from app.services import document_service, knowledge_service, rerank_service
+from app.services import document_service, knowledge_service, mining_service, rerank_service
 
 TENANT = "kb-complete-tenant"
 
@@ -228,3 +228,61 @@ async def test_doc_stats_cited_and_idle(db: AsyncSession) -> None:
     assert topics["退换售后"]["cited"] >= 1
     idle_ids = [r["doc_id"] for r in stats["idle_review"]]
     assert cold.id in idle_ids and hot.id not in idle_ids
+
+
+def _cand(query: str, mid: str = "m1") -> dict[str, object]:
+    return {"message_id": mid, "query": query, "vote": "down", "comment": ""}
+
+
+def test_cluster_candidates_groups_and_ranks() -> None:
+    """高频聚类：近似问法同簇并按 count 倒序；无关单列；空池空簇（纯函数）。"""
+    items = [
+        _cand("七天无理由退货吗", "m1"),
+        _cand("七天无理由可以退货吗？", "m2"),
+        _cand("七天无理由退货吗", "m3"),
+        _cand("今天天气怎么样", "m4"),
+    ]
+    clusters = mining_service.cluster_candidates(items)
+    assert len(clusters) == 2
+    assert clusters[0]["count"] == 3 and clusters[1]["count"] == 1
+    assert clusters[0]["key"] == "七天无理由退货吗"
+    assert {m["message_id"] for m in clusters[0]["members"]} == {"m1", "m2", "m3"}
+    assert mining_service.cluster_candidates([]) == []
+    assert mining_service.normalize_query("  七天，无理由！退货？ ") == "七天无理由退货"
+    assert mining_service.query_sim("", "") == 1.0
+    assert mining_service.query_sim("退货", "") == 0.0
+
+
+def test_cluster_threshold_tunable() -> None:
+    """相似度阈值可调：阈值 1.0 时仅完全相同归一问法同簇。"""
+    items = [_cand("七天无理由退货吗", "m1"), _cand("七天无理由可以退货吗？", "m2")]
+    assert len(mining_service.cluster_candidates(items, threshold=1.0)) == 2
+    assert len(mining_service.cluster_candidates(items, threshold=0.0)) == 1
+
+
+async def test_candidates_endpoint_shape(db: AsyncSession, monkeypatch: pytest.MonkeyPatch) -> None:
+    """端点形状：差评 + 无引用拒答自动进池并聚类（服务级直测端点函数）。"""
+    from app.api.v1.endpoints import mining as mining_endpoints
+    from app.core.user_context import CurrentUser
+
+    async def _agent_msg(content: str, citations: str, sid: str) -> str:
+        row = Message(
+            session_id=sid, tenant=TENANT, role="agent", content=content, citations=citations
+        )
+        db.add(row)
+        await db.flush()
+        return row.id
+
+    m1 = await _agent_msg("七天无理由退货政策全文答复一", "[]", "s1")
+    m2 = await _agent_msg("七天无理由退货政策全文答复二", "[]", "s2")
+    m3 = await _agent_msg("今日天气晴朗适合出行踏青", "[]", "s3")
+    await mining_service.submit_feedback(db, tenant=TENANT, actor="ops", message_id=m1)
+    await mining_service.submit_feedback(db, tenant=TENANT, actor="ops", message_id=m2)
+    await mining_service.submit_feedback(db, tenant=TENANT, actor="ops", message_id=m3)
+    user = CurrentUser(username="ops", tenant=TENANT, roles=["ops"])
+    resp = await mining_endpoints.list_candidates(db, user)
+    assert set(resp) == {"code", "msg", "data"} and resp["code"] == 0
+    data = resp["data"]
+    assert data["total_items"] == 3 and data["total_clusters"] == 2
+    assert data["clusters"][0]["count"] == 2
+    assert sum(c["count"] for c in data["clusters"]) == 3
