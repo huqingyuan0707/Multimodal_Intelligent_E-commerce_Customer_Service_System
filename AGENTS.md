@@ -14,6 +14,7 @@
 | RAG 链路                      | `RAG知识库构建检索治理规范.md`（双路召回→RRF→重排→治理过滤→拒答 2001）                                |
 | 测试/门禁                     | `测试评估验收方案.md` §2-§4、§7 CI 示例                                                               |
 | 任务优先级/剩余工序           | `执行步骤.md`（现状盘点 + 剩余工序 A-F）                                                              |
+| 多 Agent 架构/落地验收         | `多模态智能电商客服系统需求文档-FRDv2.md` §11（五维约束映射 + 架构图 + 角色边界表 + 时序图 + 里程碑；拆分版 `多Agent系统架构与落地需求.md` 保留备用）                          |
 | 后端风格                      | `skills/backend-code-style/SKILL.md`                                                                  |
 | 前端风格                      | `skills/frontend-code-style/SKILL.md`                                                                 |
 | 架构健康/防屎山（提交前自检） | `skills/anti-shit-code/SKILL.md`（含硬检查脚本 `skills/anti-shit-code/scripts/check_arch.py`）  |

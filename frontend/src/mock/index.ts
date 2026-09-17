@@ -87,7 +87,9 @@ export const mockGoods: GoodsItem[] = [
     status_label: '在售',
     images: [],
     attrs: {},
+    sales: 128,
     created_at: '2026-09-01 10:00:00',
+    kb_doc: { doc_id: 'kb-goods-1', title: '商品知识｜HOODIE-25AW 秋季连帽卫衣', version: 3 },
     skus: [
       {
         id: 's-1',
@@ -97,6 +99,7 @@ export const mockGoods: GoodsItem[] = [
         barcode: '693001001',
         list_price: 25900,
         sale_price: 19900,
+        available: 95,
         status: 'on',
         status_label: '在售',
       },
@@ -108,6 +111,7 @@ export const mockGoods: GoodsItem[] = [
         barcode: '693001002',
         list_price: 27900,
         sale_price: 21900,
+        available: 50,
         status: 'on',
         status_label: '在售',
       },
@@ -122,7 +126,9 @@ export const mockGoods: GoodsItem[] = [
     status_label: '在售',
     images: [],
     attrs: {},
+    sales: 46,
     created_at: '2026-09-02 10:00:00',
+    kb_doc: { doc_id: 'kb-goods-2', title: '商品知识｜JEANS-042 直筒牛仔裤', version: 2 },
     skus: [
       {
         id: 's-3',
@@ -132,6 +138,7 @@ export const mockGoods: GoodsItem[] = [
         barcode: '693002001',
         list_price: 32900,
         sale_price: 25900,
+        available: 6,
         status: 'on',
         status_label: '在售',
       },

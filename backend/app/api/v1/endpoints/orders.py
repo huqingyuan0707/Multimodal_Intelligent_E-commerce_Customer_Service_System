@@ -1,6 +1,6 @@
-"""订单端点（/orders 与 /aftersales：列表、详情、打单发货、售后单，对齐 API 规范 §4.7）
+"""订单端点（/orders 与 /aftersales：列表、详情、打单发货、签收、售后质检处置，对齐 API 规范 §4.7）
 
-链路：前端 OrdersView → 本模块 → order_service → sales_orders/logistics_orders/aftersales 表。
+链路：前端 OrdersView/AftersaleView → 本模块 → order_service → sales_orders/logistics_orders/aftersales 表。
 状态机与单号校验在 order_service，端点不写业务分支（分层红线）。
 """
 
@@ -35,6 +35,18 @@ class AftersaleRequest(BaseModel):
     amount: int = 0
     trace_id: str = ""
     evidence: list[str] = []
+
+
+class DisposeRequest(BaseModel):
+    """售后质检处置：二次入库（restocked）/ 报损（scrapped）/ 退供（returned）。
+
+    lines 为可选的 SKU 明细（[{sku_id, qty}]），缺省按订单行快照全量入库；
+    warehouse_id 缺省取租户默认仓库（与库存列表口径一致）。
+    """
+
+    disposition: str
+    warehouse_id: str = ""
+    lines: list[dict[str, Any]] | None = None
 
 
 @router.get("")
@@ -89,6 +101,42 @@ async def ship(
     return ok(data, "发货成功，已生成面单")
 
 
+@router.post("/{order_id}/confirm")
+async def confirm(
+    order_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(require_any_perm("order:fulfill")),
+) -> dict[str, Any]:
+    """签收确认：已发货 → 已完成（FR-10.4 状态机「已发→签收→完成」）。"""
+    data = await order_service.confirm(db, tenant=user.tenant, order_id=order_id)
+    return ok(data, "签收成功，订单已完成")
+
+
+@aftersales_router.post("/{aftersale_id}/dispose")
+async def dispose(
+    aftersale_id: str,
+    payload: DisposeRequest,
+    db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(require_any_perm("order:fulfill")),
+) -> dict[str, Any]:
+    """售后质检处置：二次入库 / 报损（恒进审批）/ 退供。"""
+    data = await order_service.dispose(
+        db,
+        tenant=user.tenant,
+        aftersale_id=aftersale_id,
+        disposition=payload.disposition,
+        warehouse_id=payload.warehouse_id,
+        lines=payload.lines,
+        applicant=user.username,
+    )
+    msg = (
+        "报损已转审批（批准后生效）"
+        if data["need_approval"]
+        else f"处置成功：{data['disposition_label']}"
+    )
+    return ok(data, msg)
+
+
 @aftersales_router.post("")
 async def create_aftersale(
     payload: AftersaleRequest,
@@ -114,8 +162,13 @@ async def create_aftersale(
 async def list_aftersales(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(require_any_perm("order:read", "order:fulfill")),
-    limit: int = Query(default=50, ge=1, le=200),
+    status: str = Query(default="", max_length=20),
+    disposition: str = Query(default="", max_length=16),
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=20, ge=1, le=100),
 ) -> dict[str, Any]:
-    """售后单列表（/logistics 工单页复用此数据）。"""
-    rows = await order_service.list_aftersales(db, tenant=user.tenant, limit=limit)
-    return ok(order_service.aftersales_to_dicts(rows), "获取成功")
+    """售后单服务端分页列表（前端红线：所有列表页必须服务端分页，默认 20 可切 10/20/50/100）。"""
+    data = await order_service.list_aftersales(
+        db, tenant=user.tenant, status=status, disposition=disposition, page=page, size=size
+    )
+    return ok(data, "获取成功")

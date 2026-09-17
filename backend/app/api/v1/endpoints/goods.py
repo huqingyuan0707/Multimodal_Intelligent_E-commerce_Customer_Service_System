@@ -81,11 +81,19 @@ async def update_sku(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(require_any_perm("goods:write")),
 ) -> dict[str, Any]:
-    """行内编辑条码/上下架（不含价格）。"""
-    sku = await goods_service.update_sku(
-        db, tenant=user.tenant, sku_id=sku_id, barcode=payload.barcode, status=payload.status
+    """行内编辑条码/上下架（不含价格）；变更自动同步客服知识（FR-10.1）。"""
+    sku, kb_doc = await goods_service.update_sku(
+        db,
+        tenant=user.tenant,
+        sku_id=sku_id,
+        barcode=payload.barcode,
+        status=payload.status,
+        actor=user.username,
     )
-    return ok({"id": sku.id, "barcode": sku.barcode, "status": sku.status}, "已保存")
+    return ok(
+        {"id": sku.id, "barcode": sku.barcode, "status": sku.status, "kb_doc": kb_doc},
+        "已保存，商品知识已同步",
+    )
 
 
 @router.put("/{product_id}/status")
@@ -95,9 +103,12 @@ async def set_goods_status(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(require_any_perm("goods:write")),
 ) -> dict[str, Any]:
-    """SPU 上下架（前端下架有二次确认）。"""
-    product = await goods_service.set_goods_status(
-        db, tenant=user.tenant, product_id=product_id, status=payload.status
+    """SPU 上下架（前端下架有二次确认）；变更自动同步客服知识（FR-10.1）。"""
+    product, kb_doc = await goods_service.set_goods_status(
+        db, tenant=user.tenant, product_id=product_id, status=payload.status, actor=user.username
     )
     label = goods_service.GOODS_STATUS_LABELS.get(product.status, product.status)
-    return ok({"id": product.id, "status": product.status}, f"已切换为「{label}」")
+    return ok(
+        {"id": product.id, "status": product.status, "kb_doc": kb_doc},
+        f"已切换为「{label}」，商品知识已同步",
+    )

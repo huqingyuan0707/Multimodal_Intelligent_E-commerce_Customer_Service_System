@@ -250,6 +250,7 @@ class Aftersale(Base):
     evidence: Mapped[str] = mapped_column(Text, default="[]")
     trace_id: Mapped[str] = mapped_column(String(40), default="", index=True)
     status: Mapped[str] = mapped_column(String(16), default="pending")  # pending/approving/done
+    disposition: Mapped[str] = mapped_column(String(16), default="pending")  # pending/restocked/scrapped/returned
     created_at: Mapped[datetime] = mapped_column(default=_now)
 
 

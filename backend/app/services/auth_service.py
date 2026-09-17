@@ -24,6 +24,9 @@ async def authenticate(db: AsyncSession, username: str, password: str) -> Curren
     ).scalar_one_or_none()
     if row is None or not verify_password(password, row.pwd_hash):
         raise ValueError("用户名或密码错误")
+    # 冻结校验必须排在验密之后：否则「账号不存在」与「已冻结」的提示差异会变成账号探测器
+    if (row.status or "active") != "active":
+        raise ValueError("该账号已被冻结（离职离岗），请联系管理员解冻")
     return CurrentUser(username=row.username, tenant=row.tenant, roles=split_roles(row.roles))
 
 

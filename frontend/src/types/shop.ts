@@ -6,7 +6,7 @@ export type PageResult<T> = {
   items: T[];
 };
 
-export type GoodsStatus = 'draft' | 'on' | 'off';
+export type GoodsStatus = 'draft' | 'on' | 'off' | 'archived';
 
 export type SkuItem = {
   id: string;
@@ -16,8 +16,16 @@ export type SkuItem = {
   barcode: string;
   list_price: number;
   sale_price: number;
+  available: number;
   status: string;
   status_label: string;
+};
+
+// 商品变更同步客服知识结果（FR-10.1，对齐 PUT /goods/skus/{sku_id} 与 PUT /goods/{product_id}/status 响应的 kb_doc 字段）
+export type KbDocInfo = {
+  doc_id: string;
+  title: string;
+  version: number;
 };
 
 export type GoodsItem = {
@@ -29,8 +37,10 @@ export type GoodsItem = {
   status_label: string;
   images: string[];
   attrs: object;
+  sales: number;
   created_at: string;
   skus: SkuItem[];
+  kb_doc?: KbDocInfo | null;
 };
 
 export type InventoryRow = {
@@ -95,6 +105,7 @@ export const GOODS_TAG = {
   on: 'success',
   off: 'info',
   draft: 'warning',
+  archived: 'info',
 } as const;
 
 export const ORDER_TAG = {
@@ -110,6 +121,7 @@ export type TagColor = 'success' | 'info' | 'warning' | 'primary' | 'danger';
 
 // 售后单（关联客服会话 trace_id，可跳回原会话，对齐 FRD 附录 D/页面设计 §3.13）
 // evidence 为证据图 URL 列表（建单时逗号分隔提交，列表/详情原样返回）
+// disposition 为质检处置位（pending/restocked/scrapped/returned，后端中文走 disposition_label）
 export type AftersaleItem = {
   id: string;
   order_id: string;
@@ -119,6 +131,8 @@ export type AftersaleItem = {
   trace_id: string;
   status: string;
   status_label: string;
+  disposition: string;
+  disposition_label: string;
   created_at: string;
 };
 
@@ -135,6 +149,16 @@ export const AFTERSALE_TAG = {
 
 export const aftersaleTagOf = (status: string) =>
   AFTERSALE_TAG[status as keyof typeof AFTERSALE_TAG] ?? 'info';
+
+// 质检处置位胶囊（restocked 二次入库 / scrapped 报损 / returned 退供；未处置默认 info）
+export const DISPOSITION_TAG = {
+  restocked: 'success',
+  scrapped: 'danger',
+  returned: 'info',
+} as const;
+
+export const dispositionTagOf = (disposition: string) =>
+  DISPOSITION_TAG[disposition as keyof typeof DISPOSITION_TAG] ?? 'info';
 
 // 营销与会员（预算/积分口径对齐后端 promo_service；对齐页面设计 §3.16）
 // budget/granted/remaining 单位：张（计数，非金额）；valid_from/valid_to 空串=不限

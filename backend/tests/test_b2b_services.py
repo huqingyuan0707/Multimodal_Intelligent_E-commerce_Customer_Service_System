@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -22,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.config import settings
 from app.core.exceptions import BusinessError, ErrorCode
 from app.db import session as session_mod
-from app.db.models import Inventory, Product, SalesOrder, Sku, StockMove, Warehouse
+from app.db.models import Inventory, KbChunk, KbDoc, Product, SalesOrder, Sku, StockMove, Warehouse
 from app.db.seed import ensure_b2b_demo
 from app.db.session import get_engine, init_models
 from app.services import (
@@ -141,6 +142,63 @@ async def test_price_change_needs_approval(db: AsyncSession) -> None:
     assert twice.value.code == ErrorCode.APPROVAL_DENIED
 
 
+async def test_goods_change_syncs_knowledge(db: AsyncSession) -> None:
+    """FR-10.1 知识同步：商品变更自动 upsert《商品知识｜SPU》一篇，版本递增不另开新篇。"""
+    product = (await db.execute(select(Product).where(Product.spu_no == "TSIRT-001"))).scalar_one()
+    sku = await _sku(db, "TSIRT-001", "白", "M")
+
+    # 1) 上下架首变：创建知识文档，含面料/尺码/价格段，按 ## 分节切块
+    _, kb1 = await goods_service.set_goods_status(
+        db, tenant=TENANT, product_id=product.id, status="off", actor="tester"
+    )
+    assert kb1["version"] == 1 and kb1["title"].startswith("商品知识｜TSIRT-001")
+    doc = (await db.execute(select(KbDoc).where(KbDoc.id == kb1["doc_id"]))).scalar_one()
+    for section in ("面料成分", "尺码范围", "价格段", "SKU 明细"):
+        assert section in doc.content
+    assert "已下架" in doc.content  # 状态变更体现在正文
+    chunks = list((await db.execute(select(KbChunk).where(KbChunk.doc_id == doc.id))).scalars())
+    assert len(chunks) >= 3
+
+    # 2) 二次变更：同一篇 version+1（按标题幂等），不产生第二篇
+    _, kb2 = await goods_service.set_goods_status(
+        db, tenant=TENANT, product_id=product.id, status="on", actor="tester"
+    )
+    assert kb2["doc_id"] == kb1["doc_id"] and kb2["version"] == 2
+    same_title = list(
+        (
+            await db.execute(
+                select(KbDoc).where(KbDoc.tenant == TENANT, KbDoc.title == kb1["title"])
+            )
+        ).scalars()
+    )
+    assert len(same_title) == 1
+
+    # 3) 改条码：正文带新条码，版本继续递增
+    _, kb3 = await goods_service.update_sku(
+        db, tenant=TENANT, sku_id=sku.id, barcode="693001009", actor="tester"
+    )
+    assert kb3["version"] == 3
+    refreshed = (await db.execute(select(KbDoc).where(KbDoc.id == kb1["doc_id"]))).scalar_one()
+    assert "693001009" in refreshed.content
+
+    # 4) 审批改价生效：价格段拿到新价（RAG 不答旧价）
+    approval = await goods_service.submit_price_change(
+        db, tenant=TENANT, sku_id=sku.id, new_price=11900, reason="大促报名", applicant="tester"
+    )
+    await approval_service.decide(
+        db, tenant=TENANT, approval_id=approval.id, approve=True, approver="boss"
+    )
+    after_price = (await db.execute(select(KbDoc).where(KbDoc.id == kb1["doc_id"]))).scalar_one()
+    assert "¥119.00" in after_price.content
+
+    # 5) 列表口径：SKU 带 available、SPU 带 sales（矩阵/销量列数据源）
+    goods = await goods_service.list_goods(db, tenant=TENANT)
+    item = next(i for i in goods["items"] if i["spu_no"] == "TSIRT-001")
+    assert isinstance(item["sales"], int)
+    sku_m = next(s for s in item["skus"] if s["color"] == "白" and s["size"] == "M")
+    assert isinstance(sku_m["available"], int) and sku_m["available"] >= 4
+
+
 async def test_stock_out_shortage_and_transfer(db: AsyncSession) -> None:
     """出库超可用量 3004；调拨拆两行流水且总量守恒。"""
     sku = await _sku(db, "TSIRT-001", "白", "M")
@@ -235,7 +293,7 @@ async def test_ship_state_machine_and_tracking(db: AsyncSession) -> None:
     assert data["status"] == "shipped"
     detail = await order_service.get_detail(db, tenant=TENANT, order_id=paid.id)
     assert detail["tracking_no"] == "SF1234567890"
-    assert detail["allowed_actions"] == ["aftersale"]
+    assert detail["allowed_actions"] == ["confirm", "aftersale"]
 
 
 async def test_aftersale_refund_threshold(db: AsyncSession) -> None:
@@ -302,9 +360,7 @@ async def test_fieldfix_evidence_roundtrip(db: AsyncSession) -> None:
     )
     listed = [
         d
-        for d in order_service.aftersales_to_dicts(
-            await order_service.list_aftersales(db, tenant=TENANT)
-        )
+        for d in (await order_service.list_aftersales(db, tenant=TENANT, size=100))["items"]
         if d["id"] == created["aftersale_id"]
     ]
     assert listed and listed[0]["evidence"] == proof
@@ -368,3 +424,141 @@ async def test_fieldfix_logistics_and_time_format(db: AsyncSession) -> None:
     ticket, _ = await review_service.create_review_ticket(db, tenant=TENANT, review_id=review.id)
     ticket_dict = review_service.ticket_to_dict(ticket)
     assert "T" not in ticket_dict["created_at"] and "T" not in ticket_dict["sla_due"]
+
+
+async def test_order_confirm_state_machine(db: AsyncSession) -> None:
+    """FR-10.4 状态机「已发→签收→完成」：仅已发货可签收；签收后进 completed 且可建售后。"""
+    with pytest.raises(BusinessError) as illegal:
+        await order_service.confirm(
+            db, tenant=TENANT, order_id=(await _order(db, "DY20260912002")).id
+        )
+    assert illegal.value.code == ErrorCode.ORDER_STATE_ILLEGAL
+
+    paid = await _order(db, "TB20260912001")
+    await order_service.ship(
+        db, tenant=TENANT, order_id=paid.id, company="顺丰", tracking_no="SF8888000022"
+    )
+    detail = await order_service.get_detail(db, tenant=TENANT, order_id=paid.id)
+    assert detail["allowed_actions"] == ["confirm", "aftersale"]
+
+    done = await order_service.confirm(db, tenant=TENANT, order_id=paid.id)
+    assert done["status"] == "completed" and done["allowed_actions"] == ["aftersale"]
+
+    with pytest.raises(BusinessError) as again:
+        await order_service.confirm(db, tenant=TENANT, order_id=paid.id)
+    assert again.value.code == ErrorCode.ORDER_STATE_ILLEGAL
+
+
+async def test_aftersale_dispose_restock(db: AsyncSession) -> None:
+    """质检处置-二次入库：库存回补 + disposition=restocked + 幂等拒绝重复处置。"""
+    shipped = await _order(db, "WX20260911003")
+    created = await order_service.create_aftersale(
+        db,
+        tenant=TENANT,
+        order_id=shipped.id,
+        reason="尺码偏大退货",
+        amount=100,
+        trace_id="t-disp-1",
+        applicant="tester",
+    )
+    wh = await _wh(db, "中心仓")
+    sku_rows = [(i["sku_id"], int(i["qty"])) for i in json.loads(shipped.items or "[]")]
+    assert sku_rows, "种子订单应含行快照"
+    sku_id, qty = sku_rows[0]
+    before = (await _inv(db, wh.id, sku_id)).qty
+
+    result = await order_service.dispose(
+        db,
+        tenant=TENANT,
+        aftersale_id=created["aftersale_id"],
+        disposition="restocked",
+        applicant="tester",
+    )
+    assert result["disposition"] == "restocked" and result["need_approval"] is False
+    after = (await _inv(db, wh.id, sku_id)).qty
+    assert after == before + qty
+    detail = await order_service.get_detail(db, tenant=TENANT, order_id=shipped.id)
+    nested = [a for a in detail["aftersales"] if a["id"] == created["aftersale_id"]]
+    assert nested and nested[0]["disposition"] == "restocked"
+    assert nested[0]["disposition_label"] == "二次入库"
+
+    with pytest.raises(BusinessError) as again:
+        await order_service.dispose(
+            db,
+            tenant=TENANT,
+            aftersale_id=created["aftersale_id"],
+            disposition="returned",
+        )
+    assert again.value.code == ErrorCode.ORDER_STATE_ILLEGAL
+
+
+async def test_aftersale_dispose_scrap_approval(db: AsyncSession) -> None:
+    """质检处置-报损：恒进审批，批准后 disposition=scrapped；无效处置类型 1001。"""
+    shipped = await _order(db, "WX20260911003")
+    created = await order_service.create_aftersale(
+        db,
+        tenant=TENANT,
+        order_id=shipped.id,
+        reason="面料破损",
+        amount=100,
+        trace_id="t-disp-2",
+        applicant="tester",
+    )
+    with pytest.raises(BusinessError) as bad:
+        await order_service.dispose(
+            db, tenant=TENANT, aftersale_id=created["aftersale_id"], disposition="illegal"
+        )
+    assert bad.value.code == ErrorCode.PARAM_INVALID
+
+    result = await order_service.dispose(
+        db,
+        tenant=TENANT,
+        aftersale_id=created["aftersale_id"],
+        disposition="scrapped",
+        applicant="tester",
+    )
+    assert result["need_approval"] is True and result["approval_id"]
+
+    approval = await approval_service.get_or_raise(db, TENANT, result["approval_id"])
+    assert approval.action == "aftersale.scrap"
+    with pytest.raises(BusinessError) as again:
+        await order_service.dispose(
+            db, tenant=TENANT, aftersale_id=created["aftersale_id"], disposition="returned"
+        )
+    assert again.value.code == ErrorCode.ORDER_STATE_ILLEGAL
+
+    await approval_service.decide(
+        db, tenant=TENANT, approval_id=approval.id, approve=True, approver="boss"
+    )
+    detail = await order_service.get_detail(db, tenant=TENANT, order_id=shipped.id)
+    nested = [a for a in detail["aftersales"] if a["id"] == created["aftersale_id"]]
+    assert nested and nested[0]["disposition"] == "scrapped"
+    assert nested[0]["status"] == "done"
+
+
+async def test_aftersale_list_server_pagination(db: AsyncSession) -> None:
+    """售后列表服务端分页（前端红线）：分页/处置筛选/总数口径。"""
+    shipped = await _order(db, "WX20260911003")
+    for i in range(3):
+        await order_service.create_aftersale(
+            db,
+            tenant=TENANT,
+            order_id=shipped.id,
+            reason=f"分页测试 {i}",
+            amount=100,
+            trace_id=f"t-page-{i}",
+            applicant="tester",
+        )
+    first = await order_service.list_aftersales(db, tenant=TENANT, page=1, size=2)
+    assert first["total"] >= 3 and len(first["items"]) == 2
+    assert first["page"] == 1 and first["size"] == 2
+    second = await order_service.list_aftersales(db, tenant=TENANT, page=2, size=2)
+    assert len(second["items"]) == 1
+    assert {r["id"] for r in first["items"]} & {r["id"] for r in second["items"]} == set()
+
+    only_done = await order_service.list_aftersales(db, tenant=TENANT, status="pending", size=100)
+    assert all(r["status"] == "pending" for r in only_done["items"])
+
+    with pytest.raises(BusinessError) as bad_status:
+        await order_service.list_aftersales(db, tenant=TENANT, status="bogus")
+    assert bad_status.value.code == ErrorCode.PARAM_INVALID

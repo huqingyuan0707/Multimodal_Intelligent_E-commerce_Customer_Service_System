@@ -160,6 +160,7 @@
 // + 生命周期流转（草稿→审核→发布→归档）+ 版本抽屉回滚 + 检索测试 + 引用统计
 import { ElMessage } from 'element-plus';
 import { computed, onMounted, ref } from 'vue';
+import { useRoute } from 'vue-router';
 import { getDocumentApi, updateDocumentApi } from '@/api';
 import RetrievalTester from '@/components/RetrievalTester.vue';
 import VersionDrawer from '@/components/VersionDrawer.vue';
@@ -186,6 +187,7 @@ const {
   transition,
   removeDoc,
 } = useKnowledgeDocs();
+const route = useRoute();
 const saving = ref(false);
 const testerVisible = ref(false);
 const versionsVisible = ref(false);
@@ -319,6 +321,11 @@ const saveEdit = async () => {
 };
 
 onMounted(() => {
+  // 商品管理知识同步提示「查看知识条目」→ /knowledge?keyword=xxx 直达（对齐 FR-10.1）
+  const kw = route.query.keyword;
+  if (typeof kw === 'string' && kw.trim()) {
+    keyword.value = kw.trim();
+  }
   loadDocs();
 });
 </script>

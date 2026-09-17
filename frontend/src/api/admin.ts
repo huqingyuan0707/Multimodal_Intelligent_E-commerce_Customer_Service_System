@@ -87,6 +87,7 @@ export const setTenantStatusApi = async (params: { code: string; status: string 
 export const listAdminUsersApi = async (params?: {
   tenant?: string;
   keyword?: string;
+  status?: string;
   page?: number;
   size?: number;
 }) => {
@@ -95,6 +96,7 @@ export const listAdminUsersApi = async (params?: {
     params: {
       tenant: params?.tenant ?? '',
       keyword: params?.keyword ?? '',
+      status: params?.status ?? '',
       page: params?.page ?? 1,
       size: params?.size ?? 20,
     },

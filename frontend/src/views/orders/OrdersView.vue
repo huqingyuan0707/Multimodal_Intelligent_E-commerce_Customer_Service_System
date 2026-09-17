@@ -29,7 +29,7 @@
           <span class="mono">{{ s.row.trace_id || '-' }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="170">
+      <el-table-column label="操作" width="230">
         <template #default="s">
           <AiButton
             v-permission="['cs', 'stock', 'admin']"
@@ -46,10 +46,28 @@
             link
             type="primary"
             size="small"
+            :disabled="!s.row.allowed_actions.includes('confirm')"
+            @click="confirm(s.row as OrderItem)"
+          >
+            签收
+          </AiButton>
+          <AiButton
+            v-permission="['cs', 'stock', 'admin']"
+            link
+            type="primary"
+            size="small"
             :disabled="!s.row.allowed_actions.includes('aftersale')"
             @click="aftersale(s.row as OrderItem)"
           >
             建售后
+          </AiButton>
+          <AiButton
+            v-permission="['cs', 'stock', 'admin']"
+            link
+            size="small"
+            @click="openDetail(s.row as OrderItem)"
+          >
+            详情
           </AiButton>
         </template>
       </el-table-column>
@@ -65,11 +83,58 @@
         @size-change="onSize"
       />
     </div>
+    <el-drawer v-model="drawer" title="订单详情" size="520px">
+      <el-descriptions v-if="detail" :column="1" border>
+        <el-descriptions-item label="平台">{{ detail.platform }}</el-descriptions-item>
+        <el-descriptions-item label="平台单号">{{ detail.outer_id }}</el-descriptions-item>
+        <el-descriptions-item label="状态">
+          <el-tag :type="orderTagOf(detail.status)" size="small">{{ detail.status_label }}</el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="金额">{{ formatCents(detail.total) }}</el-descriptions-item>
+        <el-descriptions-item label="面单">{{
+          detail.company && detail.tracking_no ? `${detail.company} ${detail.tracking_no}` : '-'
+        }}</el-descriptions-item>
+        <el-descriptions-item label="trace_id">
+          <span class="mono">{{ detail.trace_id || '-' }}</span>
+        </el-descriptions-item>
+      </el-descriptions>
+      <div v-if="detail?.items?.length" class="sub-title">商品明细</div>
+      <el-table v-if="detail?.items?.length" :data="detail.items" size="small">
+        <el-table-column prop="sku_code" label="SKU" min-width="140" />
+        <el-table-column prop="color" label="颜色" width="90" />
+        <el-table-column prop="size" label="尺码" width="80" />
+        <el-table-column prop="qty" label="数量" width="70" />
+        <el-table-column label="单价" width="100">
+          <template #default="s">{{ formatCents(s.row.price) }}</template>
+        </el-table-column>
+      </el-table>
+      <div v-if="detail?.aftersales?.length" class="sub-title">售后单</div>
+      <el-table v-if="detail?.aftersales?.length" :data="detail.aftersales" size="small">
+        <el-table-column prop="reason" label="原因" min-width="140" />
+        <el-table-column label="金额" width="100">
+          <template #default="s">{{ formatCents(s.row.amount) }}</template>
+        </el-table-column>
+        <el-table-column label="状态" width="100">
+          <template #default="s">
+            <el-tag :type="aftersaleTagOf(s.row.status)" size="small">{{
+              s.row.status_label
+            }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="处置" width="100">
+          <template #default="s">
+            <el-tag :type="dispositionTagOf(s.row.disposition)" size="small">{{
+              s.row.disposition_label
+            }}</el-tag>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-drawer>
   </div>
 </template>
 
 <script setup lang="ts">
-// 订单履约（平台订单镜像 + 打单发货 + 建售后关联会话 trace；按钮按 allowed_actions 置灰，对齐页面设计 §3.13）
+// 订单履约（平台订单镜像 + 打单发货 + 签收确认 + 建售后关联会话 trace；按钮按 allowed_actions 置灰，对齐页面设计 §3.13）
 import {
   ElMessage,
   ElMessageBox,
@@ -79,13 +144,21 @@ import {
   ElTable,
   ElTableColumn,
   ElTag,
+  ElDescriptions,
+  ElDescriptionsItem,
 } from 'element-plus';
 import { onMounted, ref } from 'vue';
-import { createAftersaleApi, listOrdersApi, shipOrderApi } from '@/api';
+import {
+  confirmOrderApi,
+  createAftersaleApi,
+  getOrderDetailApi,
+  listOrdersApi,
+  shipOrderApi,
+} from '@/api';
 import { mockOrders } from '@/mock';
 import AiButton from '@/shared/components/AiButton.vue';
 import AiInput from '@/shared/components/AiInput.vue';
-import { formatCents, orderTagOf } from '@/types/shop';
+import { aftersaleTagOf, dispositionTagOf, formatCents, orderTagOf } from '@/types/shop';
 import type { OrderItem } from '@/types/shop';
 
 const STATUS_OPTIONS = [
@@ -188,6 +261,50 @@ const ship = async (row: OrderItem) => {
   }
 };
 
+// 签收确认（已发货→已完成，FR-10.4 状态机「已发→签收→完成」；误签不可逆，二次确认）
+const confirm = async (row: OrderItem) => {
+  try {
+    await ElMessageBox.confirm('确认该订单已签收吗？签收后订单转「已完成」。', '签收确认');
+  } catch {
+    return;
+  }
+  try {
+    await confirmOrderApi(row.id);
+    ElMessage.success('签收成功，订单已完成');
+    await load();
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '签收失败');
+  }
+};
+
+// 订单详情抽屉（面单 + 行快照 + 售后单，售后抽屉 trace 一键跳 workbench 回放）
+const drawer = ref(false);
+// 详情扩展后端口径（items 行快照 + aftersales 售后单，getOrderDetailApi 返回）
+type OrderDetail = OrderItem & {
+  items: { sku_code: string; color: string; size: string; qty: number; price: number }[];
+  aftersales: {
+    id: string;
+    reason: string;
+    amount: number;
+    status: string;
+    status_label: string;
+    disposition: string;
+    disposition_label: string;
+    trace_id: string;
+  }[];
+};
+const detail = ref<OrderDetail | null>(null);
+
+const openDetail = async (row: OrderItem) => {
+  detail.value = null;
+  drawer.value = true;
+  try {
+    detail.value = await getOrderDetailApi(row.id);
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '详情加载失败');
+  }
+};
+
 // 建售后：关联会话 trace（红线：售后必须可回放到当时那轮对话）；超阈值自动转审批
 const aftersale = async (row: OrderItem) => {
   let reason: string;
@@ -270,5 +387,12 @@ onMounted(() => {
   display: flex;
   justify-content: flex-end;
   margin-top: 12px;
+}
+
+.sub-title {
+  margin: 12px 0 6px;
+  font-weight: 500;
+  font-size: var(--reai-fs-body);
+  color: var(--reai-text);
 }
 </style>

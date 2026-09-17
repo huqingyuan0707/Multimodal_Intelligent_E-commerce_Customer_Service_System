@@ -56,16 +56,18 @@ async def stock_table(
     user: CurrentUser = Depends(require_any_perm("stock:read", "stock:write")),
     warehouse_id: str = Query(default="", max_length=32),
     sku_id: str = Query(default="", max_length=32),
+    keyword: str = Query(default="", max_length=64),
     only_warn: bool = Query(default=False),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=50, ge=1, le=200),
 ) -> dict[str, Any]:
-    """库存表（SKU × 仓库），含 available 与 warning。"""
+    """库存表（SKU × 仓库），含 available 与 warning。keyword 搜 SKU 编码/品名/仓库名。"""
     data = await inventory_service.stock_table(
         db,
         tenant=user.tenant,
         warehouse_id=warehouse_id,
         sku_id=sku_id,
+        keyword=keyword,
         only_warn=only_warn,
         page=page,
         size=size,

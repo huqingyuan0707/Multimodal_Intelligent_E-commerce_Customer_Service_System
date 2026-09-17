@@ -3,8 +3,17 @@
     <div class="head">
       <el-tag v-if="demo" type="warning" size="small">演示数据</el-tag>
     </div>
+
+    <!-- 预警卡（自拉 only_warn=true；出入库/盘点/补货后 reload） -->
+    <StockWarnCard ref="warnRef" />
+
     <div class="filters">
-      <AiInput v-model="keyword" placeholder="搜 SKU/品名/仓库" class="kw" @keyup.enter="reload" />
+      <AiInput
+        v-model="keyword"
+        placeholder="搜 SKU / 品名 / 仓库"
+        class="kw"
+        @keyup.enter="reload"
+      />
       <el-select v-model="warehouseId" placeholder="仓库" class="sel" @change="reload">
         <el-option label="全部仓库" value="" />
         <el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id" />
@@ -12,19 +21,26 @@
       <span class="warn-switch">只看预警</span>
       <el-switch v-model="onlyWarn" @change="reload" />
       <AiButton @click="reload">查询</AiButton>
-      <AiButton @click="stocktake">盘点</AiButton>
+      <AiButton @click="stocktakeOpen = true">盘点</AiButton>
     </div>
     <p class="formula">可用库存 = 在库 − 预占 − 锁定（超卖率必须为 0）</p>
-    <el-table v-loading="loading" :data="rows" class="table">
-      <el-table-column prop="sku_code" label="SKU" />
-      <el-table-column prop="product_name" label="品名" />
+    <el-table v-loading="loading" :data="rows" class="table" :row-class-name="warnClass">
+      <el-table-column prop="sku_code" label="SKU" min-width="160" />
+      <el-table-column prop="product_name" label="品名" min-width="160" />
       <el-table-column prop="warehouse" label="仓库" width="100" />
       <el-table-column prop="qty" label="在库" width="80" />
       <el-table-column prop="reserved" label="预占" width="80" />
       <el-table-column prop="locked" label="锁定" width="80" />
-      <el-table-column label="可用" width="110">
+      <el-table-column label="可用" width="130">
         <template #default="s">
-          {{ s.row.available }}
+          <span
+            :style="{
+              fontWeight: '600',
+              color: s.row.warning ? 'var(--reai-notice)' : 'var(--reai-text-main)',
+            }"
+          >
+            {{ s.row.available }}
+          </span>
           <el-tag v-if="s.row.warning" type="warning" size="small">预警</el-tag>
         </template>
       </el-table-column>
@@ -69,6 +85,8 @@
         @size-change="onSize"
       />
     </div>
+
+    <!-- 流水抽屉 -->
     <el-drawer v-model="movesDrawer" :title="movesTitle" size="560px">
       <el-table v-loading="movesLoading" :data="moves" size="small">
         <el-table-column prop="kind_label" label="类型" width="90" />
@@ -78,12 +96,15 @@
         <el-table-column prop="created_at" label="时间" width="160" />
       </el-table>
     </el-drawer>
+
+    <!-- 盘点抽屉（差异进审批，替换原占位） -->
+    <StocktakeDrawer v-model="stocktakeOpen" :warehouses="warehouses" @done="onStocktakeDone" />
   </div>
 </template>
 
 <script setup lang="ts">
-// 库存管理（SKU×仓库存量 + 预警 + 出入库/调拨 + 流水抽屉；对齐页面设计 §3.11）
-// 调拨走 prompt 三步确认（目标仓/数量/原因），仓库选择器 P2 再换成下拉组件
+// 库存管理（SKU×仓库存量 + 预警卡 + 盘点导入 + 出入库/调拨 + 流水抽屉；对齐页面设计 §3.11）
+// keyword 走服务端分页前过滤（GET /inventory?keyword=），前端不再做 client-side 过滤，修复分页语义不一致。
 import {
   ElDrawer,
   ElMessage,
@@ -101,8 +122,11 @@ import { listInventoryApi, listMovesApi, listWarehousesApi, moveStockApi } from 
 import { mockInventory } from '@/mock';
 import AiButton from '@/shared/components/AiButton.vue';
 import AiInput from '@/shared/components/AiInput.vue';
+import StockWarnCard from './StockWarnCard.vue';
+import StocktakeDrawer from './StocktakeDrawer.vue';
 import type { InventoryRow, StockMoveItem } from '@/types/shop';
 
+const warnRef = ref();
 const rows = ref<InventoryRow[]>([]);
 const total = ref(0);
 const page = ref(1);
@@ -117,31 +141,36 @@ const movesDrawer = ref(false);
 const movesTitle = ref('出入库流水');
 const movesLoading = ref(false);
 const moves = ref<StockMoveItem[]>([]);
+const stocktakeOpen = ref(false);
 
-const matchKw = (r: InventoryRow, kw: string) =>
-  !kw || r.sku_code.includes(kw) || r.product_name.includes(kw) || r.warehouse.includes(kw);
+// 预警行整行橙底，画板 iv_r2/iv_r3 规格
+const warnClass = ({ row }: { row: InventoryRow }) => (row.warning ? 'warn-row-bg' : '');
 
 const load = async () => {
   loading.value = true;
   try {
     const res = await listInventoryApi({
+      keyword: keyword.value.trim() || undefined,
       only_warn: onlyWarn.value,
       warehouse_id: warehouseId.value || undefined,
       page: page.value,
       size: size.value,
     });
-    const kw = keyword.value.trim();
-    rows.value = res.items.filter(r => matchKw(r, kw));
+    rows.value = res.items;
     total.value = res.total;
     demo.value = false;
   } catch {
-    const kw = keyword.value.trim();
-    rows.value = mockInventory.filter(
-      r =>
-        (!onlyWarn.value || r.warning) &&
-        (!warehouseId.value || r.warehouse_id === warehouseId.value) &&
-        matchKw(r, kw),
-    );
+    // mock 分支仍走前端过滤（keyword / warehouseId / onlyWarn）
+    const kw = keyword.value.trim().toLowerCase();
+    rows.value = mockInventory.filter(r => {
+      if (onlyWarn.value && !r.warning) return false;
+      if (warehouseId.value && r.warehouse_id !== warehouseId.value) return false;
+      if (kw) {
+        const haystack = `${r.sku_code} ${r.product_name} ${r.warehouse}`.toLowerCase();
+        if (!haystack.includes(kw)) return false;
+      }
+      return true;
+    });
     total.value = rows.value.length;
     demo.value = true;
   } finally {
@@ -149,7 +178,7 @@ const load = async () => {
   }
 };
 
-// 仓库下拉：真接口优先，失败从演示行里去重凑合（mock 行自带 warehouse_id/name）
+// 仓库下拉：真接口优先，失败从演示行里去重凑合
 const loadWarehouses = async () => {
   try {
     warehouses.value = await listWarehousesApi();
@@ -164,7 +193,7 @@ const loadWarehouses = async () => {
   }
 };
 
-// 出入库流水抽屉（按 SKU 倒序；后端暂无数据时如实报错，不伪造）
+// 出入库流水抽屉
 const openMoves = async (row: InventoryRow) => {
   movesTitle.value = `${row.sku_code} 出入库流水`;
   movesDrawer.value = true;
@@ -195,7 +224,13 @@ const onSize = (s: number) => {
   load();
 };
 
-// 出入库：数量 + 原因双确认（原因必填，审计留痕）
+// 盘点完成后：刷新表格 + 预警卡
+const onStocktakeDone = () => {
+  load();
+  warnRef.value?.reload();
+};
+
+// 出入库：数量 + 原因双确认
 const move = async (row: InventoryRow, kind: 'in' | 'out') => {
   const label = kind === 'in' ? '入库' : '出库';
   let qtyRaw: string;
@@ -227,12 +262,14 @@ const move = async (row: InventoryRow, kind: 'in' | 'out') => {
       reason: reason.trim() || '工作台操作',
     });
     ElMessage.success(`${label}成功`);
-    await load();
+    load();
+    warnRef.value?.reload();
   } catch (e) {
     ElMessage.error(e instanceof Error ? e.message : '操作失败');
   }
 };
 
+// 调拨：目标仓选择 → 数量 → 原因，三步 prompt
 const transfer = async (row: InventoryRow) => {
   const targets = warehouses.value.filter(w => w.id !== row.warehouse_id);
   if (!targets.length) {
@@ -283,14 +320,11 @@ const transfer = async (row: InventoryRow) => {
       reason: reason.trim() || '工作台调拨',
     });
     ElMessage.success('调拨成功，已拆两行流水');
-    await load();
+    load();
+    warnRef.value?.reload();
   } catch (e) {
     ElMessage.error(e instanceof Error ? e.message : '调拨失败');
   }
-};
-
-const stocktake = () => {
-  ElMessage.info('盘点导入后续补（差异进审批，见 FR-10.2）');
 };
 
 onMounted(() => {
@@ -338,6 +372,11 @@ onMounted(() => {
 
 .table {
   width: 100%;
+}
+
+/* 预警行整行橙底（画板 iv_r2/iv_r3 规格），行级类名需 :deep 穿透 el-table 内部渲染 */
+.table :deep(.warn-row-bg) {
+  background: var(--reai-notice-soft);
 }
 
 .pager {

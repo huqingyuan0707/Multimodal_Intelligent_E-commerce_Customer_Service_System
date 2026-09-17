@@ -96,6 +96,7 @@ async def stock_table(
     tenant: str,
     warehouse_id: str = "",
     sku_id: str = "",
+    keyword: str = "",
     only_warn: bool = False,
     page: int = 1,
     size: int = 50,
@@ -104,6 +105,7 @@ async def stock_table(
 
     行数受「SKU × 仓库」约束，P1 在内存里过滤安全线并分页；
     迁 PG 后把 available 下推为计算列（数据模型文档 §6 迁移注意）。
+    keyword 搜 SKU 编码 / SPU / 品名 / 颜色 / 尺码 / 仓库名，过滤发生在服务端分页之前。
     """
     stmt = (
         select(Inventory, Warehouse, Sku, Product)
@@ -124,25 +126,39 @@ async def stock_table(
         warning = avail < inv.warn_line
         if only_warn and not warning:
             continue
-        items.append(
-            {
-                "id": inv.id,
-                "warehouse_id": warehouse.id,
-                "warehouse": warehouse.name,
-                "sku_id": sku.id,
-                "spu_no": product.spu_no,
-                "product_name": product.name,
-                "color": sku.color,
-                "size": sku.size,
-                "sku_code": "-".join(p for p in (product.spu_no, sku.color, sku.size) if p),
-                "qty": inv.qty,
-                "reserved": inv.reserved,
-                "locked": inv.locked,
-                "available": avail,
-                "warn_line": inv.warn_line,
-                "warning": warning,
-            }
-        )
+        item = {
+            "id": inv.id,
+            "warehouse_id": warehouse.id,
+            "warehouse": warehouse.name,
+            "sku_id": sku.id,
+            "spu_no": product.spu_no,
+            "product_name": product.name,
+            "color": sku.color,
+            "size": sku.size,
+            "sku_code": "-".join(p for p in (product.spu_no, sku.color, sku.size) if p),
+            "qty": inv.qty,
+            "reserved": inv.reserved,
+            "locked": inv.locked,
+            "available": avail,
+            "warn_line": inv.warn_line,
+            "warning": warning,
+        }
+        if keyword:
+            kw = keyword.strip().lower()
+            haystack = " ".join(
+                str(v).lower()
+                for v in (
+                    item["sku_code"],
+                    item["spu_no"],
+                    item["product_name"],
+                    item["color"],
+                    item["size"],
+                    item["warehouse"],
+                )
+            )
+            if kw and kw not in haystack:
+                continue
+        items.append(item)
     total = len(items)
     start = (page - 1) * size
     return {"total": total, "page": page, "size": size, "items": items[start : start + size]}

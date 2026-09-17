@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     APP_NAME: str = "multimodal-cs"
     # 项目版本唯一口径三源之一（另两源：执行步骤.md 头部版本 / frontend/package.json），
     # 三处必须一致（门禁 scripts/check_version.py），发版 tag 以此为准（release.yml 门禁）。
-    APP_VERSION: str = "0.3.19"
+    APP_VERSION: str = "0.3.20"
     ENV: str = "dev"
     DATABASE_URL: str = "sqlite+aiosqlite:///./dev.db"
     REDIS_URL: str = "redis://localhost:6379/0"

@@ -26,6 +26,7 @@ ACTION_LABELS: dict[str, str] = {
     "inventory.stocktake_diff": "盘点差异",
     "inventory.replenish": "补货需求",
     "order.refund": "退款",
+    "aftersale.scrap": "售后报损",
 }
 
 # 审批类型 → 政策引用检索关键词（详情抽屉「政策引用」行，同租户知识库标题模糊找 Top3）
@@ -34,6 +35,7 @@ ACTION_POLICY_KEYWORDS: dict[str, list[str]] = {
     "sku.price_change": ["改价", "价格"],
     "inventory.stocktake_diff": ["盘点", "库存"],
     "inventory.replenish": ["补货", "采购"],
+    "aftersale.scrap": ["报损", "质检", "退货"],
 }
 
 STATUS_LABELS: dict[str, str] = {"pending": "待审批", "approved": "已通过", "rejected": "已驳回"}
@@ -222,6 +224,11 @@ async def _apply(
         from app.services import order_service
 
         await order_service.apply_refund(db, tenant=tenant, args=args, actor=actor)
+        return
+    if action == "aftersale.scrap":
+        from app.services import order_service
+
+        await order_service.apply_scrap(db, tenant=tenant, args=args, actor=actor)
         return
     if action == "inventory.replenish":
         # 采购单在 P2（/purchase）落地：此处仅确认审批通过，不产生库存变动。

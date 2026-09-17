@@ -41,6 +41,13 @@
 
 服装主题：尺码/面料洗护/库存/优惠叠加/物流/退换/投诉；`security_level` 映射前端 `LEVEL_TAG={public:'公开',internal:'内部',confidential:'机密'}`，模板禁散落字面量。
 
+### 商品知识自动同步（FR-10.1，系统写入）
+
+- 触发点：`goods_service` 的商品变更（SKU 行内编辑 / SPU 上下架 / 改价审批通过生效），与商品变更**同事务**提交（成则同成，避免"价格改了、知识还是旧价"）。
+- 落库口径：按标题 `商品知识｜{spu_no} {name}` 在 `kb_docs` **幂等 upsert**——同一 SPU 永远一篇，内容（sha256）变化才 version+1 并重切向量/关键词；`topic=商品知识`、`security_level=internal`、`status=published`（检索 SQL 可命中）。
+- 正文结构（`##` 分节对齐切分器）：面料成分（取自 `attrs.材质/面料`）、尺码范围、价格段（全 SKU 售价当前区间）、SKU 明细（颜色/尺码/售价/条码/可售库存/状态）、同步时间。
+- 服务规则：商品服务不重算库存，可售量走 `_sum_available_by_sku`（与 `inventory_service.available_of` 同一 `qty-reserved-locked` 口径）。
+
 ## 2. 召回三路 + 融合重排（P1：TF-IDF 余弦 → BM25 词汇路 + 二阶段精排）
 
 ```python

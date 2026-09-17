@@ -22,17 +22,33 @@
       <el-tab-pane label="审计" name="audit">
         <AdminAuditPane @demo="onDemo" />
       </el-tab-pane>
+      <el-tab-pane label="密钥" name="apikey">
+        <AdminApiKeyPane />
+      </el-tab-pane>
+      <el-tab-pane label="SLO" name="slo">
+        <AdminSloPane />
+      </el-tab-pane>
+      <el-tab-pane label="消息" name="notify">
+        <AdminNotifyPane />
+      </el-tab-pane>
+      <el-tab-pane label="组织" name="org">
+        <AdminOrgPane />
+      </el-tab-pane>
     </el-tabs>
   </div>
 </template>
 
 <script setup lang="ts">
-// 管理后台壳：概览指标卡 + 四窗格编排（租户/配额/用户/审计），数据加载下沉各窗格
-// 对齐 FRD FR-8、页面设计 §3.8、API 规范 §4.9
+// 管理后台壳：概览指标卡 + 八窗格编排（租户/配额/用户/审计 + 密钥/SLO/消息/组织），数据加载下沉各窗格
+// 对齐 FRD FR-8/FR-12.2/FR-12.4、页面设计 §3.8 + §3.19、API 规范 §4.9
 import { onMounted, ref } from 'vue';
 import { getAdminOverviewApi } from '@/api';
+import AdminApiKeyPane from '@/components/AdminApiKeyPane.vue';
 import AdminAuditPane from '@/components/AdminAuditPane.vue';
+import AdminNotifyPane from '@/components/AdminNotifyPane.vue';
+import AdminOrgPane from '@/components/AdminOrgPane.vue';
 import AdminQuotaPane from '@/components/AdminQuotaPane.vue';
+import AdminSloPane from '@/components/AdminSloPane.vue';
 import AdminTenantPane from '@/components/AdminTenantPane.vue';
 import AdminUserPane from '@/components/AdminUserPane.vue';
 import type { AdminOverview, TenantItem } from '@/types/admin';

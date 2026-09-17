@@ -16,7 +16,7 @@ from app.core.rbac import require_any_perm
 from app.core.responses import ok
 from app.core.user_context import CurrentUser
 from app.db.session import get_db
-from app.services import admin_service
+from app.services import admin_service, org_service
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -48,6 +48,12 @@ class RolesRequest(BaseModel):
     """改用户角色入参（逗号分隔，与种子口径一致）。"""
 
     roles: str
+
+
+class UserFreezeRequest(BaseModel):
+    """离职冻结入参（frozen=true 冻结拒登，false 解冻）。"""
+
+    frozen: bool
 
 
 @router.get("/overview")
@@ -157,16 +163,18 @@ async def list_users(
     user: CurrentUser = Depends(require_any_perm("admin")),
     tenant: str = Query(default="", max_length=64),
     keyword: str = Query(default="", max_length=64),
+    status: str = Query(default="", max_length=16),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1, le=100),
 ) -> dict[str, Any]:
-    """用户分页（全局视角；tenant 为空=全部）。"""
+    """用户分页（全局视角；tenant 为空=全部，status 可筛冻结态）。"""
     _ = user
     return ok(
         await admin_service.list_users(
             db,
             tenant=tenant,
             keyword=keyword,
+            status=status,
             page=page,
             size=size,
         ),
@@ -213,4 +221,24 @@ async def list_audits(
             size=size,
         ),
         "获取成功",
+    )
+
+
+@router.post("/users/{user_id}/status")
+async def set_user_status(
+    user_id: str,
+    payload: UserFreezeRequest,
+    db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(require_any_perm("admin")),
+) -> dict[str, Any]:
+    """离职冻结/解冻（FR-12.4）：拒登但保留行，会话与绩效仍可回溯到人。
+
+    两条防锁死保护在服务层：不能冻结自己、不能冻结本租户最后一个启用中的管理员。
+    """
+    row = await org_service.set_frozen(
+        db, user_id=user_id, frozen=payload.frozen, actor=user.username
+    )
+    return ok(
+        admin_service.user_to_dict(row),
+        "账号已冻结，该用户将无法登录" if payload.frozen else "账号已解冻",
     )

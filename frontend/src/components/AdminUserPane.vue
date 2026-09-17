@@ -3,6 +3,7 @@
     <div class="toolbar">
       <AiInput v-model="tenant" placeholder="租户编码（空=全部）" class="kw" />
       <AiInput v-model="keyword" placeholder="搜用户名" class="kw" />
+      <AiInput v-model="status" placeholder="状态 active/frozen" class="kw-sm" />
       <AiButton @click="reload">查询</AiButton>
     </div>
     <el-table v-loading="loading" :data="rows" style="width: 100%">
@@ -11,9 +12,19 @@
       <el-table-column label="角色" min-width="180">
         <template #default="s">{{ (s.row.roles ?? []).join(',') }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="120">
+      <el-table-column label="状态" width="110">
+        <template #default="s">
+          <el-tag :type="userStatusTagOf(s.row.status)" size="small">{{
+            s.row.status_label
+          }}</el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="操作" width="190">
         <template #default="s">
           <AiButton v-permission="['admin']" link @click="open(s.row)">改角色</AiButton>
+          <AiButton v-permission="['admin']" link @click="toggleFrozen(s.row)">
+            {{ s.row.status === 'frozen' ? '解冻' : '离职冻结' }}
+          </AiButton>
         </template>
       </el-table-column>
     </el-table>
@@ -44,12 +55,13 @@
 </template>
 
 <script setup lang="ts">
-// 用户角色窗格：全局用户分页（默认 20）+ 改角色（confirm + 审计），失败 ElMessage 提示
+// 用户角色窗格：全局用户分页（默认 20）+ 改角色 + 离职冻结（拒登但保留行，可回溯到人）
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { onMounted, ref } from 'vue';
-import { listAdminUsersApi, updateUserRolesApi } from '@/api';
+import { listAdminUsersApi, setUserFrozenApi, updateUserRolesApi } from '@/api';
 import AiButton from '@/shared/components/AiButton.vue';
 import AiInput from '@/shared/components/AiInput.vue';
+import { userStatusTagOf } from '@/types/admin';
 import type { AdminUserItem } from '@/types/admin';
 
 const rows = ref<AdminUserItem[]>([]);
@@ -58,6 +70,7 @@ const page = ref(1);
 const size = ref(20);
 const tenant = ref('');
 const keyword = ref('');
+const status = ref('');
 const loading = ref(false);
 const submitting = ref(false);
 const dialog = ref(false);
@@ -69,6 +82,7 @@ const load = async () => {
     const res = await listAdminUsersApi({
       tenant: tenant.value.trim(),
       keyword: keyword.value.trim(),
+      status: status.value.trim(),
       page: page.value,
       size: size.value,
     });
@@ -122,6 +136,25 @@ const submit = async () => {
   }
 };
 
+const toggleFrozen = async (row: AdminUserItem) => {
+  const frozen = row.status !== 'frozen';
+  // 冻结/解冻直接决定「这个人能不能登录」，与配额同级：不可逆到人 → 双重确认
+  await ElMessageBox.confirm(
+    `确认${frozen ? '冻结' : '解冻'}「${row.username}」吗？${frozen ? '冻结后该账号无法登录。' : ''}`,
+    '危险操作',
+  );
+  if (frozen) {
+    await ElMessageBox.confirm('离职冻结立即生效，请再次确认', '二次确认');
+  }
+  try {
+    await setUserFrozenApi({ userId: row.id, frozen });
+    ElMessage.success(frozen ? '账号已冻结' : '账号已解冻');
+    await load();
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '操作失败');
+  }
+};
+
 onMounted(() => {
   load();
 });
@@ -138,6 +171,10 @@ onMounted(() => {
 
 .kw {
   width: 220px;
+}
+
+.kw-sm {
+  width: 160px;
 }
 
 .pager {

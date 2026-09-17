@@ -114,7 +114,7 @@ async def test_api_happy_paths_cover_endpoints(client: httpx.AsyncClient) -> Non
     gov = await _ok(await client.get("/api/v1/governance/status"))
     assert "llm" in gov
 
-    # 商品：列表取 SKU → 改价进审批 → 行内编辑 → 上下架
+    # 商品：列表取 SKU → 改价进审批 → 行内编辑 → 上下架（变更均回 kb_doc，FR-10.1）
     goods = await _ok(await client.get("/api/v1/goods"))
     assert goods["total"] == 2
     sku_id = goods["items"][0]["skus"][0]["id"]
@@ -125,10 +125,12 @@ async def test_api_happy_paths_cover_endpoints(client: httpx.AsyncClient) -> Non
         )
     )
     assert approval["status"] == "pending"
-    await _ok(await client.put(f"/api/v1/goods/skus/{sku_id}", json={"barcode": "690000001"}))
-    await _ok(
+    edited = await _ok(await client.put(f"/api/v1/goods/skus/{sku_id}", json={"barcode": "690000001"}))
+    assert "kb_doc" in edited and edited["kb_doc"]["title"].startswith("商品知识｜")
+    changed = await _ok(
         await client.put(f"/api/v1/goods/{goods['items'][0]['id']}/status", json={"status": "off"})
     )
+    assert "kb_doc" in changed and changed["kb_doc"]["title"].startswith("商品知识｜")
 
     # 审批：批种子单 + 驳改价单
     pending = await _ok(await client.get("/api/v1/approvals", params={"status": "pending"}))
@@ -223,7 +225,8 @@ async def test_api_happy_paths_cover_endpoints(client: httpx.AsyncClient) -> Non
     )
     assert after["need_approval"] is False
     listed = await _ok(await client.get("/api/v1/aftersales"))
-    assert any(a["evidence"] == ["https://cdn/x.jpg"] for a in listed)
+    # v0.3.21 售后列表已切服务端分页：data 为 {total,page,size,items}
+    assert any(a["evidence"] == ["https://cdn/x.jpg"] for a in listed["items"])
 
     # 物流：公司表 → 单号查询 → 异常转售后
     companies = await _ok(await client.get("/api/v1/logistics/companies"))

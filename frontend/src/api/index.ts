@@ -19,3 +19,4 @@ export * from './studio';
 export * from './dashboard';
 export * from './screen';
 export * from './admin';
+export * from './adminOps';
