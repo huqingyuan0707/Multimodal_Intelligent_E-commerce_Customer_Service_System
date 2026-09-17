@@ -13,6 +13,19 @@ export type ApprovalItem = {
   session_id: string;
   created_at: string;
   decided_at: string;
+  // 超时升级口径（后端 to_dict 必带，演示数据缺省按 false 处理）
+  overdue?: boolean;
+  waiting_hours?: number;
+};
+
+// 政策引用（详情抽屉行，点击跳知识库按标题筛选）
+export type ApprovalPolicyRef = {
+  id: string;
+  title: string;
+};
+
+export type ApprovalDetail = ApprovalItem & {
+  policy_refs: ApprovalPolicyRef[];
 };
 
 export type ApprovalPage = {

@@ -35,3 +35,9 @@ export const channelLabelOf = (channel: string) =>
 
 // 金额分转元展示（后端金额字段一律分，页面禁裸展示分）
 export const formatCost = (cents: number) => `¥${(cents / 100).toFixed(2)}`;
+
+// 耗时展示：无耗时记录回 '—' 不编数（慢 Trace Top5 与后端 honest 口径对齐）
+export const formatLatency = (ms: number) => {
+  if (typeof ms !== 'number' || ms <= 0) return '—';
+  return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`;
+};

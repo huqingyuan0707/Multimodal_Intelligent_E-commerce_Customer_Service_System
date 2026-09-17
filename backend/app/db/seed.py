@@ -1,6 +1,6 @@
 """种子数据（首次启动幂等灌入，对齐数据模型与存储设计.md §6 迁移节）
 
-链路：main.lifespan（SEED_ON_START）/ scripts/init_db.py → ensure_seed_user() + ensure_b2b_demo() + ensure_kb_seed()。
+链路：main.lifespan（SEED_ON_START）/ scripts/init_db.py → ensure_seed_user() + ensure_b2b_demo() + ensure_kb_seed() + ensure_prompt_seed()。
 租户/用户名/密码/角色一律走 Settings（.env 可覆盖），禁止硬编码；生产置 SEED_ON_START=false。
 B 端演示数据由 B2B_SEED_DEMO 控制（商品/SKU/仓库/库存/订单/一条待审改价），已存在商品即跳过。
 知识库种子由 KB_SEED_DEMO/KB_SEED_DIR 控制（docs/knowledge-base 29 篇，SHA256 去重），已存在不覆盖。
@@ -330,6 +330,8 @@ async def ensure_kb_seed(db: AsyncSession) -> bool:
             title=meta["title"] or path.stem,
             content=meta["body"],
             raw=meta["body"].encode("utf-8"),
+            topic=meta.get("topic", ""),
+            status="published",
         )
         if skipped:
             continue
@@ -346,6 +348,38 @@ async def ensure_kb_seed(db: AsyncSession) -> bool:
     return created > 0
 
 
+async def ensure_prompt_seed(db: AsyncSession) -> bool:
+    """幂等灌 Prompt 种子版本（租户无任何版本时建 v1 online，内容 = 代码常量口径）。
+
+    种子只解决「空租户对话链有线上版本可用」；运营后续新建/发布/回滚全走 Studio，
+    已存在版本（哪怕被归档）即不再补种，不覆盖人工运维。
+    """
+    from app.db.models import PromptVersion
+    from app.services.chat_prompt import DEFAULT_SYSTEM_PROMPT
+    from app.services.studio_service import extract_variables
+
+    tenant = settings.SEED_TENANT
+    existed = (
+        await db.execute(select(PromptVersion.id).where(PromptVersion.tenant == tenant).limit(1))
+    ).scalar_one_or_none()
+    if existed is not None:
+        return False
+    db.add(
+        PromptVersion(
+            tenant=tenant,
+            version="v1",
+            desc="种子线上版（与代码常量同文）",
+            content=DEFAULT_SYSTEM_PROMPT,
+            variables=json.dumps(extract_variables(DEFAULT_SYSTEM_PROMPT), ensure_ascii=False),
+            gray=100,
+            status="online",
+            created_by="seed",
+        )
+    )
+    await db.commit()
+    return True
+
+
 async def seed_on_startup() -> bool:
     """lifespan 调用入口：自建会话灌种子（账号 + 租户行 + B 端演示 + 知识库 29 篇），任一有写入即返回 True。"""
     factory = async_sessionmaker(get_engine(), expire_on_commit=False)
@@ -354,4 +388,5 @@ async def seed_on_startup() -> bool:
         tenant_created = await ensure_seed_tenant(db)
         demo_created = await ensure_b2b_demo(db)
         kb_created = await ensure_kb_seed(db)
-    return user_created or tenant_created or demo_created or kb_created
+        prompt_created = await ensure_prompt_seed(db)
+    return user_created or tenant_created or demo_created or kb_created or prompt_created

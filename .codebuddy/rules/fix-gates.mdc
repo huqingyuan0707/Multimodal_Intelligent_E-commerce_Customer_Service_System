@@ -1,0 +1,48 @@
+---
+description: 本次红灯修复沉淀的硬规则（门禁跑法、信封类型、超长拆分）。下代码前必读，违反即返工。
+alwaysApply: true
+enabled: true
+---
+
+# 修红灯硬规则（2026-09-17 沉淀，只准收紧不准放宽）
+
+## 1. 门禁必须用钉死工具链跑（教训：系统 python 误报）
+
+- 后端一律 `backend/.venv/Scripts/python -m ...`（ruff 0.16.7 钉在 `requirements-dev.lock`），**禁止系统 python 跑 ruff/format**（新版规则多会误报 UP031/B905/SIM105）。
+- 命令（顺序不可换）：
+  1. `.venv\Scripts\python -m ruff check .` → 0 error
+  2. `.venv\Scripts\python -m ruff format --check .` → 全 formatted
+  3. `.venv\Scripts\python -m mypy app` → 0 error（91 files 口径）
+  4. `.venv\Scripts\python -m pytest -q -p no:cacheprovider` → 全绿
+  5. `python skills/anti-shit-code/scripts/check_arch.py` → PASS
+- 前端：`pnpm lint`（0 errors）→ `pnpm typecheck` → `pnpm test` → `pnpm build`。
+
+## 2. 信封返回类型（mypy 根因）
+
+- `ok()` 返 `dict`，`fail()` 返 `JSONResponse`。**凡同时 return ok/fail 的端点，签名一律 `-> object`**（见 `chat.py`/`documents.py` 成例）。
+- 禁止 `-> dict[str, Any]` 配 `return fail(...)`（`observability.py:34` 就是这么红的）。
+- 修法只改签名一行，不改业务分支。
+
+## 3. 超长文件拆分（400 行红线，只拆职责不堆注释）
+
+- 单文件 >400 行必须拆；新文件带中文头 docstring（职责+链路+对齐章节）。
+- 拆分模板（已验证，照抄）：
+  - `chat_service` → `chat_generation`（组装/编排/收尾/answer）+ `chat_turn_store`（开轮/双落库/成本审计），原模块只留 `run/stream` 编排 + `__all__` 薄转发。
+  - `knowledge_service` → `knowledge_scoring`（bigram/BM25/RRF/三路打分纯函数），原模块留检索内核 + 薄转发（`_terms/bm25_scores/score` 单测口径不变）。
+  - `document_service` → `document_parse`（解析/切分/分块/重建）+ `document_lifecycle`（版本/回滚/流转/统计），原模块留 CRUD + 薄转发。
+  - `studio_service` → `studio_eval`（评测 runs 全家桶），原模块留 Prompt 版本 + 薄转发。
+- 铁律：**调用方 import 路径不变**（`from app.services import chat_service` 照旧），新模块只被原模块 import，不许端点直调新模块（分层不散）。
+- 拆完收紧 `check_arch.py` 的 `FILE_LINE_BUDGET`（删条目或收到新行数），`vision 498` 这类顺手收。
+
+## 4. 前端红灯速查（本次已绿，复发照此查）
+
+- `no-undef`（如 `listAttributionApi`）：api 函数先在 `src/api/*.ts` 导出再 import，禁止模板直调未定义名。
+- `vue-tsc never`（如 `useChatSend.test.ts`）：mock store 先给形状再取属性，`ref` 泛型不删（删了推成 `never[]`）。
+- `DashboardView` 类：模板用到的 `onRange/barHeight/formatLatency` 必须在 `<script setup>` 先定义（箭头函数无提升）。
+
+## 5. 提交前自检（每项都必须是“是”）
+
+- [ ] 五道后端门禁 + 四道前端门禁全绿（贴输出，不说“应该过了”）？
+- [ ] `check_arch` 无新增，超长预算只减不增？
+- [ ] 改接口→API 规范+openapi 自查；改 RAG→RAG 规范；改页面视觉→`design.pen`；改表→数据模型+Alembic？
+- [ ] `执行步骤.md` 头部版本+盘点表+剩余工序同改？

@@ -58,6 +58,7 @@ async def list_approvals(
     status: str = Query(default="pending", max_length=16),
     action: str = Query(default="", max_length=48),
     keyword: str = Query(default="", max_length=60),
+    overdue: bool = Query(default=False),
     page: int | None = Query(default=None, ge=1),
     size: int | None = Query(default=None, ge=1, le=100),
     limit: int | None = Query(default=None, ge=1, le=200),
@@ -70,6 +71,7 @@ async def list_approvals(
             status=status,
             action=action,
             keyword=keyword,
+            overdue_only=overdue,
             page=page or 1,
             size=size or 20,
         )
@@ -78,6 +80,21 @@ async def list_approvals(
         db, tenant=user.tenant, status=status, limit=limit or 50
     )
     return ok([approval_service.to_dict(r) for r in rows], "获取成功")
+
+
+@router.get("/{approval_id}")
+async def approval_detail(
+    approval_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(require_any_perm(*LIST_PERMS)),
+) -> dict[str, Any]:
+    """审批详情（抽屉展示用：基础字段 + 超期标记 + 政策引用；跨租户 404）。"""
+    row = await approval_service.get_or_raise(db, user.tenant, approval_id)
+    data = approval_service.to_dict(row)
+    data["policy_refs"] = await approval_service.policy_refs(
+        db, tenant=user.tenant, action=row.action
+    )
+    return ok(data, "获取成功")
 
 
 @router.post("/{approval_id}/approve")

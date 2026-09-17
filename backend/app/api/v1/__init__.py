@@ -20,10 +20,12 @@ from app.api.v1.endpoints import (
     logistics,
     mining,
     multimodal,
+    observability,
     orders,
     promos,
     reviews,
     sessions,
+    studio,
     tasks,
     tickets,
     workbench,
@@ -38,9 +40,11 @@ api_router.include_router(chat.router, prefix="/agent", dependencies=[Depends(ge
 # Agent 内核（FR-3/FR-5）：/agent/tools 注册中心 + /agent/run 编排 + /agent/runtime/{id} 检查点
 api_router.include_router(agent.router, dependencies=[Depends(get_current_user)])
 api_router.include_router(sessions.router, dependencies=[Depends(get_current_user)])
+api_router.include_router(studio.router, dependencies=[Depends(get_current_user)])
 api_router.include_router(documents.router, dependencies=[Depends(get_current_user)])
 api_router.include_router(mining.router, dependencies=[Depends(get_current_user)])
 api_router.include_router(multimodal.router, dependencies=[Depends(get_current_user)])
+api_router.include_router(observability.router, dependencies=[Depends(get_current_user)])
 api_router.include_router(approvals.router, dependencies=[Depends(get_current_user)])
 api_router.include_router(tasks.router, dependencies=[Depends(get_current_user)])
 api_router.include_router(governance.router, dependencies=[Depends(get_current_user)])

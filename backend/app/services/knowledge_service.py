@@ -1,32 +1,62 @@
-"""DB 三路召回 RAG 检索（P0 stdlib 链路，对齐 RAG 规范 §2/§3）
+"""DB 三路召回 RAG 检索（P1 BM25 词汇路，对齐 RAG 规范 §2/§3 + FR-4/FR-13.4）
 
-链路：治理 SQL（租户/密级）→ 生效期/渠道过滤 → 向量路+TF-IDF 路+关键词路
-      → RRF 融合 → rerank_service 重排 → 多样性裁剪 → 阈值拒答。
+链路：治理 SQL（租户/密级/已发布）→ 热点缓存 → 生效期/渠道过滤
+      → 向量路+BM25 路+关键词路 → RRF 融合 → rerank_service 二阶段精排
+      → 多样性裁剪 → 阈值拒答。
 BGE 接入替换 vector_store.embed_text，bge-reranker 替换 rerank 体，签名与治理不变。
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import hashlib
 import json
-import math
 import threading
 from datetime import datetime
 from pathlib import Path
-from typing import TypedDict
+from typing import Any, TypedDict
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.core.cache import get_json, set_json
 from app.db.models import KbChunk, KbDoc
 from app.services import rag_governance, rerank_service, vector_store
+from app.services.knowledge_scoring import (
+    _score_chunks,
+    _terms,
+    bm25_scores,
+    rrf_fuse,
+    score,
+)
+
+# 薄转发：打分纯函数已下沉 knowledge_scoring，单测旧导入口径不变。
+__all__ = [
+    "_terms",
+    "bm25_scores",
+    "bump_corpus",
+    "retrieve",
+    "retrieve_debug",
+    "rrf_fuse",
+    "score",
+    "visible_levels",
+]
 
 _DOCS: list[dict[str, object]] | None = None
 _DOCS_LOCK = threading.Lock()
 
 # 坐席/运营可见内部文档；机密仅 kb 角色；空角色只见公开
 _INTERNAL_ROLES = frozenset({"cs", "ops", "admin", "shop", "stock", "kb"})
+
+# 语料版本（租户级）：文档写操作 bump，缓存键带版本即时失效（多副本至多滞后一个 TTL）
+_CORPUS_VER: dict[str, int] = {}
+
+
+def bump_corpus(tenant: str) -> None:
+    """语料版本 +1（document_service 写路径调用；缓存键带版本，天然失效）。"""
+    _CORPUS_VER[tenant] = _CORPUS_VER.get(tenant, 0) + 1
 
 
 def _seed_path() -> Path:
@@ -42,21 +72,6 @@ def _load_docs_sync() -> list[dict[str, object]]:
                 raw = json.loads(_seed_path().read_text(encoding="utf-8"))
                 _DOCS = raw if isinstance(raw, list) else []
     return list(_DOCS or [])
-
-
-def _bigrams(text: str) -> set[str]:
-    chars = [c for c in text.strip() if not c.isspace()]
-    if len(chars) < 2:
-        return set(chars)
-    return {chars[i] + chars[i + 1] for i in range(len(chars) - 1)}
-
-
-def score(query: str, doc_text: str) -> float:
-    """bigram 重叠率 0-1，纯函数可单测（关键词路基础分）。"""
-    q, d = _bigrams(query), _bigrams(doc_text)
-    if not q:
-        return 0.0
-    return len(q & d) / len(q)
 
 
 def visible_levels(roles: list[str] | None) -> set[str]:
@@ -77,34 +92,6 @@ class _Hit(TypedDict):
     content: str
     source: str
     score: float
-
-
-def _cosine(query_bi: set[str], doc_bi: set[str], idf: dict[str, float]) -> float:
-    """bigram TF-IDF 余弦（向量路；二值 TF，idf 平滑，纯 Python 无依赖）。"""
-    common = query_bi & doc_bi
-    if not common:
-        return 0.0
-    num = sum(idf.get(t, 1.0) ** 2 for t in common)
-    q_norm = math.sqrt(sum(idf.get(t, 1.0) ** 2 for t in query_bi))
-    d_norm = math.sqrt(sum(idf.get(t, 1.0) ** 2 for t in doc_bi))
-    if q_norm == 0.0 or d_norm == 0.0:
-        return 0.0
-    return num / (q_norm * d_norm)
-
-
-def _keyword_score(query: str, title: str, text: str) -> float:
-    """关键词路：正文交叠 0.7 + 标题交叠 0.3（标题命中是强信号）。"""
-    return 0.7 * score(query, text) + 0.3 * score(query, title)
-
-
-def rrf_fuse(rank_lists: list[list[str]], k: int | None = None) -> dict[str, float]:
-    """RRF 融合：score = Σ 1/(K + rank)，纯函数可单测（K 走 Settings.RRF_K）。"""
-    kk = k if k is not None else settings.RRF_K
-    fused: dict[str, float] = {}
-    for ranking in rank_lists:
-        for rank, key in enumerate(ranking, 1):
-            fused[key] = fused.get(key, 0.0) + 1.0 / (kk + rank)
-    return fused
 
 
 def _rerank(fused: dict[str, float], cosine: dict[str, float]) -> list[str]:
@@ -166,28 +153,127 @@ def _governance_filter(
     return kept, n_expired, n_channel
 
 
-def _score_chunks(
-    query: str, docs: list[KbDoc], chunks: list[KbChunk]
-) -> tuple[dict[str, float], dict[str, float], dict[str, KbChunk], dict[str, KbDoc]]:
-    """双路打分（纯函数）：TF-IDF 余弦 + 关键词分；IDF 在候选块上现算（百级块毫秒级，见 RAG 规范）。"""
-    by_doc = {d.id: d for d in docs}
-    doc_freq: dict[str, int] = {}
-    chunk_bi: dict[str, set[str]] = {}
-    for chunk in chunks:
-        bis = _bigrams(chunk.content)
-        chunk_bi[chunk.id] = bis
-        for term in bis:
-            doc_freq[term] = doc_freq.get(term, 0) + 1
-    total = max(len(chunks), 1)
-    idf = {term: math.log((total + 1) / (freq + 1)) + 1.0 for term, freq in doc_freq.items()}
-    query_bi = _bigrams(query)
-    cosine: dict[str, float] = {}
-    kw_scores: dict[str, float] = {}
-    for chunk in chunks:
+def _cache_key(tenant: str, levels: set[str], channel: str, limit: int, query: str) -> str:
+    """热点缓存键（租户+可见密级+渠道+条数+query 哈希+语料版本；写操作 bump 即失效）。"""
+    digest = hashlib.sha256(query.strip().encode("utf-8")).hexdigest()[:16]
+    ver = _CORPUS_VER.get(tenant, 0)
+    return f"rag:v{ver}:{tenant}:{','.join(sorted(levels))}:{channel}:{limit}:{digest}"
+
+
+async def _retrieve_core(
+    query: str,
+    tenant: str,
+    limit: int,
+    floor: float,
+    db: AsyncSession,
+    roles: list[str] | None,
+    channel: str,
+    trace_id: str,
+) -> tuple[list[dict[str, object]], dict[str, Any]]:
+    """检索内核：返回 (refs, meta)；meta 含过滤计数/缓存命中，供 retrieve 与 debug 复用。"""
+    levels = visible_levels(roles)
+    now = datetime.now()
+    docs = list(
+        (
+            await db.execute(
+                select(KbDoc).where(
+                    KbDoc.tenant == tenant,
+                    KbDoc.security_level.in_(levels),
+                    KbDoc.status == "published",
+                )
+            )
+        ).scalars()
+    )
+    total_docs = len(docs)
+    docs, n_expired, n_channel = _governance_filter(docs, now, channel)
+    if not docs:
+        meta = {
+            "total_docs": total_docs,
+            "chunks": 0,
+            "expired": n_expired,
+            "channel_cut": n_channel,
+            "best": 0.0,
+            "refs": 0,
+            "vec_ok": False,
+            "cached": False,
+        }
+        rag_governance.trace_step("rag.retrieve", tenant=tenant, trace_id=trace_id, extra=meta)
+        return [], meta
+    doc_ids = [d.id for d in docs]
+    chunks = list((await db.execute(select(KbChunk).where(KbChunk.doc_id.in_(doc_ids)))).scalars())
+    bm25_raw, kw_scores, chunk_by_id, by_doc = _score_chunks(query, docs, chunks)
+    try:
+        vec_scores = await vector_store.search(tenant, query, [c.id for c in chunks])
+        vec_ok = True
+    except Exception:
+        vec_scores = {}
+        vec_ok = False
+    bm25_rank = sorted(bm25_raw, key=lambda key: bm25_raw[key], reverse=True)
+    keyword_rank = sorted(kw_scores, key=lambda key: kw_scores[key], reverse=True)
+    ranks: list[list[str]] = [bm25_rank, keyword_rank]
+    if settings.VECTOR_FUSE_RANK and vec_ok and any(v > 0 for v in vec_scores.values()):
+        ranks.insert(0, sorted(vec_scores, key=lambda k: vec_scores[k], reverse=True))
+    fused = rrf_fuse(ranks)
+    titles = {cid: by_doc[chunk_by_id[cid].doc_id].title for cid in chunk_by_id}
+    ordered = rerank_service.rerank(
+        fused, kw_scores, bm25=bm25_raw, vector=vec_scores, titles=titles, query=query
+    )
+    # 多样性裁剪：同 doc 至多 RAG_DIVERSITY_PER_DOC 个块
+    picked: list[str] = []
+    per_doc: dict[str, int] = {}
+    for key in ordered:
+        doc_id = chunk_by_id[key].doc_id
+        if per_doc.get(doc_id, 0) >= settings.RAG_DIVERSITY_PER_DOC:
+            continue
+        per_doc[doc_id] = per_doc.get(doc_id, 0) + 1
+        picked.append(key)
+        if len(picked) >= limit:
+            break
+    # 相关性门禁看关键词交叠（0-1 绝对口径；BM25 归一后恒 1 会抬进无据，哈希向量只排不用）
+    best = max(kw_scores[k] for k in picked) if picked else 0.0
+    top_bm25 = max(bm25_raw.values()) if bm25_raw else 0.0
+    if not picked or best < floor:
+        meta = {
+            "total_docs": total_docs,
+            "chunks": len(chunks),
+            "expired": n_expired,
+            "channel_cut": n_channel,
+            "best": round(best, 4),
+            "refs": 0,
+            "vec_ok": vec_ok,
+            "cached": False,
+        }
+        rag_governance.trace_step("rag.retrieve", tenant=tenant, trace_id=trace_id, extra=meta)
+        return [], meta
+    refs: list[dict[str, object]] = []
+    for key in picked:
+        chunk = chunk_by_id[key]
         doc = by_doc[chunk.doc_id]
-        cosine[chunk.id] = _cosine(query_bi, chunk_bi[chunk.id], idf)
-        kw_scores[chunk.id] = _keyword_score(query, doc.title, chunk.content)
-    return cosine, kw_scores, {c.id: c for c in chunks}, by_doc
+        refs.append(
+            {
+                "title": doc.title,
+                "content": chunk.content,
+                "source": f"{doc.id}#{chunk.ord}",
+                "doc_id": doc.id,
+                "score": round(bm25_raw[key] / top_bm25, 4) if top_bm25 > 0 else 0.0,
+                "bm25": round(bm25_raw[key], 4),
+                "kw": round(kw_scores[key], 4),
+                "rrf": round(fused.get(key, 0.0), 4),
+                "vector_score": round(vec_scores.get(key, 0.0), 4),
+            }
+        )
+    meta = {
+        "total_docs": total_docs,
+        "chunks": len(chunks),
+        "expired": n_expired,
+        "channel_cut": n_channel,
+        "best": round(best, 4),
+        "refs": len(refs),
+        "vec_ok": vec_ok,
+        "cached": False,
+    }
+    rag_governance.trace_step("rag.retrieve", tenant=tenant, trace_id=trace_id, extra=meta)
+    return refs, meta
 
 
 async def retrieve(
@@ -200,7 +286,7 @@ async def retrieve(
     channel: str = "all",
     trace_id: str = "",
 ) -> list[dict[str, object]]:
-    """统一检索入口：三路召回（向量库+TF-IDF+关键词）→ RRF → 重排 → 治理 → 阈值。
+    """统一检索入口：热点缓存 → 三路召回（向量库+BM25+关键词）→ RRF → 精排 → 治理 → 阈值。
 
     每步留痕：trace_step 带 tenant/trace_id（读步骤不写 DB）；过滤原因计入 trace。
     channel 走 Settings.RAG_CHANNEL_FILTER 开关；向量缺失自动回退双路，不断流。
@@ -210,102 +296,49 @@ async def retrieve(
         return await _retrieve_legacy(query, tenant, limit, 0.12)
     floor = threshold if threshold is not None else settings.RAG_DB_THRESHOLD
     levels = visible_levels(roles)
-    now = datetime.now()
-    docs = list(
-        (
-            await db.execute(
-                select(KbDoc).where(KbDoc.tenant == tenant, KbDoc.security_level.in_(levels))
-            )
-        ).scalars()
-    )
-    total_docs = len(docs)
-    docs, n_expired, n_channel = _governance_filter(docs, now, channel)
-    if not docs:
-        rag_governance.trace_step(
-            "rag.retrieve",
-            tenant=tenant,
-            trace_id=trace_id,
-            extra={
-                "total_docs": total_docs,
-                "expired": n_expired,
-                "channel_cut": n_channel,
-                "refs": 0,
-            },
-        )
-        return []
-    doc_ids = [d.id for d in docs]
-    chunks = list((await db.execute(select(KbChunk).where(KbChunk.doc_id.in_(doc_ids)))).scalars())
-    cosine, kw_scores, chunk_by_id, by_doc = _score_chunks(query, docs, chunks)
-    try:
-        vec_scores = await vector_store.search(tenant, query, [c.id for c in chunks])
-        vec_ok = True
-    except Exception:
-        vec_scores = {}
-        vec_ok = False
-    tfidf_rank = sorted(cosine, key=lambda key: cosine[key], reverse=True)
-    keyword_rank = sorted(kw_scores, key=lambda key: kw_scores[key], reverse=True)
-    ranks: list[list[str]] = [tfidf_rank, keyword_rank]
-    if settings.VECTOR_FUSE_RANK and vec_ok and any(v > 0 for v in vec_scores.values()):
-        ranks.insert(0, sorted(vec_scores, key=lambda k: vec_scores[k], reverse=True))
-    fused = rrf_fuse(ranks)
-    ordered = rerank_service.rerank(fused, cosine, kw_scores)
-    # 多样性裁剪：同 doc 至多 RAG_DIVERSITY_PER_DOC 个块
-    picked: list[str] = []
-    per_doc: dict[str, int] = {}
-    for key in ordered:
-        doc_id = chunk_by_id[key].doc_id
-        if per_doc.get(doc_id, 0) >= settings.RAG_DIVERSITY_PER_DOC:
-            continue
-        per_doc[doc_id] = per_doc.get(doc_id, 0) + 1
-        picked.append(key)
-        if len(picked) >= limit:
-            break
-    # 相关性门禁只看 TF-IDF/关键词（哈希向量碰撞率高，只参与排序不参与门禁，避免无据被抬进）
-    best = max(max(cosine[k], kw_scores[k]) for k in picked) if picked else 0.0
-    if not picked or best < floor:
-        rag_governance.trace_step(
-            "rag.retrieve",
-            tenant=tenant,
-            trace_id=trace_id,
-            extra={
-                "total_docs": total_docs,
-                "chunks": len(chunks),
-                "best": round(best, 4),
-                "refs": 0,
-            },
-        )
-        return []
-    refs: list[dict[str, object]] = []
-    for key in picked:
-        chunk = chunk_by_id[key]
-        doc = by_doc[chunk.doc_id]
-        refs.append(
-            {
-                "title": doc.title,
-                "content": chunk.content,
-                "source": f"{doc.id}#{chunk.ord}",
-                "doc_id": doc.id,
-                "score": round(cosine[key], 4),
-                "vector_score": round(vec_scores.get(key, 0.0), 4),
-            }
-        )
-    rag_governance.trace_step(
-        "rag.retrieve",
-        tenant=tenant,
-        trace_id=trace_id,
-        extra={
-            "total_docs": total_docs,
-            "chunks": len(chunks),
-            "refs": len(refs),
-            "vec_ok": vec_ok,
-        },
-    )
+    ttl = settings.RAG_CACHE_TTL
+    key = _cache_key(tenant, levels, channel, limit, query)
+    if ttl > 0:
+        try:
+            hit = await get_json(key)
+            if isinstance(hit, list):
+                rag_governance.trace_step(
+                    "rag.retrieve",
+                    tenant=tenant,
+                    trace_id=trace_id,
+                    extra={"refs": len(hit), "cached": True},
+                )
+                return [dict(item) for item in hit if isinstance(item, dict)]
+        except Exception:
+            pass
+    refs, _meta = await _retrieve_core(query, tenant, limit, floor, db, roles, channel, trace_id)
+    if ttl > 0:
+        with contextlib.suppress(Exception):
+            await set_json(key, refs, ttl)
     return refs
 
 
 async def retrieve_debug(
-    query: str, tenant: str, db: AsyncSession, roles: list[str] | None = None, channel: str = "all"
+    query: str,
+    tenant: str,
+    db: AsyncSession,
+    roles: list[str] | None = None,
+    channel: str = "all",
+    top_k: int | None = None,
 ) -> dict[str, object]:
-    """检索测试口径：返回引用 + 过滤原因（运营后台预览召回分数/拦截原因）。"""
-    refs = await retrieve(query, tenant, db=db, roles=roles, channel=channel)
-    return {"refs": refs, "levels": sorted(visible_levels(roles)), "channel": channel}
+    """检索测试口径：返回引用（含各路分数）+ 过滤原因（运营后台预览召回分数/拦截原因）。"""
+    limit = top_k if top_k is not None else settings.TOP_K
+    refs, meta = await _retrieve_core(
+        query, tenant, limit, settings.RAG_DB_THRESHOLD, db, roles, channel, ""
+    )
+    return {
+        "refs": refs,
+        "levels": sorted(visible_levels(roles)),
+        "channel": channel,
+        "filtered": {
+            "total_docs": meta["total_docs"],
+            "expired": meta["expired"],
+            "channel_cut": meta["channel_cut"],
+            "below_threshold": meta["refs"] == 0,
+        },
+    }

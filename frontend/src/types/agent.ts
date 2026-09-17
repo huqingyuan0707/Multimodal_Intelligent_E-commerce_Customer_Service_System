@@ -89,3 +89,85 @@ export const LEVEL_TAG = {
   internal: '内部',
   confidential: '机密',
 } as const;
+
+// Studio 类型（对齐 API 规范 §4.13，后端 studio_service 出参同形，前端不自造）
+export type PromptStatus = 'draft' | 'gray' | 'online' | 'archived';
+
+export type PromptVersion = {
+  id: string;
+  version: string;
+  desc: string;
+  content: string;
+  variables: string[];
+  gray: number;
+  status: PromptStatus;
+  status_label: string;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PromptPage = {
+  items: PromptVersion[];
+  total: number;
+  page: number;
+  size: number;
+};
+
+// 工具规格（GET /agent/tools 出参同形：注册中心规格 + 当前熔断态）
+export type StudioTool = {
+  name: string;
+  scope: string;
+  description: string;
+  params: unknown;
+  idempotent: boolean;
+  requires_approval: boolean;
+  approval_action: string;
+  timeout_seconds: number;
+  max_retries: number;
+  breaker: unknown;
+};
+
+export type EvalStatus = 'pending' | 'running' | 'done' | 'failed';
+
+export type EvalMiss = {
+  id: string;
+  scene: string;
+  query: string;
+  expect: string[];
+  got: string[];
+};
+
+export type EvalScore = {
+  total: number;
+  answerable: number;
+  refuse: number;
+  grounded: number;
+  hallucination: number;
+  per_scene: { [scene: string]: { total: number; hit: number } };
+  guard_dist: { [category: string]: number };
+  misses: EvalMiss[];
+  ratchet_ok?: boolean;
+  accept_ok?: boolean;
+};
+
+export type EvalRun = {
+  id: string;
+  name: string;
+  limit: number;
+  status: EvalStatus;
+  score: EvalScore;
+  pass: boolean;
+  accept: boolean;
+  elapsed_ms: number;
+  error: string;
+  created_by: string;
+  created_at: string;
+};
+
+export type EvalPage = {
+  items: EvalRun[];
+  total: number;
+  page: number;
+  size: number;
+};

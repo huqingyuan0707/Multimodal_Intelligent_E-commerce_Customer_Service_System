@@ -19,6 +19,9 @@ _SYSTEM_PROMPT = (
     "3) 用简体中文，简洁分点，引用来源时在句末标注编号，例如 [1]。"
 )
 
+# 公开别名：种子 Prompt v1 / Studio 为空时的回退口径（全站同一出处，禁止各处自写一份）
+DEFAULT_SYSTEM_PROMPT = _SYSTEM_PROMPT
+
 _CITED = re.compile(r"\[(\d{1,2})\]")
 
 
@@ -28,6 +31,7 @@ def build_messages(
     vision_block: str = "",
     history_block: str = "",
     tool_block: str = "",
+    system_override: str = "",
 ) -> list[dict[str, str]]:
     """拼提示词：资料按 [n] 编号注入（单条 LLM_REF_CHARS 截断，总预算 TOP_K 倍封顶）。
 
@@ -36,6 +40,8 @@ def build_messages(
     多轮 history_block（摘要 + 窗口，context_service 已做预算裁剪/PII 清洗）插在检测后。
     tool_block 为 Agent 编排（FR-3/FR-5 接线）实查到的业务事实（订单/物流/库存等）：
     与【资料】并列作为可依据事实，但不参与 [n] 编号，避免 LLM 编造出不存在的引用号。
+    system_override 非空即替换 system 位（Studio 线上版本发布即生效）；
+    为空回退 _SYSTEM_PROMPT（单测/无版本租户行为不变）。
     """
     budget = settings.TOP_K * settings.LLM_REF_CHARS
     blocks: list[str] = []
@@ -52,8 +58,9 @@ def build_messages(
     history = (
         f"\n\n{history_block[: settings.SESSION_TOKEN_BUDGET * 2]}" if history_block.strip() else ""
     )
+    system_text = system_override.strip() or _SYSTEM_PROMPT
     return [
-        {"role": "system", "content": _SYSTEM_PROMPT},
+        {"role": "system", "content": system_text},
         {
             "role": "user",
             "content": (

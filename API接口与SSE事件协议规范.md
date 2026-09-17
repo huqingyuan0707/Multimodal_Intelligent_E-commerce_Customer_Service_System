@@ -91,23 +91,30 @@ api_router.include_router(chat.router, dependencies=[Depends(get_current_user)])
 - 前置地基：`sessions/messages` 表由 Alembic 基线迁移建表 + `d3f1a2b4c5e6` 补 `summary/updated_at`（只加列，旧库 server_default 回填）。
 
 ### 4.4 知识库
-- `POST /documents/upload` FormData(`file, security_level?=internal, channels?=all, valid_from?=, valid_to?=`) → `ok({doc_id, sha256, skipped?})`，重复 SHA256 返回“已跳过重复入库”（敏感写，`require_perm("kb")` Scope 校验；超 `MAX_UPLOAD_BYTES` 1001；解析→切分→向量化全在 `document_service.ingest_upload`，记 `kb.upload` 审计）。
-- `GET /documents?page=1&size=20&keyword=` → 分页对象 `{items[], total, page, size}`（租户隔离倒序，标题模糊筛选，空数据 `items=[]` 不报错；`items[]` 含密级/渠道/生效期/版本，不含正文）。
+- `POST /documents/upload` FormData(`file, security_level?=internal, channels?=all, valid_from?=, valid_to?=, topic?=, status?=published`) → `ok({doc_id, sha256, skipped?})`，重复 SHA256 返回“已跳过重复入库”（敏感写，`require_perm("kb")` Scope 校验；超 `MAX_UPLOAD_BYTES` 1001；解析→切分→向量化全在 `document_service.ingest_upload`，记 `kb.upload` 审计；`status=draft` 走审核流，默认 `published` 存量兼容）。
+- `GET /documents?page=1&size=20&keyword=` → 分页对象 `{items[], total, page, size}`（租户隔离倒序，标题模糊筛选，空数据 `items=[]` 不报错；`items[]` 含主题/状态/密级/渠道/生效期/版本，不含正文）。
 - `GET /documents/{id}` → 详情（含正文与全量元数据，供预览/编辑回显；跨租户 404）。
-- `PUT /documents/{id} {title, content, security_level, channels[], valid_from?, valid_to?}` → 内容变则版本 +1，撞他篇内容 1001（敏感写，`require_perm("kb")`）。
+- `PUT /documents/{id} {title, content, topic?, security_level, channels[], valid_from?, valid_to?}` → 内容变则版本 +1（快照进版本表），撞他篇内容 1001（敏感写，`require_perm("kb")`）。
 - `DELETE /documents/{id}` → 需 confirm（敏感写，`require_perm("kb")`）；`POST /documents/reindex` → 落 `tasks` 行返回 `{task_id}`（敏感写，`require_perm("kb")`）。
+- `POST /documents/retrieve-test {query, top_k?=5(1..20), channel?=all}` → `ok({refs[{title,content,source,doc_id,score,bm25,kw,rrf,vector_score}], levels[], channel, filtered{total_docs,expired,channel_cut,below_threshold}})`（登录即可，密级按调用者角色可见集；只读不写 DB；`below_threshold=true` 即前端 2001 拒答口径）。
+- `GET /documents/stats` → `ok({total, by_status{}, cited{doc_id:n}, topics[{topic,docs,cited}], idle_review[{doc_id,title,topic,created_at,days_idle}]})`（引用口径为 `messages.citations` 聚合；0 引用超 30 天且已发布进复核清单，上限 100 条）。
+- `GET /documents/{id}/versions` → `{items[{version,title,content,sha256,actor,action,created_at}] 倒序, total}`（跨租户 404）。
+- `POST /documents/{id}/rollback {version}` → 旧内容另起新版本（version 现行 +1，不覆盖旧版；目标不存在 404；已是该内容 1001；敏感写，`require_perm("kb")`，记 `kb.rollback` 审计）。
+- `POST /documents/{id}/transition {action}` → 生命周期 `submit/draft→review`、`publish/review→published`（发布需换人复核，自己审自己 1001）、`archive/published→archived`、`reopen/archived→draft`；非法流转 1001（敏感写，`require_perm("kb")`，记 `kb.status` 审计；检索 SQL 只收 `published`）。
 - 上传失败 `fail(PARAM_INVALID,"请至少选择一个文件",400)`。
 
 ### 4.5 审批与任务
-- `GET /approvals?status=pending&page=1&size=20&action=&keyword=` → 服务端分页对象 `{items[], total, page, size}`（默认待办；`status` 非法 `1001`；`action` 精确匹配四类；`keyword` 模糊搜对象/申请人/原因；空结果 `items=[]` 不报错；只传 `status` 不传 `page/size` 时兼容回数组，供存量调用过渡）。列表可见 `cs/shop/stock/ops/admin` 及各域读写真令牌（客服可看待办），批/驳仅 `shop/ops/admin`；批/驳同步记 `approval.approve|reject` 审计（actor/target/前后状态）。
-- `POST /approvals/{id}/approve {modified_args?, reason?}` / `POST /approvals/{id}/reject {reason}`（驳回理由必填留痕；重复处理 `4004`；跨租户 `404`；批准先执行生效动作再改状态，同事务失败整体回滚）。
+- `GET /approvals?status=pending&page=1&size=20&action=&keyword=&overdue=` → 服务端分页对象 `{items[], total, page, size}`（默认待办；`status` 非法 `1001`；`action` 精确匹配四类；`keyword` 模糊搜对象/申请人/原因；`overdue=true` 只回超期待办（等待超 `APPROVAL_SLA_HOURS`，默认 24h）；空结果 `items=[]` 不报错；只传 `status` 不传 `page/size` 时兼容回数组，供存量调用过渡）。列表项含 `waiting_hours + overdue`（超时升级展示口径：红标 + 置顶含义由筛选表达，企微/钉钉推送待通知通道 P2）。列表可见 `cs/shop/stock/ops/admin` 及各域读写真令牌（客服可看待办），批/驳仅 `shop/ops/admin`；批/驳同步记 `approval.approve|reject` 审计（actor/target/前后状态）。
+- `POST /approvals/{id}/approve {modified_args?, reason?}` / `POST /approvals/{id}/reject {reason}`（驳回理由必填：空理由后端 `1001`，前端 prompt 是第一道；重复处理 `4004`；跨租户 `404`；批准先执行生效动作再改状态，同事务失败整体回滚）。
+- `GET /approvals/{id}` → 审批详情（基础字段 + `waiting_hours/overdue` + `policy_refs[{id,title}]` Top3：按类型关键词在同租户知识库标题模糊找，供抽屉「政策引用」行点跳 `/knowledge?keyword=`；无命中回 `[]`）。跨租户 `404`。
+- openapi 自查说明：`backend/openapi.json` 尚未落库，本轮以 `app.openapi()` 导出核对：`GET /approvals` 含 `overdue` 入参，新增 `GET /approvals/{id}` 1 条 path，其余端点未变。
 - `GET /tasks?page=1&size=20&status=` → 本人维度真实列表（空数据 `[]` 不报错）；`POST /tasks {type, payload}` → `{task_id}`；`GET /tasks/{id}` → `{status, progress, result}`（跨租户 404）。SSE 任务类事件另含 `progress/complete/error`。
 - `POST /documents/reindex` → 建 `kb.reindex` 任务行即 via `BackgroundTasks` 真实执行（租户全部分块重建），`GET /tasks/{id}` 轮询 `running → done{docs, chunks}`（异常落 `error`，不断流）。
 
 ### 4.6 治理与可观测
-- `GET /governance/status` → `{llm, vector{backend,model,dim,vectors}, keyword, reranker, thresholds{top_k,rrf_k,db_threshold,diversity_per_doc,faithfulness_warn}, hot_fields}`（`llm_service.probe()` + `vector_store.status()` + `rerank_service.status()` 实测，绝不抛异常）。
+- `GET /governance/status` → `{llm, vector{backend,model,dim,vectors}, keyword{backend: bm25-stdlib}, reranker{weights}, thresholds{top_k,rrf_k,db_threshold,diversity_per_doc,faithfulness_warn,bm25_k1/bm25_b,rerank_w,rag_cache_ttl,vlm/asr_confidence}, hot_fields}`（`llm_service.probe()` + `vector_store.status()` + `rerank_service.status()` 实测，绝不抛异常）。
 - `POST /mining/feedback {message_id, vote, comment?}` → `ok({id})`（跨租户 404；记 `mining.feedback` 审计）；`GET /mining/candidates` → `{items[{feedback_id,message_id,session_id,vote,comment,query}], total}`（差评 + 无引用拒答补位，租户隔离）。
-- `GET /observability/summary` → 耗时/召回/拦截/token 成本聚合（后端 `_record() → observability.record()` 必埋，检索/生成/Mining 每步带 `tenant/trace_id`）。
+- `GET /observability/summary?range=today|week&page=1&size=20` → `{metrics[{key,label,value,desc,overBudget}], trend[{label,value}], slow_traces[{trace_id,latency_ms,tool}], items[{id,tenant,channel,sessions,resolveRate,costCents,overBudget,slowTraceId}], total, page, size, range}`（`ops/admin`；admin 看全租户否则本租户；range 非法 `1001`；指标 6 项 QPS/首字P95/解决率/幻觉率/工具成功率/Token成本，无运行时数据的回 `—` 不编数；趋势为用户消息 today-24 小时桶/week-7 天桶；慢 Trace 取 tool_calls latency 倒序 Top5）。
 
 ### 4.7 B端商家后台（对齐 FRDv2 附录 D，同基座 JWT/Scope/幂等键/审计）
 > 已实现（本期，路由级 `get_current_user` + 端点 `require_any_perm`）；采购/财务/大屏为 P2 待建。
@@ -181,6 +188,21 @@ api_router.include_router(chat.router, dependencies=[Depends(get_current_user)])
 - 可调全进 `Settings`：`AGENT_TOOL_TIMEOUT_SECONDS / AGENT_TOOL_MAX_RETRIES / AGENT_TOOL_CIRCUIT_THRESHOLD / AGENT_TOOL_CIRCUIT_COOLDOWN_SECONDS / AGENT_TOOL_RETRY_BACKOFF_SECONDS / AGENT_MAX_STEPS / AGENT_CHAT_ORCHESTRATE`（前四项进 `_HOT_FIELDS`；`AGENT_CHAT_ORCHESTRATE=false` 即对话链一键回退直调）。
 - 启动注册：`main.py::lifespan → modules/agent/bootstrap.startup()` 幂等装载 6 个连接器；注册失败只告警不阻断启动（编排是增强能力，缺它服务仍须可用）。
 - openapi 自查说明：本轮以 `app.openapi()` 导出核对，新增 6 条 `/agent/*` path（`tools`、`tools/{name}`、`tools/{name}/invoke`、`run`、`runtime/{task_id}`、`runtime/{task_id}/resume`），总 **78** paths，其余端点未变。对话主链接线**不动路径与入参**，只在 `ok()` / `done` 载荷新增 `tool_calls[]` 与 `orchestration{notes[]}`（加法，向后兼容；老前端忽略即可）。配套：工具 Scope 令牌 `kb:read`/`vision:inspect`/`trade:refund` 已并入 `SEED_ROLES`（seed 侧只并集补齐，不覆盖存量密码与角色）。
+
+### 4.13 Agent Studio（对齐 FRD FR-3 + 页面设计 §3.6，同基座 JWT/租户隔离/审计）
+> 权限：读（版本列表/线上版本/评测列表详情）`require_any_perm("ops","admin")`；写：新建版本 `ops/admin`，发布/调灰/回滚 `admin`，评测一键跑 `ops/admin`。可见范围由 Token 推导（`governance.access_context()`），**不读请求体 tenant/user**；跨租户读评测详情/版本一律 `404` 不泄露存在性。
+> 状态机：`draft`（草稿）→ `publish(gray<100)` → `gray`（灰度中，可调灰）→ `publish(gray=100)` → `online`（全量，恒 100）；`rollback` 任意版本重上 `online`。一租户同时只允许一个线上版本：发布/回滚前现存 `online/gray` 全转 `archived`（单线上口径）；`archived` 不可直接发布（1001 提示新建版本）。
+- `GET /studio/prompts?page=1&size=20` → 分页对象 `{items[{id,version,desc,content,variables[],gray,status,status_label,created_by,created_at,updated_at}], total, page, size}`。线上置顶，其次更新倒序；`variables` 为正文 `{{var}}` 自动提取（创建时落库）。
+- `POST /studio/prompts {desc, content}` → `ok(版本行)`，版本号 `vN` 本租户自动递增；正文空/超 2 万字 `1001`。
+- `GET /studio/prompts/online` → `ok(版本行|null)`，无版本即 `data=null`（对话链 system prompt 取数口径同源）。
+- `POST /studio/prompts/{version}/publish {gray}` → `ok(版本行)`。`gray=100` 为全量上线：必须本租户最近一次 done 评测 `accept_ok=true`，否则 `1001`「评测不达标，禁止发布全量」（前端红条与此同源）；`gray<100` 进灰度不拦评测；`gray` 越界/归档版发布 `1001`；发布/回滚记 `audit_logs`（`studio.prompt.publish/rollback/gray`）。
+- `POST /studio/prompts/{version}/gray {gray}` → `ok(版本行)`，仅 `gray` 态可调（`online` 改比例请发新版），越界 `1001`。
+- `POST /studio/prompts/{version}/rollback` → `ok(版本行)`，指定版本重上 `online`（`gray=100`）；已是线上则幂等直返；未知版本 `1004`。二次确认由前端承担。
+- 对话链生效口径：`chat_service` 每轮读线上版本正文替换 system 位（`chat_prompt.build_messages(system_override=...)`）；无线上版本/读取异常即回退代码常量（单测与空租户行为不变）。
+- `POST /studio/evals {name?, limit?}` → `ok(run行)`，建 run 即返（`pending`），`BackgroundTasks` 采样执行（默认 50 条，上限 200，黄金集固定 `default-200`）；`limit` 越界回落默认。采样跑在**本租户真实知识库**上（与脚本临时库口径区分，页面展示采样数）。
+- `GET /studio/evals?page=1&size=20` → 分页对象（创建时间倒序）。
+- `GET /studio/evals/{run_id}` → `ok({id,name,limit,status,score,pass,accept,elapsed_ms,error,created_by,created_at})`。`score` 与 `scripts/eval_golden._score` 同口径并扩展：`grounded/hallucination/per_scene/guard_dist/misses(前20) + ratchet_ok/accept_ok` 双档 verdict；`pass=ratchet_ok`（与 CI RESULT 出口一致），全量发布门禁看 `accept_ok`。判定两道闸与脚本一致（先 `guard_service`，再 `knowledge_service.retrieve`，`roles=["cs"]`）；`failed` 带 `error` 截断（绝不抛 500）。
+- openapi 自查说明：本轮以 `app.openapi()` 导出核对，新增 7 条 `/studio/*` path（`prompts`、`prompts/online`、`prompts/{version}/publish`、`prompts/{version}/gray`、`prompts/{version}/rollback`、`evals`、`evals/{run_id}`，9 个 operation），总 **99** paths，其余端点未变。错误码无新增（复用 `1001/1003/1004` 号段）。
 
 ## 5. SSE 流式协议（项目实际形态）
 

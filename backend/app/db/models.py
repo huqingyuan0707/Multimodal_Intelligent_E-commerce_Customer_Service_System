@@ -14,26 +14,31 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base, _now, _uid
 
 # 前置地基表（messages/tasks/tool_calls/kb_docs/kb_chunks/cost_records）见 models_foundation，
-# 质检评分表见 models_quality；此处重导出以保持 `from app.db.models import X` 口径唯一，
-# Alembic env 同步 import 各模块。
+# 质检评分表见 models_quality，Studio（Prompt 版本/评测 runs）见 models_studio；
+# 此处重导出以保持 `from app.db.models import X` 口径唯一，Alembic env 同步 import 各模块。
 from app.db.models_foundation import (
     CostRecord,
     Feedback,
     KbChunk,
     KbDoc,
+    KbDocVersion,
     Message,
     Task,
     ToolCall,
 )
 from app.db.models_quality import SessionScore
+from app.db.models_studio import EvalRun, PromptVersion
 
 __all__ = [
     "Base",
     "CostRecord",
+    "EvalRun",
     "Feedback",
     "KbChunk",
     "KbDoc",
+    "KbDocVersion",
     "Message",
+    "PromptVersion",
     "Session",
     "SessionNote",
     "SessionScore",

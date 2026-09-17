@@ -20,6 +20,7 @@ export const listApprovalsApi = async (params?: {
   status?: string;
   action?: string;
   keyword?: string;
+  overdue?: boolean;
   page?: number;
   size?: number;
 }) => {
@@ -31,6 +32,7 @@ export const listApprovalsApi = async (params?: {
       status: params?.status ?? 'pending',
       action: params?.action ?? '',
       keyword: params?.keyword ?? '',
+      overdue: params?.overdue ?? false,
       page,
       size,
     },
@@ -39,6 +41,15 @@ export const listApprovalsApi = async (params?: {
     throw new Error(res.msg);
   }
   return toPage(res.data, page, size);
+};
+
+// 审批详情（抽屉展示：基础字段 + 超期标记 + 政策引用，后端 GET /approvals/{id}）
+export const getApprovalDetailApi = async (id: string) => {
+  const res = await dispatch({ path: `/api/v1/approvals/${encodeURIComponent(id)}` });
+  if (res.code !== 0) {
+    throw new Error(res.msg);
+  }
+  return res.data;
 };
 
 export const approveApprovalApi = async (params: {

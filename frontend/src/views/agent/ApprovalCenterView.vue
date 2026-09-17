@@ -29,6 +29,7 @@
         @keyup.enter="onSearch"
       />
       <AiButton @click="onSearch">查询</AiButton>
+      <el-checkbox v-model="overdueOnly" @change="onSearch">只看超期</el-checkbox>
       <AiButton v-permission="['shop', 'ops', 'admin']" @click="batch">批量批准</AiButton>
     </div>
     <el-table
@@ -46,11 +47,12 @@
         <template #default="s">{{ approvalAmountOf(s.row as ApprovalItem) || '-' }}</template>
       </el-table-column>
       <el-table-column prop="applicant" label="申请人" width="100" />
-      <el-table-column label="状态" width="100">
+      <el-table-column label="状态" width="130">
         <template #default="s">
           <el-tag :type="approvalTagOf((s.row as ApprovalItem).status)" size="small">
             {{ (s.row as ApprovalItem).status_label }}
           </el-tag>
+          <el-tag v-if="(s.row as ApprovalItem).overdue" type="danger" size="small"> 超期 </el-tag>
         </template>
       </el-table-column>
       <el-table-column label="等待" width="130">
@@ -114,7 +116,27 @@
           />
         </div>
         <p v-if="current.session_id" class="kv">关联会话：{{ current.session_id }}</p>
-        <p v-if="current.approver" class="kv">审批人：{{ current.approver }}</p>
+        <p v-if="current.approver" class="kv">
+          审批人：{{ current.approver }}{{ current.decided_at ? ` · ${current.decided_at}` : '' }}
+        </p>
+        <p v-if="current.overdue" class="kv">
+          <el-tag type="danger" size="small"
+            >已超期 {{ current.waiting_hours }} 小时，请优先处理</el-tag
+          >
+        </p>
+        <div v-if="policyRefs.length" class="ev">
+          <p class="kv">政策引用：</p>
+          <AiButton
+            v-for="p in policyRefs"
+            :key="p.id"
+            link
+            type="primary"
+            size="small"
+            @click="goPolicy(p.title)"
+          >
+            《{{ p.title }}》
+          </AiButton>
+        </div>
         <div v-if="current.status === 'pending'" class="ops">
           <AiButton v-permission="['shop', 'ops', 'admin']" @click="approveOne(current)">
             批准
@@ -132,8 +154,9 @@
 </template>
 
 <script setup lang="ts">
-// 审批中心（服务端分页 + 状态/类型/关键字筛选 + 批量批 + 证据图/超时透出；确认与幂等下沉 useApproval，对齐页面设计 §3.4）
+// 审批中心（服务端分页 + 状态/类型/关键字/超期筛选 + 批量批 + 证据图/政策引用/超时透出；确认与幂等下沉 useApproval，对齐页面设计 §3.4）
 import {
+  ElCheckbox,
   ElDrawer,
   ElImage,
   ElMessage,
@@ -145,7 +168,8 @@ import {
   ElOption,
 } from 'element-plus';
 import { computed, onMounted, ref } from 'vue';
-import { listApprovalsApi } from '@/api';
+import { useRouter } from 'vue-router';
+import { getApprovalDetailApi, listApprovalsApi } from '@/api';
 import { useApproval } from '@/composables/useApproval';
 import { mockApprovals } from '@/mock';
 import AiButton from '@/shared/components/AiButton.vue';
@@ -158,8 +182,9 @@ import {
   approvalTagOf,
   approvalWaitingOf,
 } from '@/types/approval';
-import type { ApprovalItem } from '@/types/approval';
+import type { ApprovalItem, ApprovalPolicyRef } from '@/types/approval';
 
+const router = useRouter();
 const rows = ref<ApprovalItem[]>([]);
 const total = ref(0);
 const page = ref(1);
@@ -167,10 +192,13 @@ const size = ref(20);
 const status = ref('pending');
 const action = ref('');
 const keyword = ref('');
+const overdueOnly = ref(false);
 const loading = ref(false);
 const demo = ref(false);
 const drawer = ref(false);
 const current = ref<ApprovalItem | null>(null);
+// 政策引用：抽屉打开时调详情接口拿，点击跳知识库按标题筛选；失败回空不断渲染
+const policyRefs = ref<ApprovalPolicyRef[]>([]);
 const selected = ref<ApprovalItem[]>([]);
 
 const prettyArgs = computed(() => JSON.stringify(current.value?.args ?? {}, null, 2));
@@ -182,6 +210,7 @@ const load = async () => {
       status: status.value,
       action: action.value,
       keyword: keyword.value.trim(),
+      overdue: overdueOnly.value,
       page: page.value,
       size: size.value,
     });
@@ -232,9 +261,24 @@ const onSelection = (vals: ApprovalItem[]) => {
   selected.value = vals;
 };
 
-const open = (row: ApprovalItem) => {
+const open = async (row: ApprovalItem) => {
   current.value = row;
   drawer.value = true;
+  policyRefs.value = [];
+  // 详情接口带超期标记 + 政策引用；演示模式/失败时回退行数据不断抽屉
+  try {
+    const detail = await getApprovalDetailApi(row.id);
+    policyRefs.value = Array.isArray(detail?.policy_refs) ? detail.policy_refs : [];
+    if (detail && typeof detail === 'object') {
+      current.value = { ...row, ...(detail as object) };
+    }
+  } catch {
+    policyRefs.value = [];
+  }
+};
+
+const goPolicy = (title: string) => {
+  router.push({ path: '/knowledge', query: { keyword: title } });
 };
 
 const batch = () => {

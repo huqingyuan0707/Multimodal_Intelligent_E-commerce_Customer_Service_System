@@ -1,5 +1,5 @@
 # 本机 Compose 部署：GHCR 镜像 + SQLite 落盘（对应部署工程化.md §五/§十三）
-# 用法：powershell -File deploy/deploy.ps1（默认 latest；指定版本加 -Tag v0.3.13）
+# 用法：powershell -File deploy/deploy.ps1（默认 latest；指定版本加 -Tag v0.3.14）
 # 回滚：powershell -File deploy/deploy.ps1 -Tag <上一个版本号>
 name: reai
 

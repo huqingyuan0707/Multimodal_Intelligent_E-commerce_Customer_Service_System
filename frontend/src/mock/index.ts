@@ -352,3 +352,6 @@ export const mockAdminAudits = [
     created_at: '2026-09-01 10:00:00',
   },
 ];
+
+// Studio 演示兜底（Prompt 版本/工具/评测，字段对齐 @/types/agent）
+export * from './studio';

@@ -53,7 +53,7 @@ description: This skill should be used when implementing, refactoring, or review
 | `PLR0913` service 函数参数 >5 | 13 处（approval/goods/inventory/order/promo/review service） | 触碰对应 service 时把参数收进 dataclass / 查询对象，清零后再启用该规则 |
 | endpoint 直写 `await db.commit()` | 9 处（logistics/reviews/promos/tickets） | 事务下沉到 service 层 |
 | service 依赖 FastAPI 对象 | 未机检 | 后续可扩进 `check_arch.py`（import 扫描） |
-| `check_arch.py` 机检存量（棘轮记名，只准减不准增） | `endpoint-db-op` 10 处（logistics 1 / reviews 3 / promos 3 / tickets 2 / agent 1）记在 `BASELINE`；`file-too-long` 4 处（`modules/agent/runtime.py` 519 / `chat_service.py` 799 / `vision_service.py` 501 / `inventory_service.py` 409）记在 `FILE_LINE_BUDGET`（**按行数预算**记名，涨一行即红，拆小后提示收紧） | 触碰对应文件时把事务下沉 service / 按职责拆模块（v0.2.9 例：转人工挂载点拆出 `handoff_service.py`，`workbench_service.py` 450→330 行回到红线内） |
+| `check_arch.py` 机检存量（棘轮记名，只准减不准增） | `endpoint-db-op` 10 处（logistics 1 / reviews 3 / promos 3 / tickets 2 / agent 1）记在 `BASELINE`；`file-too-long` 3 处（`modules/agent/runtime.py` 519 / `vision_service.py` 498 / `inventory_service.py` 409）记在 `FILE_LINE_BUDGET`（**按行数预算**记名，涨一行即红，拆小后提示收紧） | 触碰对应文件时把事务下沉 service / 按职责拆模块（v0.2.9 例：转人工挂载点拆出 `handoff_service.py`，`workbench_service.py` 450→330 行回到红线内；2026-09-17 `chat_service` 838 拆出 `chat_generation` + `chat_turn_store` 回到 400 内、`knowledge/document/studio` 同批拆分消超长） |
 
 ## 6. 提交前自检（每项都必须是"是"）
 

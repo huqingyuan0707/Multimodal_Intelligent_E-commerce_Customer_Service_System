@@ -38,6 +38,7 @@ class Message(Base):
     faithfulness: Mapped[float | None] = mapped_column(Float, default=None)
     trace_id: Mapped[str] = mapped_column(String(40), default="", index=True)
     client_msg_id: Mapped[str] = mapped_column(String(64), default="", index=True)
+    cost_cents: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(default=_now)
 
 
@@ -77,7 +78,11 @@ class ToolCall(Base):
 
 
 class KbDoc(Base):
-    """知识库文档（主题/版本/生效期/密级，sha256 租户内去重）。"""
+    """知识库文档（主题/版本/生效期/密级/生命周期，sha256 租户内去重）。
+
+    链路：上传/种子默认 published（存量兼容）；运营新建走 draft→review→published→archived
+    （FR-13.2）；检索 SQL 只收 published；topic 供引用统计按主题聚合。
+    """
 
     __tablename__ = "kb_docs"
     __table_args__ = (UniqueConstraint("tenant", "sha256", name="uq_kb_docs_tenant_sha"),)
@@ -86,6 +91,10 @@ class KbDoc(Base):
     tenant: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    topic: Mapped[str] = mapped_column(String(64), default="")
+    status: Mapped[str] = mapped_column(String(16), default="published", index=True)
+    submitted_by: Mapped[str] = mapped_column(String(64), default="")
+    published_by: Mapped[str] = mapped_column(String(64), default="")
     channels: Mapped[str] = mapped_column(Text, default='["all"]')
     security_level: Mapped[str] = mapped_column(String(16), default="internal")
     valid_from: Mapped[datetime | None] = mapped_column(DateTime, default=None, nullable=True)
@@ -106,6 +115,31 @@ class KbChunk(Base):
     content: Mapped[str] = mapped_column(Text, default="")
     vector_id: Mapped[str] = mapped_column(String(64), default="")
     updated_at: Mapped[datetime] = mapped_column(default=_now, onupdate=_now)
+
+
+# 生命周期状态机（FR-13.2）：draft→review→published→archived（archived 可 reopen 回 draft）
+KB_DOC_STATUS = ("draft", "review", "published", "archived")
+
+
+class KbDocVersion(Base):
+    """文档版本历史（只追加：新建/编辑/发布/回滚各落一行，回滚=旧内容新版本）。
+
+    链路：document_service._snapshot_version → GET /documents/{id}/versions 列表 →
+         POST /documents/{id}/rollback 恢复。
+    """
+
+    __tablename__ = "kb_doc_versions"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uid)
+    tenant: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    doc_id: Mapped[str] = mapped_column(ForeignKey("kb_docs.id", ondelete="CASCADE"), index=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    title: Mapped[str] = mapped_column(String(200), default="")
+    content: Mapped[str] = mapped_column(Text, default="")
+    sha256: Mapped[str] = mapped_column(String(64), default="")
+    actor: Mapped[str] = mapped_column(String(64), default="")
+    action: Mapped[str] = mapped_column(String(16), default="create")
+    created_at: Mapped[datetime] = mapped_column(default=_now)
 
 
 class CostRecord(Base):

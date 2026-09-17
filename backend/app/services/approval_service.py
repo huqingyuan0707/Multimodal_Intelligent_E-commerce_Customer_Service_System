@@ -10,14 +10,15 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.core.exceptions import BusinessError, ErrorCode
-from app.db.models import Approval
+from app.db.models import Approval, KbDoc
 
 # 审批类型中文化（审批中心展示用，禁止前端硬编码）
 ACTION_LABELS: dict[str, str] = {
@@ -25,6 +26,14 @@ ACTION_LABELS: dict[str, str] = {
     "inventory.stocktake_diff": "盘点差异",
     "inventory.replenish": "补货需求",
     "order.refund": "退款",
+}
+
+# 审批类型 → 政策引用检索关键词（详情抽屉「政策引用」行，同租户知识库标题模糊找 Top3）
+ACTION_POLICY_KEYWORDS: dict[str, list[str]] = {
+    "order.refund": ["退货", "退款", "无理由"],
+    "sku.price_change": ["改价", "价格"],
+    "inventory.stocktake_diff": ["盘点", "库存"],
+    "inventory.replenish": ["补货", "采购"],
 }
 
 STATUS_LABELS: dict[str, str] = {"pending": "待审批", "approved": "已通过", "rejected": "已驳回"}
@@ -37,6 +46,24 @@ def _parse_args(row: Approval) -> dict[str, Any]:
     except json.JSONDecodeError:
         return {}
     return loaded if isinstance(loaded, dict) else {}
+
+
+def waiting_hours(row: Approval) -> float:
+    """已等待小时（创建时间距今；脏时间按 0 处理，不断渲染）。"""
+    if row.created_at is None:
+        return 0.0
+    delta = datetime.now(UTC).replace(tzinfo=None) - row.created_at.replace(tzinfo=None)
+    return round(max(0.0, delta.total_seconds() / 3600), 1)
+
+
+def is_overdue(row: Approval) -> bool:
+    """是否超期未处理（待办且等待超 APPROVAL_SLA_HOURS；超时升级的展示口径）。"""
+    return row.status == "pending" and waiting_hours(row) > settings.APPROVAL_SLA_HOURS
+
+
+def overdue_cutoff() -> datetime:
+    """超期分界创建时间（naive UTC，与落库口径一致，供列表筛选）。"""
+    return datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=settings.APPROVAL_SLA_HOURS)
 
 
 def to_dict(row: Approval) -> dict[str, Any]:
@@ -57,6 +84,8 @@ def to_dict(row: Approval) -> dict[str, Any]:
         "decided_at": (
             row.decided_at.isoformat(sep=" ", timespec="seconds") if row.decided_at else ""
         ),
+        "waiting_hours": waiting_hours(row),
+        "overdue": is_overdue(row),
     }
 
 
@@ -141,6 +170,7 @@ async def list_page(
     status: str = "",
     action: str = "",
     keyword: str = "",
+    overdue_only: bool = False,
     page: int = 1,
     size: int = 20,
 ) -> dict:
@@ -156,6 +186,8 @@ async def list_page(
         action=action,
         keyword=keyword,
     )
+    if overdue_only:
+        stmt = stmt.where(Approval.status == "pending", Approval.created_at < overdue_cutoff())
     total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
     rows = list(
         (
@@ -197,6 +229,33 @@ async def _apply(
     raise BusinessError(ErrorCode.PARAM_INVALID, f"未知审批类型：{action}")
 
 
+async def policy_refs(db: AsyncSession, *, tenant: str, action: str, limit: int = 3) -> list[dict]:
+    """政策引用：按审批类型关键词在同租户知识库标题里模糊找 TopN（详情抽屉展示用）。
+
+    无命中/未知类型返回空数组不断渲染；只读 kb_docs 标题+id，不读正文。
+    """
+    seen: set[str] = set()
+    refs: list[dict] = []
+    for keyword in ACTION_POLICY_KEYWORDS.get(action, []):
+        if len(refs) >= limit:
+            break
+        rows = (
+            await db.execute(
+                select(KbDoc)
+                .where(KbDoc.tenant == tenant, KbDoc.title.like(f"%{keyword}%"))
+                .order_by(KbDoc.created_at.desc())
+                .limit(limit)
+            )
+        ).scalars()
+        for doc in rows:
+            if doc.id not in seen:
+                seen.add(doc.id)
+                refs.append({"id": doc.id, "title": doc.title})
+            if len(refs) >= limit:
+                break
+    return refs
+
+
 async def decide(
     db: AsyncSession,
     *,
@@ -214,6 +273,8 @@ async def decide(
             ErrorCode.APPROVAL_DENIED,
             f"该审批已是「{STATUS_LABELS.get(row.status, row.status)}」，不能重复处理",
         )
+    if not approve and not reason.strip():
+        raise BusinessError(ErrorCode.PARAM_INVALID, "驳回理由必填，请填写后再驳回", 400)
     args = _parse_args(row)
     if approve and modified_args:
         args.update(modified_args)

@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ref } from 'vue';
 import type { AgentMessage } from '@/types/agent';
 import { useChatSend } from './useChatSend';
+import type { SendDeps } from './useChatSend';
 
 const fakeStream = (behavior: 'ok' | 'error' | 'limited' = 'ok') => ({
   streaming: ref(false),
@@ -48,7 +49,7 @@ const deps = (behavior: 'ok' | 'error' | 'limited' = 'ok') => {
     },
     stickNow: vi.fn(),
     getFollowups: () => ['换货要几天'],
-  } as never;
+  } as unknown as SendDeps;
 };
 
 describe('useChatSend', () => {
@@ -96,7 +97,8 @@ describe('useChatSend', () => {
     const d = deps('ok');
     const { send, retry } = useChatSend(d);
     await send();
-    const firstCall = d.stream.start.mock.calls[0][1] as { clientMsgId: string };
+    const startMock = d.stream.start as unknown as ReturnType<typeof vi.fn>;
+    const firstCall = startMock.mock.calls[0][1] as { clientMsgId: string };
     d.messages.value.push({
       id: 'x',
       role: 'agent',
@@ -105,7 +107,7 @@ describe('useChatSend', () => {
       retryable: true,
     });
     await retry();
-    const secondCall = d.stream.start.mock.calls[1][1] as { clientMsgId: string };
+    const secondCall = startMock.mock.calls[1][1] as { clientMsgId: string };
     expect(secondCall.clientMsgId).toBe(firstCall.clientMsgId);
     expect(d.messages.value.some(m => m.retryable)).toBe(false);
   });

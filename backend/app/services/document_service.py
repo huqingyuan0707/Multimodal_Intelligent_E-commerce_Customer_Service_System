@@ -1,61 +1,74 @@
-"""知识库文档服务（上传→解析→切分→向量化，对齐 API 规范 §4.4 + RAG 规范 §1）
+"""知识库文档服务（CRUD 编排，对齐 API 规范 §4.4 + RAG 规范 §1）
 
-链路：ingest_upload（to_thread 解析）→ 去重 → 切分 → 向量双写 → audit。
+链路：endpoints/documents 薄封装 → 本模块 CRUD（列表/去重建/上传编排/
+      删除/编辑）→ 解析切分下沉 document_parse，版本/流转/统计下沉
+      document_lifecycle；本模块只做编排 + 薄转发（调用方导入口径不变）。
 红线：查询强制按 tenant 过滤；去重返 skipped=True 中文提示由端点组装。
 """
 
 from __future__ import annotations
 
 import asyncio
-import contextlib
-import hashlib
 import json
-from datetime import datetime
 from typing import Any
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
 from app.core.exceptions import BusinessError, ErrorCode
 from app.db.models import KbChunk, KbDoc
 from app.services import rag_governance, vector_store
+from app.services.document_lifecycle import (
+    _snapshot_version,
+    doc_stats,
+    get_doc,
+    list_versions,
+    rollback_doc,
+    transition_doc,
+)
+from app.services.document_parse import (
+    _channels_of,
+    _dt_text,
+    _parse_channels,
+    _parse_date,
+    _write_chunks,
+    parse_seed_markdown,
+    rebuild_chunks,
+    run_reindex,
+    sha256_of,
+    split_chunks,
+)
+from app.services.knowledge_service import bump_corpus
 
 # 密级三档（RAG 规范 §3：confidential 需 kb 权限；会话侧默认只召回 public）
 LEVELS = ("public", "internal", "confidential")
 
+# 生命周期（FR-13.2）：上传/种子默认 published（存量兼容）；运营新建走状态机
+STATUSES = ("draft", "review", "published", "archived")
 
-def _dt_text(value: Any) -> str:
-    return value.isoformat(sep=" ", timespec="seconds") if value else ""
-
-
-def _parse_date(text: str, field: str) -> datetime | None:
-    """生效期解析：空=不限；支持 YYYY-MM-DD 与 YYYY-MM-DD HH:mm:ss，非法 1001。"""
-    text = (text or "").strip()
-    if not text:
-        return None
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
-        try:
-            return datetime.strptime(text, fmt)
-        except ValueError:
-            continue
-    raise BusinessError(ErrorCode.PARAM_INVALID, f"{field}格式不正确（YYYY-MM-DD）")
-
-
-def _parse_channels(value: Any) -> list[str]:
-    if isinstance(value, list) and all(isinstance(v, str) for v in value):
-        return [v for v in value if v.strip()] or ["all"]
-    if isinstance(value, str):
-        return [v.strip() for v in value.split(",") if v.strip()] or ["all"]
-    return ["all"]
-
-
-def _channels_of(row: KbDoc) -> list[str]:
-    try:
-        loaded = json.loads(row.channels or "")
-    except ValueError:
-        return ["all"]
-    return _parse_channels(loaded)
+# 薄转发：解析/分块/版本/流转已下沉子模块，种子/测试/任务旧导入口径不变。
+__all__ = [
+    "LEVELS",
+    "STATUSES",
+    "count_docs",
+    "delete_doc",
+    "detail_to_dict",
+    "doc_stats",
+    "doc_to_dict",
+    "get_doc",
+    "get_or_create_doc",
+    "ingest_upload",
+    "list_docs",
+    "list_versions",
+    "parse_seed_markdown",
+    "rebuild_chunks",
+    "rollback_doc",
+    "run_reindex",
+    "sha256_of",
+    "split_chunks",
+    "transition_doc",
+    "update_doc",
+]
 
 
 def doc_to_dict(row: KbDoc) -> dict[str, Any]:
@@ -63,6 +76,8 @@ def doc_to_dict(row: KbDoc) -> dict[str, Any]:
         "id": row.id,
         "doc_id": row.id,
         "title": row.title,
+        "topic": row.topic or "",
+        "status": row.status or "published",
         "security_level": row.security_level,
         "channels": _channels_of(row),
         "valid_from": _dt_text(row.valid_from),
@@ -78,135 +93,6 @@ def detail_to_dict(row: KbDoc) -> dict[str, Any]:
     data = doc_to_dict(row)
     data["content"] = row.content
     return data
-
-
-def parse_seed_markdown(text: str) -> dict[str, Any]:
-    """解析种子 Markdown：front-matter 七字段 + 正文（去注释行；无头全篇当正文）。"""
-    meta: dict[str, str] = {}
-    body = text or ""
-    if body.startswith("---"):
-        end = body.find("\n---", 3)
-        if end != -1:
-            for line in body[3:end].splitlines():
-                if ":" in line:
-                    key, _, value = line.partition(":")
-                    meta[key.strip()] = value.strip()
-            body = body[end + 4 :]
-    lines = [ln for ln in body.splitlines() if not ln.strip().startswith("<!--")]
-    title = meta.get("title", "")
-    if not title:
-        for ln in lines:
-            if ln.startswith("# "):
-                title = ln[2:].strip()
-                break
-    return {
-        "title": title,
-        "security_level": meta.get("security_level", "internal"),
-        "channels": _parse_channels(meta.get("channels", "[all]").strip("[]")),
-        "valid_from": _parse_date(meta.get("valid_from", ""), "生效起"),
-        "valid_to": _parse_date(meta.get("valid_to", ""), "生效止"),
-        "version": int(meta["version"]) if meta.get("version", "1").isdigit() else 1,
-        "body": "\n".join(lines).strip() + "\n",
-    }
-
-
-def sha256_of(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
-
-
-def split_chunks(content: str) -> list[str]:
-    """按业务主题切分：`##` 起新块；超长按段硬切到 KB_CHUNK_CHARS（纯函数可单测）。"""
-    blocks: list[str] = []
-    current: list[str] = []
-    for line in (content or "").splitlines():
-        has_body = any(not part.startswith("#") and part.strip() for part in current)
-        if line.startswith("##") and has_body:
-            blocks.append("\n".join(current))
-            current = []
-        current.append(line)
-    if current:
-        blocks.append("\n".join(current))
-    cap = settings.KB_CHUNK_CHARS
-    out: list[str] = []
-    for block in blocks:
-        text = block.strip("\n")
-        if not text.strip():
-            continue
-        if len(text) <= cap:
-            out.append(text)
-            continue
-        buf = ""
-        for para in text.split("\n"):
-            if buf.strip() and len(buf) + len(para) + 1 > cap:
-                out.append(buf.strip())
-                buf = ""
-            buf += para + "\n"
-        if buf.strip():
-            out.append(buf.strip())
-    stripped = (content or "").strip()
-    return out or ([stripped] if stripped else [])
-
-
-async def _write_chunks(
-    db: AsyncSession, doc_id: str, chunks: list[str], *, tenant: str = ""
-) -> int:
-    """落块+向量双写（vector_id 回写；向量失败不阻塞入库，status 可见）。"""
-    rows = [KbChunk(doc_id=doc_id, ord=i, content=part) for i, part in enumerate(chunks)]
-    db.add_all(rows)
-    await db.flush()
-    if tenant:
-        try:
-            vecs = await asyncio.to_thread(
-                lambda: [vector_store.embed_text(t) for t in [r.content for r in rows]]
-            )
-            for row, vec in zip(rows, vecs, strict=True):
-                row.vector_id = f"{tenant}:{row.id}"
-                vector_store._store[f"{tenant}:{row.id}"] = vec
-        except Exception:
-            pass
-    return len(chunks)
-
-
-async def rebuild_chunks(db: AsyncSession, *, tenant: str) -> dict[str, int]:
-    """重建租户全部分块：删旧块+向量 → 重切+向量双写 → 单事务提交。"""
-    docs = list((await db.execute(select(KbDoc).where(KbDoc.tenant == tenant))).scalars())
-    total_chunks = 0
-    for doc in docs:
-        old = list((await db.execute(select(KbChunk).where(KbChunk.doc_id == doc.id))).scalars())
-        await vector_store.delete_by_chunk(tenant, [c.id for c in old])
-        await db.execute(delete(KbChunk).where(KbChunk.doc_id == doc.id))
-        total_chunks += await _write_chunks(db, doc.id, split_chunks(doc.content), tenant=tenant)
-    await db.commit()
-    rag_governance.trace_step(
-        "rag.reindex", tenant=tenant, extra={"docs": len(docs), "chunks": total_chunks}
-    )
-    return {"docs": len(docs), "chunks": total_chunks}
-
-
-async def run_reindex(*, tenant: str, task_id: str) -> None:
-    """reindex 后台执行：自建会话（请求会话此时已关闭）→ 重建分块 → task 进度落库。
-
-    异常只记 task error，绝不抛（后台抛异常只会烂在日志里，前端靠轮询感知）。
-    """
-    from sqlalchemy.ext.asyncio import async_sessionmaker
-
-    from app.db.session import get_engine
-    from app.services import task_service
-
-    maker = async_sessionmaker(get_engine(), expire_on_commit=False)
-    try:
-        async with maker() as db:
-            await task_service.mark_task(db, tenant=tenant, task_id=task_id, status="running")
-            stats = await rebuild_chunks(db, tenant=tenant)
-            await task_service.mark_task(
-                db, tenant=tenant, task_id=task_id, status="done", progress=1.0, output=stats
-            )
-    except Exception as exc:
-        with contextlib.suppress(Exception):
-            async with maker() as db:
-                await task_service.mark_task(
-                    db, tenant=tenant, task_id=task_id, status="error", error=str(exc)[:500]
-                )
 
 
 async def list_docs(
@@ -241,10 +127,13 @@ async def get_or_create_doc(
     channels: list[str] | None = None,
     valid_from: str = "",
     valid_to: str = "",
+    topic: str = "",
+    status: str = "published",
 ) -> tuple[KbDoc, bool]:
     """按 sha256 去重入库：已存在返 (旧行, True)，新建返 (新行, False)。
 
     13 步口径：切分→向量化双写；写操作记 audit；元数据只在新建落库。
+    status 默认 published（存量/种子兼容）；运营上传传 draft 走审核流。
     """
     digest = sha256_of(raw)
     existed = (
@@ -259,10 +148,14 @@ async def get_or_create_doc(
         raise BusinessError(ErrorCode.PARAM_INVALID, "请至少选择一个文件")
     if security_level not in LEVELS:
         raise BusinessError(ErrorCode.PARAM_INVALID, "密级仅支持 public/internal/confidential")
+    if status not in STATUSES:
+        raise BusinessError(ErrorCode.PARAM_INVALID, "状态仅支持 draft/review/published/archived")
     row = KbDoc(
         tenant=tenant,
         title=title.strip()[:200],
         content=content,
+        topic=(topic or "").strip()[:64],
+        status=status,
         sha256=digest,
         version=1,
         security_level=security_level,
@@ -273,6 +166,7 @@ async def get_or_create_doc(
     db.add(row)
     await db.flush()
     await _write_chunks(db, row.id, split_chunks(content), tenant=tenant)
+    await _snapshot_version(db, row, actor=actor, action="create")
     if actor:
         await rag_governance.audit_write(
             db,
@@ -283,6 +177,7 @@ async def get_or_create_doc(
             detail={"title": row.title, "sha256": digest},
         )
     await db.commit()
+    bump_corpus(tenant)
     rag_governance.trace_step(
         "rag.upload", tenant=tenant, extra={"skipped": False, "doc_id": row.id}
     )
@@ -300,6 +195,8 @@ async def ingest_upload(
     channels: list[str] | None = None,
     valid_from: str = "",
     valid_to: str = "",
+    topic: str = "",
+    status: str = "published",
 ) -> tuple[KbDoc, bool]:
     """上传编排（端点唯一入口）：解析（to_thread）→ 去重入库（含切分/向量/审计）。"""
     from app.services import doc_parse_service
@@ -317,6 +214,8 @@ async def ingest_upload(
         channels=channels,
         valid_from=valid_from,
         valid_to=valid_to,
+        topic=topic,
+        status=status,
     )
 
 
@@ -337,17 +236,8 @@ async def delete_doc(db: AsyncSession, *, tenant: str, doc_id: str, actor: str =
             db, tenant=tenant, actor=actor, action="kb.delete", target=doc_id
         )
     await db.commit()
+    bump_corpus(tenant)
     rag_governance.trace_step("rag.delete", tenant=tenant, extra={"doc_id": doc_id})
-
-
-async def get_doc(db: AsyncSession, *, tenant: str, doc_id: str) -> KbDoc:
-    """取单篇（跨租户 404；预览/编辑前置）。"""
-    row = (
-        await db.execute(select(KbDoc).where(KbDoc.id == doc_id, KbDoc.tenant == tenant))
-    ).scalar_one_or_none()
-    if row is None:
-        raise BusinessError(ErrorCode.NOT_FOUND, "文档不存在或无权访问", 404)
-    return row
 
 
 async def update_doc(
@@ -361,8 +251,10 @@ async def update_doc(
     channels: list[str] | None,
     valid_from: str = "",
     valid_to: str = "",
+    topic: str = "",
+    actor: str = "",
 ) -> KbDoc:
-    """编辑文档：内容变则重算 sha（撞他篇 1001）+ 版本 +1；元数据直接覆盖。"""
+    """编辑文档：内容变则重算 sha（撞他篇 1001）+ 版本 +1；元数据直接覆盖；快照落版本表。"""
     if not (title or "").strip():
         raise BusinessError(ErrorCode.PARAM_INVALID, "标题不能为空")
     if security_level not in LEVELS:
@@ -384,6 +276,7 @@ async def update_doc(
         row.version += 1
     row.title = title.strip()[:200]
     row.content = content or ""
+    row.topic = (topic or "").strip()[:64]
     if content_changed:
         old_ids = list(
             (await db.execute(select(KbChunk).where(KbChunk.doc_id == row.id))).scalars()
@@ -391,9 +284,11 @@ async def update_doc(
         await vector_store.delete_by_chunk(tenant, [c.id for c in old_ids])
         await db.execute(delete(KbChunk).where(KbChunk.doc_id == row.id))
         await _write_chunks(db, row.id, split_chunks(row.content), tenant=tenant)
+        await _snapshot_version(db, row, actor=actor, action="update")
     row.security_level = security_level
     row.channels = json.dumps(_parse_channels(channels or ["all"]), ensure_ascii=False)
     row.valid_from = _parse_date(valid_from, "生效起")
     row.valid_to = _parse_date(valid_to, "生效止")
     await db.commit()
+    bump_corpus(tenant)
     return row

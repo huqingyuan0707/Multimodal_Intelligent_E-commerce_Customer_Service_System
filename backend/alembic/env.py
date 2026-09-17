@@ -16,10 +16,11 @@ from alembic import context
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-# 全量模型注册（缺一即漏表）：models 重导出地基表，foundation/quality 必须显式 import。
+# 全量模型注册（缺一即漏表）：models 重导出地基表，foundation/quality/studio 必须显式 import。
 import app.db.models
 import app.db.models_foundation
-import app.db.models_quality  # noqa: F401
+import app.db.models_quality
+import app.db.models_studio  # noqa: F401
 from app.config import settings
 from app.db.base import Base
 

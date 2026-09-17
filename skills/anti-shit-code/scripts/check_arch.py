@@ -36,9 +36,8 @@ BASELINE: dict[tuple[str, str], int] = {
 # 故按「当前允许行数」记名——超预算即红，文件拆小后提示把预算收到新行数，清零后删条目。
 FILE_LINE_BUDGET: dict[str, int] = {
     "backend/app/modules/agent/runtime.py": 519,
-    "backend/app/services/chat_service.py": 799,
     "backend/app/services/inventory_service.py": 409,
-    "backend/app/services/vision_service.py": 501,
+    "backend/app/services/vision_service.py": 498,
 }
 
 RULE_FILE_TOO_LONG = "file-too-long"

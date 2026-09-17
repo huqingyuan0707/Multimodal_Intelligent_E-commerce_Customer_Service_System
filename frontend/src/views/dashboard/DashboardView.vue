@@ -3,6 +3,10 @@
     <div class="head">
       <el-tag v-if="demo" type="warning" size="small">演示数据</el-tag>
       <span v-if="llmHint" class="hint">{{ llmHint }}</span>
+      <el-select v-model="range" size="small" class="range" @change="onRange">
+        <el-option label="今日" value="today" />
+        <el-option label="近7日" value="week" />
+      </el-select>
       <AiButton @click="reload">刷新</AiButton>
     </div>
     <div class="cards">
@@ -17,9 +21,18 @@
     </div>
     <el-card class="trend">
       <template #header>
-        <span>趋势图</span>
+        <span>问答轮次趋势（{{ range === 'week' ? '近7日按天' : '今日按小时' }}）</span>
       </template>
-      <el-empty description="趋势图后续版本补齐，当前可看下方归因表" />
+      <el-empty
+        v-if="!trend.length && !loading"
+        description="暂无趋势数据，有问答后按小时/按天出柱"
+      />
+      <div v-else v-loading="loading" class="bars">
+        <div v-for="p in trend" :key="p.label" class="bar-col">
+          <div class="bar" :style="{ height: `${barHeight(p.value)}px` }" />
+          <span class="bar-label">{{ p.label }}</span>
+        </div>
+      </div>
     </el-card>
     <h3>最慢链路 Top5（点击跳转坐席工作台查看详情）</h3>
     <el-empty v-if="!topTraces.length && !loading" description="暂无慢链路记录" />
@@ -28,6 +41,9 @@
         <template #default="s">
           <span class="mono">{{ s.row.trace }}</span>
         </template>
+      </el-table-column>
+      <el-table-column label="耗时" width="110">
+        <template #default="s">{{ formatLatency(s.row.latencyMs) }}</template>
       </el-table-column>
       <el-table-column prop="tenant" label="租户" min-width="140" />
       <el-table-column label="渠道" width="110">
@@ -84,37 +100,45 @@
 </template>
 
 <script setup lang="ts">
-// 数据看板：指标卡 + 按租户/渠道归因表框架（趋势图与慢 Trace 下钻后续补，对齐页面设计 §3.7）
+// 数据看板：指标卡 + 趋势 + 慢 Trace + 按租户/渠道归因表（对齐页面设计 §3.7）
 import {
   ElCard,
   ElEmpty,
   ElMessage,
+  ElOption,
   ElPagination,
+  ElSelect,
   ElTable,
   ElTableColumn,
   ElTag,
 } from 'element-plus';
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { getGovernanceStatusApi, listAttributionApi } from '@/api';
+import { getDashboardSummaryApi, getGovernanceStatusApi } from '@/api';
+import type { DashboardSlowTrace, DashboardTrendPoint } from '@/api/dashboard';
 import { mockAttributions, mockMetrics } from '@/mock/dashboard';
 import AiButton from '@/shared/components/AiButton.vue';
-import { channelLabelOf, formatCost } from '@/types/dashboard';
+import { channelLabelOf, formatCost, formatLatency } from '@/types/dashboard';
 import type { AttributionRow, DashboardMetric } from '@/types/dashboard';
 
 type SlowTrace = {
   trace: string;
   tenant: string;
   channel: string;
+  latencyMs: number;
 };
 
+const BAR_MAX_PX = 120;
 const router = useRouter();
 
 const metrics = ref<DashboardMetric[]>([]);
+const trend = ref<DashboardTrendPoint[]>([]);
+const slowList = ref<DashboardSlowTrace[]>([]);
 const rows = ref<AttributionRow[]>([]);
 const total = ref(0);
 const page = ref(1);
 const size = ref(20);
+const range = ref('today');
 const loading = ref(false);
 const demo = ref(false);
 const llmHint = ref('');
@@ -135,7 +159,11 @@ const loadGov = async () => {
 const load = async () => {
   loading.value = true;
   try {
-    const res = await listAttributionApi({ page: page.value, size: size.value });
+    const res = await getDashboardSummaryApi({
+      page: page.value,
+      size: size.value,
+      range: range.value,
+    });
     const next = Array.isArray(res.metrics) ? res.metrics : mockMetrics;
     changedKeys.value = next
       .filter(n => {
@@ -148,11 +176,15 @@ const load = async () => {
       changedKeys.value = [];
     }, 800);
     metrics.value = next;
+    trend.value = Array.isArray(res.trend) ? res.trend : [];
+    slowList.value = Array.isArray(res.slow_traces) ? res.slow_traces : [];
     rows.value = Array.isArray(res.items) ? res.items : mockAttributions;
     total.value = typeof res.total === 'number' ? res.total : mockAttributions.length;
     demo.value = false;
   } catch {
     metrics.value = mockMetrics;
+    trend.value = [];
+    slowList.value = [];
     const start = (page.value - 1) * size.value;
     rows.value = mockAttributions.slice(start, start + size.value);
     total.value = mockAttributions.length;
@@ -166,6 +198,11 @@ const reload = () => {
   page.value = 1;
   load();
   loadGov();
+};
+
+const onRange = () => {
+  page.value = 1;
+  load();
 };
 
 const onPage = (p: number) => {
@@ -188,15 +225,29 @@ const copyTrace = async (traceId: string) => {
   }
 };
 
-// 慢 Trace Top5 取自归因行自带的 slowTraceId（服务端暂无独立慢查接口，不伪造耗时排序）
+// 趋势柱高：按最大值归一到 BAR_MAX_PX（与经营大屏同算法）
+const barHeight = (v: number) => {
+  const max = trend.value.reduce((a, p) => Math.max(a, p.value), 1);
+  return Math.round((v / max) * BAR_MAX_PX);
+};
+
+// 慢 Trace Top5：优先服务端 tool_calls 实测排序；演示回退时才从归因行 slowTraceId 拼
 const topTraces = computed<SlowTrace[]>(() => {
+  if (slowList.value.length) {
+    return slowList.value.slice(0, 5).map(t => ({
+      trace: t.trace_id,
+      tenant: '',
+      channel: '',
+      latencyMs: t.latency_ms,
+    }));
+  }
   const seen: string[] = [];
   const out: SlowTrace[] = [];
   rows.value.forEach(r => {
     const t = String(r.slowTraceId ?? '');
     if (t && t !== '—' && !seen.includes(t) && out.length < 5) {
       seen.push(t);
-      out.push({ trace: t, tenant: r.tenant, channel: r.channel });
+      out.push({ trace: t, tenant: r.tenant, channel: r.channel, latencyMs: 0 });
     }
   });
   return out;
@@ -288,6 +339,44 @@ onMounted(() => {
 
 .trend {
   width: 100%;
+}
+
+.range {
+  width: 100px;
+}
+
+.bars {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  min-height: 120px;
+}
+
+.bar-col {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+  min-width: 0;
+}
+
+.bar {
+  width: 100%;
+  min-height: 2px;
+  background: var(--reai-accent);
+  border-radius: 4px;
+  opacity: 0.75;
+}
+
+.bar-col:last-child .bar {
+  opacity: 1;
+}
+
+.bar-label {
+  font-size: 11px;
+  color: var(--reai-text-muted);
+  white-space: nowrap;
 }
 
 .table {

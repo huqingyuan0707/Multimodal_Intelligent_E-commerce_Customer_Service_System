@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     APP_NAME: str = "multimodal-cs"
     # 项目版本唯一口径三源之一（另两源：执行步骤.md 头部版本 / frontend/package.json），
     # 三处必须一致（门禁 scripts/check_version.py），发版 tag 以此为准（release.yml 门禁）。
-    APP_VERSION: str = "0.3.13"
+    APP_VERSION: str = "0.3.17"
     ENV: str = "dev"
     DATABASE_URL: str = "sqlite+aiosqlite:///./dev.db"
     REDIS_URL: str = "redis://localhost:6379/0"
@@ -76,6 +76,19 @@ class Settings(BaseSettings):
     MAX_UPLOAD_CHARS: int = 20000  # 解析截断上限（防超长拖慢切分/提示词）
     RAG_CHANNEL_FILTER: bool = True  # 检索是否按 channels 过滤（渠道隔离）
     FAITHFULNESS_WARN: float = 0.6  # 引用校验低于此值记 guard.pass=False 并进 Mining
+    # P1 词汇路升级：TF-IDF 余弦 → BM25（FR-4 混合检索口径；k1/b 热更）
+    BM25_K1: float = 1.2
+    BM25_B: float = 0.75
+    # P1 二阶段精排：RRF/BM25/关键词/向量四特征加权（bge-reranker 替换 rerank 体即可）
+    RERANK_W_RRF: float = 1.0
+    RERANK_W_BM25: float = 1.0
+    RERANK_W_KW: float = 0.5
+    RERANK_W_VEC: float = 0.25
+    RERANK_TITLE_BONUS: float = 0.15
+    # 检索热点缓存：同租户同 query 短 TTL；写操作 bump 语料版本即时失效；0=关闭
+    RAG_CACHE_TTL: int = 60
+    # 引用统计扫描上限（GET /documents/stats 遍历 messages.citations）
+    RAG_STATS_SCAN_LIMIT: int = 5000
     MINING_BAD_VOTE: str = "down"  # 差评口径（进待补知识候选）
     # 对话限流（错误码 2002 / 数据模型 §4 rl: 键）：每租户+账号每分钟窗口计数，0=关闭；
     # 计数走 core/cache.py 适配层（Redis 可用走 Redis，不可用进程内降级）。
@@ -87,6 +100,15 @@ class Settings(BaseSettings):
         "RAG_DB_THRESHOLD",
         "RAG_DIVERSITY_PER_DOC",
         "KB_CHUNK_CHARS",
+        "BM25_K1",
+        "BM25_B",
+        "RERANK_W_RRF",
+        "RERANK_W_BM25",
+        "RERANK_W_KW",
+        "RERANK_W_VEC",
+        "RERANK_TITLE_BONUS",
+        "RAG_CACHE_TTL",
+        "RAG_STATS_SCAN_LIMIT",
         "LLM_REF_CHARS",
         "LLM_TEMPERATURE",
         "SSE_CHUNK_CHARS",
@@ -105,6 +127,10 @@ class Settings(BaseSettings):
         "HANDOFF_LOAD_LIMIT",
         "OBSERVABILITY_ENABLED",
         "OBSERVABILITY_ANSWER_TARGET_SECONDS",
+        "LLM_COST_PER_1K_TOKENS",
+        "VLM_COST_PER_IMAGE",
+        "ASR_COST_PER_SEC",
+        "TTS_COST_PER_CHAR",
     )
 
     # 大模型：本地 Ollama（OpenAI 兼容协议 /v1），见 ADR-0001。业务代码只调 llm_service，禁止写地址/模型名。
@@ -215,6 +241,15 @@ class Settings(BaseSettings):
     # 输入域守卫（guard_service，问答第一道闸）：注入模式 + 电商客服域词表。
     # 词表可热更；误拦率优先于拦全率——拿不准一律放行给 RAG 治理兜底。
     GUARD_ENABLED: bool = True  # false=整体旁路（回滚位，同 AGENT_CHAT_ORCHESTRATE）
+    # 成本单价（元/单位），用于 cost_cents 折算（_HOT_FIELDS 可热更，生产按真实报价填）
+    # LLM: 元/万 tokens（prompt+completion 分开算更精准，暂按总量均价）
+    LLM_COST_PER_1K_TOKENS: float = 0.002
+    # VLM: 元/张图
+    VLM_COST_PER_IMAGE: float = 0.005
+    # ASR: 元/秒音频
+    ASR_COST_PER_SEC: float = 0.001
+    # TTS: 元/字符
+    TTS_COST_PER_CHAR: float = 0.0001
     # 域外黑名单：确定与电商客服无关的闲聊/套话/越权话题词，命中即拒（先于白名单；
     # 只收无歧义词，宁可少拦不误伤——域内无据由检索阈值负责拒答）
     GUARD_OFF_DOMAIN_KEYWORDS: list[str] = [
@@ -299,6 +334,9 @@ class Settings(BaseSettings):
     KB_SEED_DIR: str = "docs/knowledge-base"  # 相对仓库根；镜像内无此目录时跳过
     STOCK_WARN_DEFAULT: int = 10  # 新建库存行的默认安全线
     REFUND_APPROVAL_LIMIT_CENTS: int = 10000  # 退款超此金额（100 元）恒进审批（3003）
+    APPROVAL_SLA_HOURS: int = (
+        24  # 审批超时升级线：待办等待超此时长即标超期（审批中心红标 + 只看超期筛选）
+    )
     # 物流单号格式（打单发货校验，非法返回 1001）：8~24 位字母数字
     TRACKING_NO_PATTERN: str = r"^[A-Za-z0-9]{8,24}$"
     # 快递公司白名单（发货校验 + 物流公司列表唯一口径，8 家全量；order/logistics 双服务同源）

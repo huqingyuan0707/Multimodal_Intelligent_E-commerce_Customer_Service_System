@@ -3,35 +3,83 @@
     <div class="toolbar">
       <AiInput v-model="keyword" placeholder="按标题筛选" clearable @keyup.enter="onSearch" />
       <AiButton @click="onSearch">查询</AiButton>
-      <el-upload :show-file-list="false" :http-request="upload" :disabled="uploading">
+      <el-upload
+        :show-file-list="false"
+        :http-request="upload"
+        :disabled="uploading"
+        multiple
+        :limit="10"
+      >
         <AiButton type="primary" :loading="uploading">上传文档</AiButton>
       </el-upload>
       <AiButton :loading="reindexing" @click="reindex">重建索引</AiButton>
-      <el-tooltip content="TODO：后端暂无检索测试接口" placement="top">
-        <span><AiButton disabled>检索测试</AiButton></span>
-      </el-tooltip>
+      <AiButton @click="testerVisible = true">检索测试</AiButton>
     </div>
     <el-empty v-if="!docs.length && !loading" description="暂无文档（后端不可用时显示演示数据）" />
     <el-table v-loading="loading" :data="docs" style="width: 100%">
-      <el-table-column prop="title" label="标题" min-width="220" />
-      <el-table-column label="密级" width="100">
+      <el-table-column prop="title" label="标题" min-width="200" />
+      <el-table-column prop="topic" label="主题" width="110" />
+      <el-table-column label="状态" width="100">
+        <template #default="{ row }"
+          ><el-tag :type="statusType(row.status)" size="small">{{
+            statusText(row.status)
+          }}</el-tag></template
+        >
+      </el-table-column>
+      <el-table-column label="密级" width="90">
         <template #default="{ row }"
           ><el-tag :type="levelType(row.security_level)" size="small">{{
             levelText(row.security_level)
           }}</el-tag></template
         >
       </el-table-column>
-      <el-table-column label="渠道" width="120">
+      <el-table-column label="渠道" width="110">
         <template #default="{ row }">{{ (row.channels ?? []).join('、') || 'all' }}</template>
       </el-table-column>
-      <el-table-column label="生效期" min-width="200">
+      <el-table-column label="生效期" min-width="180">
         <template #default="{ row }">{{ validText(row) }}</template>
       </el-table-column>
-      <el-table-column prop="version" label="版本" width="80" />
-      <el-table-column label="操作" width="200" fixed="right">
+      <el-table-column prop="version" label="版本" width="70" />
+      <el-table-column label="引用" width="70">
+        <template #default="{ row }">{{ citedOf(row) }}</template>
+      </el-table-column>
+      <el-table-column label="操作" width="300" fixed="right">
         <template #default="{ row }">
           <AiButton link size="small" @click="openPreview(row)">预览</AiButton>
           <AiButton link size="small" @click="openEdit(row)">编辑</AiButton>
+          <AiButton link size="small" @click="openVersions(row)">版本</AiButton>
+          <AiButton
+            v-if="row.status === 'draft'"
+            link
+            size="small"
+            @click="transition(row, 'submit')"
+          >
+            提交审核
+          </AiButton>
+          <AiButton
+            v-if="row.status === 'review'"
+            link
+            size="small"
+            @click="transition(row, 'publish')"
+          >
+            发布
+          </AiButton>
+          <AiButton
+            v-if="row.status === 'published'"
+            link
+            size="small"
+            @click="transition(row, 'archive')"
+          >
+            归档
+          </AiButton>
+          <AiButton
+            v-if="row.status === 'archived'"
+            link
+            size="small"
+            @click="transition(row, 'reopen')"
+          >
+            重开
+          </AiButton>
           <AiButton link size="small" type="danger" @click="removeDoc(row)">删除</AiButton>
         </template>
       </el-table-column>
@@ -45,6 +93,22 @@
       @size-change="loadDocs"
       @current-change="loadDocs"
     />
+    <el-collapse v-if="stats" class="stats">
+      <el-collapse-item title="引用统计（按主题聚合 + 0 引用超 30 天复核清单）" name="stats">
+        <el-table :data="stats.topics" style="width: 100%">
+          <el-table-column prop="topic" label="主题" min-width="140" />
+          <el-table-column prop="docs" label="文档数" width="100" />
+          <el-table-column prop="cited" label="被引用" width="100" />
+        </el-table>
+        <div class="idle-title">0 引用超 30 天（建议复核或归档）</div>
+        <el-table :data="stats.idle_review" style="width: 100%">
+          <el-table-column prop="title" label="标题" min-width="200" />
+          <el-table-column prop="topic" label="主题" width="120" />
+          <el-table-column prop="days_idle" label="闲置天数" width="100" />
+        </el-table>
+        <el-empty v-if="!stats.idle_review.length" description="暂无待复核文档" />
+      </el-collapse-item>
+    </el-collapse>
     <el-dialog v-model="previewVisible" :title="preview.title" width="640px">
       <div class="meta">{{ previewMeta }}</div>
       <pre class="content">{{ preview.content || '暂无正文' }}</pre>
@@ -52,6 +116,9 @@
     <el-dialog v-model="editVisible" title="编辑文档" width="640px">
       <el-form :model="editForm" label-width="80px">
         <el-form-item label="标题"><AiInput v-model="editForm.title" /></el-form-item>
+        <el-form-item label="主题"
+          ><AiInput v-model="editForm.topic" placeholder="如 退换售后，可空"
+        /></el-form-item>
         <el-form-item label="密级">
           <el-select v-model="editForm.security_level">
             <el-option label="公开" value="public" />
@@ -77,48 +144,67 @@
         <AiButton type="primary" :loading="saving" @click="saveEdit">保存（版本+1）</AiButton>
       </template>
     </el-dialog>
+    <RetrievalTester v-model:visible="testerVisible" />
+    <VersionDrawer
+      v-model:visible="versionsVisible"
+      :doc-id="versionsDocId"
+      :title="versionsTitle"
+      :current-version="versionsCurrent"
+      @rolled="onRolled"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-// 知识库：服务端分页列表 + 上传(FormData) + 重建索引 + 预览/编辑/删除；检索测试后端暂无接口仍禁用占位
-import { ElMessage, ElMessageBox } from 'element-plus';
+// 知识库：服务端分页列表 + 批量上传(FormData) + 重建索引 + 预览/编辑/删除
+// + 生命周期流转（草稿→审核→发布→归档）+ 版本抽屉回滚 + 检索测试 + 引用统计
+import { ElMessage } from 'element-plus';
 import { computed, onMounted, ref } from 'vue';
-import {
-  deleteDocumentApi,
-  getDocumentApi,
-  listDocumentsApi,
-  reindexDocumentsApi,
-  updateDocumentApi,
-  uploadDocumentApi,
-} from '@/api';
-import { mockDocs } from '@/mock/knowledge';
+import { getDocumentApi, updateDocumentApi } from '@/api';
+import RetrievalTester from '@/components/RetrievalTester.vue';
+import VersionDrawer from '@/components/VersionDrawer.vue';
+import { useKnowledgeDocs } from '@/composables/useKnowledgeDocs';
 import AiButton from '@/shared/components/AiButton.vue';
 import AiInput from '@/shared/components/AiInput.vue';
-import { DOC_LEVEL_TAG } from '@/types/knowledge';
+import { DOC_LEVEL_TAG, DOC_STATUS_TAG, DOC_STATUS_TYPE } from '@/types/knowledge';
 import type { KnowledgeDoc } from '@/types/knowledge';
 
-const docs = ref<KnowledgeDoc[]>([]);
-const total = ref(0);
-const page = ref(1);
-const size = ref(20);
-const keyword = ref('');
-const loading = ref(false);
-const uploading = ref(false);
-const reindexing = ref(false);
+const {
+  docs,
+  total,
+  page,
+  size,
+  keyword,
+  loading,
+  uploading,
+  reindexing,
+  stats,
+  loadDocs,
+  onSearch,
+  upload,
+  reindex,
+  transition,
+  removeDoc,
+} = useKnowledgeDocs();
 const saving = ref(false);
+const testerVisible = ref(false);
+const versionsVisible = ref(false);
+const versionsDocId = ref('');
+const versionsTitle = ref('');
+const versionsCurrent = ref(1);
 
 const previewVisible = ref(false);
 const preview = ref<KnowledgeDoc>({ doc_id: '', title: '' });
 const previewMeta = computed(() => {
   const d = preview.value;
-  return `${levelText(d.security_level)} · ${(d.channels ?? []).join('、') || 'all'} · v${d.version ?? 1}`;
+  return `${statusText(d.status)} · ${levelText(d.security_level)} · ${(d.channels ?? []).join('、') || 'all'} · v${d.version ?? 1}`;
 });
 
 const editVisible = ref(false);
 const editId = ref('');
 const editForm = ref({
   title: '',
+  topic: '',
   content: '',
   security_level: 'internal',
   channels: 'all',
@@ -138,62 +224,39 @@ const levelText = (lv?: string) => {
   return DOC_LEVEL_TAG.internal;
 };
 
+const statusText = (st?: string) => {
+  if (st === 'draft') return DOC_STATUS_TAG.draft;
+  if (st === 'review') return DOC_STATUS_TAG.review;
+  if (st === 'archived') return DOC_STATUS_TAG.archived;
+  return DOC_STATUS_TAG.published;
+};
+
+const statusType = (st?: string) => {
+  if (st === 'draft') return DOC_STATUS_TYPE.draft;
+  if (st === 'review') return DOC_STATUS_TYPE.review;
+  if (st === 'archived') return DOC_STATUS_TYPE.archived;
+  return DOC_STATUS_TYPE.published;
+};
+
 const validText = (d: KnowledgeDoc) => {
   if (!d.valid_from && !d.valid_to) return '不限';
   return `${d.valid_from || '…'} ~ ${d.valid_to || '…'}`;
 };
 
-const loadDocs = async () => {
-  loading.value = true;
-  try {
-    const res = await listDocumentsApi({
-      page: page.value,
-      size: size.value,
-      keyword: keyword.value.trim(),
-    });
-    const rows = (res.items ?? res) as KnowledgeDoc[];
-    docs.value = rows.filter(r => r && (r.doc_id || r.id));
-    total.value = res.total ?? rows.length;
-  } catch {
-    const rows = keyword.value.trim()
-      ? mockDocs.filter(d => d.title.includes(keyword.value.trim()))
-      : mockDocs;
-    docs.value = rows;
-    total.value = rows.length;
-    ElMessage.warning('后端不可用，已显示演示数据');
-  } finally {
-    loading.value = false;
-  }
+const citedOf = (d: KnowledgeDoc) => {
+  const id = d.doc_id || d.id || '';
+  return stats.value?.cited[id] ?? '—';
 };
 
-const onSearch = async () => {
-  page.value = 1;
+const openVersions = (row: KnowledgeDoc) => {
+  versionsDocId.value = row.doc_id;
+  versionsTitle.value = row.title;
+  versionsCurrent.value = row.version ?? 1;
+  versionsVisible.value = true;
+};
+
+const onRolled = async () => {
   await loadDocs();
-};
-
-const upload = async (opt: { file: File }) => {
-  uploading.value = true;
-  try {
-    const r = await uploadDocumentApi({ file: opt.file });
-    ElMessage.success(r.skipped ? '内容一致，已跳过重复入库' : '上传成功');
-    await loadDocs();
-  } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : '上传失败（需 kb 权限）');
-  } finally {
-    uploading.value = false;
-  }
-};
-
-const reindex = async () => {
-  reindexing.value = true;
-  try {
-    const r = await reindexDocumentsApi();
-    ElMessage.success(`重建索引任务已提交：${r.task_id || '演示任务'}，请到任务中心跟进`);
-  } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : '提交失败');
-  } finally {
-    reindexing.value = false;
-  }
 };
 
 const openPreview = async (row: KnowledgeDoc) => {
@@ -215,6 +278,7 @@ const openEdit = async (row: KnowledgeDoc) => {
   editId.value = row.doc_id;
   editForm.value = {
     title: detail.title ?? '',
+    topic: detail.topic ?? '',
     content: detail.content ?? '',
     security_level: detail.security_level ?? 'internal',
     channels: (detail.channels ?? ['all']).join(','),
@@ -234,6 +298,7 @@ const saveEdit = async () => {
     await updateDocumentApi({
       id: editId.value,
       title: editForm.value.title.trim(),
+      topic: editForm.value.topic.trim(),
       content: editForm.value.content,
       security_level: editForm.value.security_level,
       channels: editForm.value.channels
@@ -250,21 +315,6 @@ const saveEdit = async () => {
     ElMessage.error(e instanceof Error ? e.message : '保存失败');
   } finally {
     saving.value = false;
-  }
-};
-
-const removeDoc = async (row: KnowledgeDoc) => {
-  try {
-    await ElMessageBox.confirm(`确认删除文档「${row.title}」吗？`, '删除', { type: 'warning' });
-  } catch {
-    return;
-  }
-  try {
-    await deleteDocumentApi({ id: row.doc_id });
-    ElMessage.success('文档已删除');
-    await loadDocs();
-  } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : '删除失败');
   }
 };
 
@@ -298,6 +348,16 @@ onMounted(() => {
   max-height: 50vh;
   overflow: auto;
   white-space: pre-wrap;
-  word-break: break-word;
+  overflow-wrap: break-word;
+}
+
+.stats {
+  margin-top: 4px;
+}
+
+.idle-title {
+  margin: 12px 0 8px;
+  font-size: 13px;
+  color: var(--reai-text-muted);
 }
 </style>
