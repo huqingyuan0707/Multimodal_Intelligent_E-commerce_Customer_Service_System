@@ -19,7 +19,45 @@ _lock = threading.Lock()
 _off = False  # sticky 降级标记：连不上/依赖缺失后不再逐请求试连
 _connected = False  # 至少成功执行过一次 Redis 命令
 _mem: dict[str, tuple[float, Any]] = {}  # key → (过期时间, 值)
+_mem_stock: dict[str, dict[str, int]] = {}  # key → {qty, reserved, locked}（库存闸门降级态）
 _holder: dict[str, Any] = {}  # 惰性客户端单例
+
+# ---- 库存预占 Lua（键 stock:{tenant}:{warehouse}:{sku}，数据模型 §4）----
+# Hash 三字段 qty/reserved/locked 与 DB inventory 行同构；脚本单线程原子执行，
+# 键不存在时以 base_available 初始化（reserved/locked 置 0），避免并发下双重扣减。
+_LUA_RESERVE = """
+if redis.call('EXISTS', KEYS[1]) == 0 then
+  redis.call('HSET', KEYS[1], 'qty', ARGV[2], 'reserved', '0', 'locked', '0')
+end
+local qty = tonumber(redis.call('HGET', KEYS[1], 'qty'))
+local reserved = tonumber(redis.call('HGET', KEYS[1], 'reserved'))
+local locked = tonumber(redis.call('HGET', KEYS[1], 'locked'))
+if qty - reserved - locked >= tonumber(ARGV[1]) then
+  redis.call('HINCRBY', KEYS[1], 'reserved', ARGV[1])
+  return 1
+end
+return 0
+"""
+_LUA_RELEASE = """
+if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
+local reserved = tonumber(redis.call('HGET', KEYS[1], 'reserved'))
+if reserved >= tonumber(ARGV[1]) then
+  redis.call('HINCRBY', KEYS[1], 'reserved', -tonumber(ARGV[1]))
+  return 1
+end
+return 0
+"""
+_LUA_CONFIRM = """
+if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
+local qty = tonumber(redis.call('HGET', KEYS[1], 'qty'))
+local reserved = tonumber(redis.call('HGET', KEYS[1], 'reserved'))
+if qty >= tonumber(ARGV[1]) and reserved >= tonumber(ARGV[1]) then
+  redis.call('HINCRBY', KEYS[1], 'qty', -tonumber(ARGV[1]))
+  redis.call('HINCRBY', KEYS[1], 'reserved', -tonumber(ARGV[1]))
+  return 1
+end
+return 0
+"""
 
 
 async def _get_redis() -> Any:
@@ -68,6 +106,43 @@ def _mem_get(key: str) -> Any:
 def _mem_set(key: str, value: Any, ttl: int) -> None:
     with _lock:
         _mem[key] = (time.time() + ttl, value)
+
+
+def _mem_stock_reserve(key: str, qty: int, base_available: int) -> bool:
+    """内存预占（降级路径）：键不存在以 base_available 初始化，可用量不足拒绝。"""
+    with _lock:
+        d = _mem_stock.setdefault(key, {"qty": base_available, "reserved": 0, "locked": 0})
+        if d["qty"] - d["reserved"] - d["locked"] < qty:
+            return False
+        d["reserved"] += qty
+        return True
+
+
+def _mem_stock_release(key: str, qty: int) -> bool:
+    """内存释放预占（降级路径）：reserved 非负校验后回吐可用量。"""
+    with _lock:
+        d = _mem_stock.get(key)
+        if d is None or d["reserved"] < qty:
+            return False
+        d["reserved"] -= qty
+        return True
+
+
+def _mem_stock_confirm(key: str, qty: int) -> bool:
+    """内存确认扣减（降级路径）：qty/reserved 同时扣，防负校验。"""
+    with _lock:
+        d = _mem_stock.get(key)
+        if d is None or d["qty"] < qty or d["reserved"] < qty:
+            return False
+        d["qty"] -= qty
+        d["reserved"] -= qty
+        return True
+
+
+def _mem_stock_sync(key: str, qty: int, reserved: int, locked: int) -> None:
+    """整体覆写库存 Hash（降级路径，供库存变更后自愈对齐，如出入库/盘点）。"""
+    with _lock:
+        _mem_stock[key] = {"qty": qty, "reserved": reserved, "locked": locked}
 
 
 async def incr_window(key: str, window_seconds: int) -> int:
@@ -157,13 +232,80 @@ async def scan_delete(prefix: str, limit: int = 500) -> int:
     return removed
 
 
+async def stock_reserve(key: str, qty: int, *, base_available: int) -> bool:
+    """预占原子扣减（Redis Lua + 内存锁降级）：可用量足够则 reserved += qty，不足返回 False。
+
+    key 见数据模型 §4: stock:{tenant}:{warehouse}:{sku}。
+    Redis 键不存在时以 base_available 自动初始化（避免并发双重 init）。
+    """
+    global _off, _connected
+    if qty <= 0:
+        return False
+    r = await _get_redis()
+    if r is not None:
+        try:
+            ok = bool(await r.eval(_LUA_RESERVE, 1, key, qty, base_available))
+            _connected = True
+            return ok
+        except Exception:
+            _off = True
+    return _mem_stock_reserve(key, qty, base_available)
+
+
+async def stock_release(key: str, qty: int) -> bool:
+    """释放预占（Redis Lua + 内存锁降级）：reserved -= qty，防负校验，键缺失返回 False。"""
+    global _off, _connected
+    if qty <= 0:
+        return False
+    r = await _get_redis()
+    if r is not None:
+        try:
+            ok = bool(await r.eval(_LUA_RELEASE, 1, key, qty))
+            _connected = True
+            return ok
+        except Exception:
+            _off = True
+    return _mem_stock_release(key, qty)
+
+
+async def stock_confirm(key: str, qty: int) -> bool:
+    """确认扣减（Redis Lua + 内存锁降级）：预占转实扣，qty/reserved 同扣，防负校验。"""
+    global _off, _connected
+    if qty <= 0:
+        return False
+    r = await _get_redis()
+    if r is not None:
+        try:
+            ok = bool(await r.eval(_LUA_CONFIRM, 1, key, qty))
+            _connected = True
+            return ok
+        except Exception:
+            _off = True
+    return _mem_stock_confirm(key, qty)
+
+
+async def stock_sync(key: str, qty: int, reserved: int, locked: int) -> None:
+    """整体覆写库存 Hash（Redis HSET + 内存覆盖，幂等，供库存变更后自愈对齐）。"""
+    global _off, _connected
+    r = await _get_redis()
+    if r is not None:
+        try:
+            await r.hset(key, mapping={"qty": qty, "reserved": reserved, "locked": locked})
+            _connected = True
+            return
+        except Exception:
+            _off = True
+    _mem_stock_sync(key, qty, reserved, locked)
+
+
 def reset() -> None:
-    """测试夹具：清降级粘性与内存窗口（不触碰真 Redis）。"""
+    """测试夹具：清降级粘性与内存窗口/库存闸门（不触碰真 Redis）。"""
     global _off, _connected
     with _lock:
         _off = False
         _connected = False
         _mem.clear()
+        _mem_stock.clear()
         _holder.clear()
 
 
@@ -175,4 +317,5 @@ def status() -> dict[str, Any]:
         "degraded": _off,
         "url_set": bool(settings.REDIS_URL),
         "mem_keys": len(_mem),
+        "stock_keys": len(_mem_stock),
     }

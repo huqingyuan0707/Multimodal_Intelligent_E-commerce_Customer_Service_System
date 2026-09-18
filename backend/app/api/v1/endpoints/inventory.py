@@ -16,7 +16,12 @@ from app.core.rbac import require_any_perm
 from app.core.responses import ok
 from app.core.user_context import CurrentUser
 from app.db.session import get_db
-from app.services import approval_service, inventory_service
+from app.services import (
+    approval_service,
+    inventory_service,
+    reserve_service,
+    stocktake_service,
+)
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
 
@@ -48,6 +53,15 @@ class ReplenishRequest(BaseModel):
     sku_id: str
     qty: int
     reason: str = ""
+
+
+class ReserveRequest(BaseModel):
+    """库存预占入参：数量为正整数，order_ref 关联订单（随订单生命周期收口）。"""
+
+    warehouse_id: str
+    sku_id: str
+    qty: int
+    order_ref: str = ""
 
 
 @router.get("")
@@ -143,7 +157,7 @@ async def stocktake(
     user: CurrentUser = Depends(require_any_perm("stock:write")),
 ) -> dict[str, Any]:
     """盘点：差异行进审批，账实一致才免审。"""
-    data = await inventory_service.stocktake(
+    data = await stocktake_service.stocktake(
         db,
         tenant=user.tenant,
         lines=[line.model_dump() for line in payload.lines],
@@ -165,7 +179,7 @@ async def replenish(
     user: CurrentUser = Depends(require_any_perm("stock:write")),
 ) -> dict[str, Any]:
     """低于安全线一键生成补货需求（进审批；采购单在 P2 落地）。"""
-    approval = await inventory_service.replenish(
+    approval = await stocktake_service.replenish(
         db,
         tenant=user.tenant,
         sku_id=payload.sku_id,
@@ -174,3 +188,60 @@ async def replenish(
         applicant=user.username,
     )
     return ok(approval_service.to_dict(approval), "补货需求已提交审批")
+
+
+@router.post("/reserve")
+async def reserve(
+    payload: ReserveRequest,
+    db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(require_any_perm("stock:write")),
+) -> dict[str, Any]:
+    """预占库存（Redis 原子闸门 + DB 双写 reserved）：下单时锁可用量，不足 3004。"""
+    data = await reserve_service.reserve_capacity(
+        db,
+        tenant=user.tenant,
+        warehouse_id=payload.warehouse_id,
+        sku_id=payload.sku_id,
+        qty=payload.qty,
+        order_ref=payload.order_ref,
+        actor=user.username,
+    )
+    return ok(data, f"预占成功：{payload.sku_id} × {payload.qty}")
+
+
+@router.post("/reserve/release")
+async def release(
+    payload: ReserveRequest,
+    db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(require_any_perm("stock:write")),
+) -> dict[str, Any]:
+    """释放预占（订单取消/超时）：DB 先回吐 reserved，再同步 Redis 闸门。"""
+    data = await reserve_service.release_reserve(
+        db,
+        tenant=user.tenant,
+        warehouse_id=payload.warehouse_id,
+        sku_id=payload.sku_id,
+        qty=payload.qty,
+        order_ref=payload.order_ref,
+        actor=user.username,
+    )
+    return ok(data, f"释放预占成功：{payload.sku_id} × {payload.qty}")
+
+
+@router.post("/reserve/confirm")
+async def confirm(
+    payload: ReserveRequest,
+    db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(require_any_perm("stock:write")),
+) -> dict[str, Any]:
+    """预占确认扣减（订单支付/发货）：qty/reserved 同扣 + 出库流水留痕。"""
+    data = await reserve_service.confirm_reserve(
+        db,
+        tenant=user.tenant,
+        warehouse_id=payload.warehouse_id,
+        sku_id=payload.sku_id,
+        qty=payload.qty,
+        order_ref=payload.order_ref,
+        actor=user.username,
+    )
+    return ok(data, f"确认扣减成功：{payload.sku_id} × {payload.qty}")

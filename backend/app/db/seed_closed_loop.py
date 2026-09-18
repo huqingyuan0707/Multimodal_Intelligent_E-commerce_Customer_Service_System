@@ -85,7 +85,9 @@ _DEMO_SESSIONS: tuple[_DemoSessionSpec, ...] = (
         reason="",
         summary="买家咨询加绒连帽卫衣 M 码库存与发货时效，AI 已按商品知识与尺码指南答复。",
         resolution="",
-        hours_ago=0.03,
+        # 0.12h=7.2 分钟前：必须 > 轮数×2min 的会话跨度，否则末轮消息会落到「未来」
+        # （未来时间戳会让看板 QPS 的近 5 分钟窗口查不到、且是假数据）
+        hours_ago=0.12,
         turns=(
             ("user", "加绒连帽卫衣 M 码还有货吗？"),
             (
@@ -278,12 +280,9 @@ async def _seed_sessions(db: AsyncSession, *, tenant: str, username: str) -> lis
         created.append(row)
         trace_id = f"trace{index + 1:02d}{zlib.crc32(spec.title.encode()) % 10**6:06d}"
         for turn_index, (role, content) in enumerate(spec.turns):
-            # 首条 user 消息落在「近 5 分钟」内，保证看板 QPS 非 0 且今日小时桶有柱
-            stamp = (
-                _rel(0.05)
-                if (index == 0 and turn_index == 0)
-                else created_at + timedelta(minutes=turn_index * 2)
-            )
+            # 每轮相隔 2 分钟正序：首条会话轮数最多、跨度最长，已由 hours_ago 保证末轮仍在过去，
+            # 其中较晚的 user 轮落在「近 5 分钟」内，看板 QPS 窗口查得到（不编未来时间戳）
+            stamp = created_at + timedelta(minutes=turn_index * 2)
             if role == "agent":
                 db.add(
                     Message(

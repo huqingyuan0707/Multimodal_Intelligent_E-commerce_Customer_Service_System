@@ -356,3 +356,17 @@ def test_media_roundtrip_isolated(tmp_path, monkeypatch: pytest.MonkeyPatch) -> 
     assert media_store.resolve_path(tenant="demo-tenant", file_id=saved["file_id"]) is not None
     assert media_store.resolve_path(tenant="other-tenant", file_id=saved["file_id"]) is None
     assert media_store.resolve_path(tenant="demo-tenant", file_id="../evil") is None
+
+
+def test_media_s3_backend_fails_loud(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """s3 后端写对象失败（客户端不可用）：显式报 5001，不静默落本地盘（防两处副本分叉）。"""
+    monkeypatch.setattr(settings, "MEDIA_DIR", str(tmp_path))
+    monkeypatch.setattr(settings, "MEDIA_BACKEND", "s3")
+    monkeypatch.setattr(media_store, "_s3_off", True)  # 模拟客户端构造失败（sticky 降级）
+    assert media_store.status()["degraded"] is True
+    with pytest.raises(BusinessError) as exc:
+        media_store.save_upload(
+            tenant="demo-tenant", kind="image", session_id="s2", filename="a.png", raw=b"x"
+        )
+    assert exc.value.code == ErrorCode.UPSTREAM_FAILED
+    assert not list(tmp_path.rglob("*.*"))  # 未静默落盘

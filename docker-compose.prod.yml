@@ -1,6 +1,11 @@
-# 生产覆盖层（对齐部署工程化.md §二/§五）：只关演示口径，不碰镜像与端口。
-# 用法（仓库根目录）：
-#   $env:JWT_SECRET='<至少 32 位强随机>'; docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# 生产覆盖层（对齐部署工程化.md §二/§三/§五/§六）：只关演示口径 + 接生产存储，不碰镜像与端口。
+# 用法（仓库根目录，口令勿含 @ : / 等 URL 保留字符）：
+#   $env:JWT_SECRET='<至少 32 位强随机>'; $env:POSTGRES_PASSWORD='<强口令>'
+#   $env:MINIO_ROOT_USER='<账号>'; $env:MINIO_ROOT_PASSWORD='<至少 8 位强口令>'
+#   $env:MEDIA_BACKEND='s3'
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# 迁移：PG 表结构由宿主/CI 用 dev 工具链执行（backend/.venv 有 psycopg2）——
+#   $env:DATABASE_URL='postgresql+asyncpg://reai:<口令>@127.0.0.1:5432/reai'; python -m alembic upgrade head
 # 生产首个管理员（种子已关，无账号可登录时）：
 #   $env:ADMIN_PASSWORD='<强口令>'; python backend/scripts/create_admin.py --tenant <租户> --username <名> --roles admin
 name: reai
@@ -14,3 +19,82 @@ services:
       KB_SEED_DEMO: 'false'
       # 必填：缺失或短于 32 位时后端 _guard_prod 启动即报错（fail-fast，宁可起不来也不带演示密钥上线）
       JWT_SECRET: ${JWT_SECRET:?生产必须设置 JWT_SECRET（至少 32 位强随机），禁止用默认值}
+      # 生产存储切换：PG（异步驱动 asyncpg）+ Redis 闸门 + 对象存储（MinIO/S3，源在对象存储）
+      DATABASE_URL: postgresql+asyncpg://reai:${POSTGRES_PASSWORD:?生产必须设置 POSTGRES_PASSWORD}@postgres:5432/reai
+      REDIS_URL: redis://redis:6379/0
+      MEDIA_BACKEND: ${MEDIA_BACKEND:-s3}
+      S3_ENDPOINT: http://minio:9000
+      S3_BUCKET: ${S3_BUCKET:-app}
+      S3_ACCESS_KEY: ${MINIO_ROOT_USER:?生产必须设置 MINIO_ROOT_USER}
+      S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?生产必须设置 MINIO_ROOT_PASSWORD（至少 8 位）}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
+  # PG 是配置与订单源（数据模型 §1）：数据卷 + pg_isready 存活探针，后端等它就绪再起
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: reai
+      POSTGRES_DB: reai
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?生产必须设置 POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U reai -d reai']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis 只承载可再生的加速件（闸门/缓存/限流，数据模型 §4）：挂了自动降级为进程内锁，故无需落盘
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 对象存储（数据模型 §5 布局）：源在 MinIO，本地盘退化为回读物化缓存。
+  # 第三方镜像同样钉版本（不用 :latest）：漂移会让「本地验证过的键布局/回读」在下次重启换行为。
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    command: ['server', '/data', '--console-address', ':9001']
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?生产必须设置 MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?生产必须设置 MINIO_ROOT_PASSWORD（至少 8 位）}
+    volumes:
+      - minio-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD-SHELL', 'mc ready local']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 一次性建桶作业：put_object 要求桶已存在（缺桶即上传报 5001），故随栈自举
+  minio-init:
+    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint:
+      - sh
+      - -c
+      - |
+        mc alias set prod http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" &&
+        mc mb --ignore-existing "prod/${S3_BUCKET:-app}"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?生产必须设置 MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?生产必须设置 MINIO_ROOT_PASSWORD（至少 8 位）}
+    restart: 'no'
+
+volumes:
+  postgres-data:
+  minio-data:

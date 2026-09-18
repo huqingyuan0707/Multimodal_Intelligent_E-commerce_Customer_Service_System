@@ -34,6 +34,7 @@ from app.services import (
     order_service,
     promo_service,
     review_service,
+    stocktake_service,
 )
 
 TENANT = settings.SEED_TENANT
@@ -241,7 +242,7 @@ async def test_stocktake_diff_applies_only_after_approval(db: AsyncSession) -> N
     center = await _wh(db, "中心仓")
     row = await _inv(db, center.id, sku.id)
     assert row.qty == 12
-    result = await inventory_service.stocktake(
+    result = await stocktake_service.stocktake(
         db,
         tenant=TENANT,
         lines=[{"warehouse_id": center.id, "sku_id": sku.id, "counted": 10}],

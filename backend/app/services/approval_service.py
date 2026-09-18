@@ -216,9 +216,9 @@ async def _apply(
         await goods_service.apply_price_change(db, tenant=tenant, args=args, actor=actor)
         return
     if action == "inventory.stocktake_diff":
-        from app.services import inventory_service
+        from app.services import stocktake_service
 
-        await inventory_service.apply_stocktake(db, tenant=tenant, args=args, actor=actor)
+        await stocktake_service.apply_stocktake(db, tenant=tenant, args=args, actor=actor)
         return
     if action == "order.refund":
         from app.services import order_service

@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     APP_NAME: str = "multimodal-cs"
     # 项目版本唯一口径三源之一（另两源：执行步骤.md 头部版本 / frontend/package.json），
     # 三处必须一致（门禁 scripts/check_version.py），发版 tag 以此为准（release.yml 门禁）。
-    APP_VERSION: str = "0.3.25"
+    APP_VERSION: str = "0.3.27"
     ENV: str = "dev"
     DATABASE_URL: str = "sqlite+aiosqlite:///./dev.db"
     REDIS_URL: str = "redis://localhost:6379/0"
@@ -50,8 +50,9 @@ class Settings(BaseSettings):
         "cs,kb,shop,stock,ops,admin,"
         "goods:read,goods:write,stock:read,stock:write,order:read,order:fulfill,"
         "promo:read,promo:write,review:read,review:write,ticket:read,ticket:write,"
-        # 经营大屏读权限（endpoints/screen.py 的 require_any_perm 口径之一）
+        # 经营大屏读权限（screen.py 口径）+ B 端二期（/purchase /finance /risk）读写令牌
         "screen:read,"
+        "purchase:read,purchase:write,finance:read,finance:write,risk:read,risk:review,"
         # Agent 工具 Scope（FRDv2 附录 A）：kb.retrieve/refund.create 的 Scope 令牌，
         # 缺了会让客服账号调不动工具（seed 侧只并集补齐，不覆盖存量密码与角色）。
         "kb:read,vision:inspect,trade:refund"
@@ -94,8 +95,7 @@ class Settings(BaseSettings):
     # 高频问聚类：归一化问法 bigram-Dice 相似度≥阈值归一簇；候选池上限防 O(n²) 爆炸
     MINING_CLUSTER_SIM: float = 0.5
     MINING_CLUSTER_POOL: int = 200
-    # 对话限流（错误码 2002 / 数据模型 §4 rl: 键）：每租户+账号每分钟窗口计数，0=关闭；
-    # 计数走 core/cache.py 适配层（Redis 可用走 Redis，不可用进程内降级）。
+    # 对话限流（2002 / 数据模型 §4 rl: 键）：每租户+账号每分钟窗口，计数走 core/cache.py 适配层。
     CHAT_RATE_LIMIT_PER_MIN: int = 30
     _HOT_FIELDS: tuple[str, ...] = (
         "CHAT_RATE_LIMIT_PER_MIN",
@@ -157,8 +157,7 @@ class Settings(BaseSettings):
     # 文本流 message 事件分片长度（增量渲染粒度，大模型按 token 流时再调小）
     SSE_CHUNK_CHARS: int = 120
 
-    # 历史对话三层（FR-1.4）：会话→消息→上下文；双重修剪（轮数 + Token 预算），
-    # 超限摘要压缩 + PII 正则清洗；业务只读 Settings，禁止散落阈值。
+    # 历史对话三层（FR-1.4）：双重修剪（轮数 + Token 预算）+ 超限摘要压缩 + PII 清洗；阈值只在此。
     SESSION_HISTORY_ROUNDS: int = 20  # 进 LLM 的历史轮数上限（user+agent 算一轮）
     SESSION_TOKEN_BUDGET: int = 8000  # 历史块 Token 预算上限（估算口径见 context_service）
     SESSION_SUMMARY_CHARS: int = 600  # 会话摘要截断长度（sessions.summary）
@@ -168,9 +167,14 @@ class Settings(BaseSettings):
     MEMORY_SHORT_TTL: int = 86400  # 短期记忆/线程快照 TTL（秒），每轮回写即滑动续期
     MEMORY_LONG_ENABLED: bool = True  # 长期偏好总开关（False 则只记短期不落 PG）
 
-    # 多模态 FR-1（执行步骤 A）：图片走对象存储布局，VLM/ASR/TTS 沿 llm_service 单出口，
-    # 业务只读 Settings，禁止散落硬编码模型名/阈值/URL（数据模型 §5 对象存储布局）。
-    MEDIA_DIR: str = "./data/media"  # 本地落盘根；生产换 S3/MinIO 同 path 布局
+    # 多模态 FR-1（执行步骤 A）：VLM/ASR/TTS 沿 llm_service 单出口（数据模型 §5 对象存储布局）。
+    MEDIA_DIR: str = "./data/media"  # 本地落盘根；s3 模式兼作回读物化缓存根
+    MEDIA_BACKEND: str = "local"  # local=本地盘；s3=MinIO/S3（执行步骤 D，数据模型 §5 布局）
+    S3_ENDPOINT: str = ""  # 空=AWS 默认端点；MinIO 填 http://minio:9000
+    S3_BUCKET: str = "app"
+    S3_REGION: str = "us-east-1"
+    S3_ACCESS_KEY: str = ""
+    S3_SECRET_KEY: SecretStr = SecretStr("")
     IMAGE_MAX_COUNT: int = 9  # 单轮附图上限（FR-1.2）
     IMAGE_MAX_BYTES: int = 10 * 1024 * 1024  # 单张 10M，超限 2004 中文拒收
     IMAGE_ALLOWED_TYPES: list[str] = ["image/jpeg", "image/png", "image/webp"]
@@ -209,13 +213,11 @@ class Settings(BaseSettings):
     API_KEY_MASK_KEEP: int = 4
     API_KEY_SCOPES_DEFAULT: str = "read"
 
-    # 消息发送频控（FR-12.2）：同一 user_ref 在 WINDOW 秒内最多 MAX 条；0=关闭频控。
-    # 计数走 core/cache.py 适配层（Redis 可用走 Redis，不可用进程内降级，与对话限流同源）。
+    # 消息发送频控（FR-12.2）：同一 user_ref 在 WINDOW 秒内最多 MAX 条，计数走 core/cache.py 适配层。
     NOTIFY_RATE_MAX: int = 1
     NOTIFY_RATE_WINDOW_SECONDS: int = 86400
 
-    # Agent Runtime / 工具注册中心（FRD FR-3/FR-5，执行步骤 B）：超时、重试、熔断一律进 Settings，
-    # 业务代码禁止硬编码；改这里即改全站工具行为（同时在 _HOT_FIELDS 内可热更）。
+    # Agent Runtime / 工具注册中心（FRD FR-3/FR-5）：超时/重试/熔断进 Settings（_HOT_FIELDS 可热更）。
     AGENT_TOOL_TIMEOUT_SECONDS: float = 30.0  # 附录 A：单次工具调用超时 30s
     AGENT_TOOL_MAX_RETRIES: int = 3  # 仅幂等安全方法自动重试（非幂等恒 1 次）
     AGENT_TOOL_CIRCUIT_THRESHOLD: int = 3  # 连续失败达此值即开闸（熔断）
@@ -226,9 +228,8 @@ class Settings(BaseSettings):
         True  # /chat 检索段走 Agent 编排；false 一键回退直调 knowledge_service
     )
 
-    # 转人工触发规则表（FRD FR-7，执行步骤 C）：「什么时候该转人工」的唯一口径在
-    # services/handoff_rules.py 的规则表里，词表与阈值放这里（禁止散落硬编码），
-    # 挂载点只有 handoff_service.auto_handoff() 一个（对话落库 / Agent 编排共用）。
+    # 转人工触发规则表（FRD FR-7）：「什么时候该转人工」的唯一口径在 handoff_rules.py 规则表，
+    # 词表与阈值在此；挂载点只有 handoff_service.auto_handoff()（对话落库 / Agent 编排共用）。
     HANDOFF_ENABLED: bool = (
         True  # 总开关：false 时规则表不判命，仅显式动作（买家点转人工/坐席认领）改流转态
     )
@@ -357,9 +358,8 @@ class Settings(BaseSettings):
     KB_SEED_DIR: str = "docs/knowledge-base"  # 相对仓库根；镜像内无此目录时跳过
     STOCK_WARN_DEFAULT: int = 10  # 新建库存行的默认安全线
     REFUND_APPROVAL_LIMIT_CENTS: int = 10000  # 退款超此金额（100 元）恒进审批（3003）
-    APPROVAL_SLA_HOURS: int = (
-        24  # 审批超时升级线：待办等待超此时长即标超期（审批中心红标 + 只看超期筛选）
-    )
+    FINANCE_DIFF_WARN_CENTS: int = 5000  # 对账差异告警线（/finance 红字，超 50 元才亮）
+    APPROVAL_SLA_HOURS: int = 24  # 审批超时升级线：待办等待超此时长即标超期（红标 + 只看超期筛选）
     # 物流单号格式（打单发货校验，非法返回 1001）：8~24 位字母数字
     TRACKING_NO_PATTERN: str = r"^[A-Za-z0-9]{8,24}$"
     # 经营大屏（screen_service）红线：退货率超此比值即亮 bad 预警（0.08 = 8%）
@@ -378,10 +378,10 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _guard_prod(self) -> Settings:
-        """生产护栏：ENV=prod 时禁默认密钥、禁一切演示种子，配置错就启动即失败（fail-fast）。
+        """生产护栏（fail-fast）：ENV=prod 禁默认密钥、禁一切演示种子，配置错即启动失败。
 
-        宁可起不来，也不要带着 demo 密钥/账号/演示数据上生产（对齐 AGENTS.md §3 安全红线）。
-        生产首个管理员走 scripts/create_admin.py 创建，不经过 SEED_* 演示通道。
+        宁可起不来，也不要带 demo 密钥/账号/演示数据上生产（AGENTS.md §3）；首个管理员走
+        scripts/create_admin.py 创建，不经过 SEED_* 演示通道。
         """
         if self.ENV != "prod":
             return self

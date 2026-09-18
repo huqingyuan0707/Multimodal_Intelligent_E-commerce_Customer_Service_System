@@ -10,4 +10,7 @@ PyJWT>=2.8
 python-multipart>=0.0.9
 redis>=5.0.0
 alembic>=1.13
+# 生产存储切换（执行步骤 D）：PG 异步驱动（DATABASE_URL=postgresql+asyncpg://）+ 对象存储客户端
+asyncpg>=0.30
+boto3>=1.35
 

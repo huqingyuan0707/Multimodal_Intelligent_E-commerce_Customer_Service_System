@@ -1,7 +1,6 @@
 <template>
   <div class="page">
     <div class="head">
-      <el-tag v-if="demo" type="warning" size="small">演示数据</el-tag>
       <span v-if="llmHint" class="hint">{{ llmHint }}</span>
       <el-select v-model="range" size="small" class="range" @change="onRange">
         <el-option label="今日" value="today" />
@@ -116,7 +115,6 @@ import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { getDashboardSummaryApi, getGovernanceStatusApi } from '@/api';
 import type { DashboardSlowTrace, DashboardTrendPoint } from '@/api/dashboard';
-import { mockAttributions, mockMetrics } from '@/mock/dashboard';
 import AiButton from '@/shared/components/AiButton.vue';
 import { channelLabelOf, formatCost, formatLatency } from '@/types/dashboard';
 import type { AttributionRow, DashboardMetric } from '@/types/dashboard';
@@ -140,7 +138,6 @@ const page = ref(1);
 const size = ref(20);
 const range = ref('today');
 const loading = ref(false);
-const demo = ref(false);
 const llmHint = ref('');
 // 指标值变化闪光：刷新后数值变化的卡片提示一次
 const changedKeys = ref<string[]>([]);
@@ -152,7 +149,7 @@ const loadGov = async () => {
     const ok = g?.llm?.available;
     llmHint.value = ok ? '模型服务在线' : '模型服务不可用，问答将降级';
   } catch {
-    llmHint.value = '模型状态未知（演示）';
+    llmHint.value = '模型状态未知';
   }
 };
 
@@ -164,7 +161,7 @@ const load = async () => {
       size: size.value,
       range: range.value,
     });
-    const next = Array.isArray(res.metrics) ? res.metrics : mockMetrics;
+    const next = Array.isArray(res.metrics) ? res.metrics : [];
     changedKeys.value = next
       .filter(n => {
         const prev = metrics.value.find(m => m.key === n.key);
@@ -178,17 +175,15 @@ const load = async () => {
     metrics.value = next;
     trend.value = Array.isArray(res.trend) ? res.trend : [];
     slowList.value = Array.isArray(res.slow_traces) ? res.slow_traces : [];
-    rows.value = Array.isArray(res.items) ? res.items : mockAttributions;
-    total.value = typeof res.total === 'number' ? res.total : mockAttributions.length;
-    demo.value = false;
+    rows.value = Array.isArray(res.items) ? res.items : [];
+    total.value = typeof res.total === 'number' ? res.total : 0;
   } catch {
-    metrics.value = mockMetrics;
+    metrics.value = [];
     trend.value = [];
     slowList.value = [];
-    const start = (page.value - 1) * size.value;
-    rows.value = mockAttributions.slice(start, start + size.value);
-    total.value = mockAttributions.length;
-    demo.value = true;
+    rows.value = [];
+    total.value = 0;
+    ElMessage.error('看板数据加载失败，请稍后重试');
   } finally {
     loading.value = false;
   }
@@ -231,7 +226,7 @@ const barHeight = (v: number) => {
   return Math.round((v / max) * BAR_MAX_PX);
 };
 
-// 慢 Trace Top5：优先服务端 tool_calls 实测排序；演示回退时才从归因行 slowTraceId 拼
+// 慢 Trace Top5：优先服务端 tool_calls 实测排序；缺失时从归因行 slowTraceId 兜底
 const topTraces = computed<SlowTrace[]>(() => {
   if (slowList.value.length) {
     return slowList.value.slice(0, 5).map(t => ({

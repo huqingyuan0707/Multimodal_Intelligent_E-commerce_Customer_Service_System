@@ -16,6 +16,7 @@ from app.api.v1.endpoints import (
     auth,
     chat,
     documents,
+    finance,
     goods,
     governance,
     inventory,
@@ -25,7 +26,9 @@ from app.api.v1.endpoints import (
     observability,
     orders,
     promos,
+    purchase,
     reviews,
+    risk,
     screen,
     sessions,
     studio,
@@ -68,3 +71,7 @@ api_router.include_router(admin_ops.router, dependencies=[Depends(get_current_us
 api_router.include_router(admin_org.router, dependencies=[Depends(get_current_user)])
 # 经营大屏（FRDv2 附录 D 大屏节）：全租户聚合视图，权限在端点内 screen:read/shop/admin
 api_router.include_router(screen.router, dependencies=[Depends(get_current_user)])
+# B 端二期（FR-10.3 采购 / FR-10.5 对账 / FR-12.1 风控）：细粒度权限由端点 require_any_perm 把关
+api_router.include_router(purchase.router, dependencies=[Depends(get_current_user)])
+api_router.include_router(finance.router, dependencies=[Depends(get_current_user)])
+api_router.include_router(risk.router, dependencies=[Depends(get_current_user)])

@@ -1,14 +1,17 @@
-"""闭环演示·业务记录种子（售后单/营销券/会员/评价/工单/评测 run）
+"""闭环演示·业务记录种子（售后单/营销券/会员/评价/工单/评测 run + 采购/财务/风控）
 
 链路：app.db.seed.ensure_closed_loop_demo() → _seed_biz_records()（喂售后、营销、
-     评价工单、Studio、大屏退货率）；时间口径复用 seed_closed_loop._rel()。
+     评价工单、Studio、大屏退货率）+ _seed_biz_ops()（喂 /purchase、/finance、/risk 三页）；
+     时间口径复用 seed_closed_loop._rel()。
 对齐数据模型与存储设计.md §6 迁移节。
 """
 
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -16,11 +19,18 @@ from app.db.models import (
     Aftersale,
     CouponGrant,
     EvalRun,
+    FinanceBill,
     Member,
+    Product,
     Promo,
+    PurchaseOrder,
     Review,
+    RiskEvent,
     SalesOrder,
+    Sku,
+    Supplier,
     Ticket,
+    Warehouse,
 )
 from app.db.seed_closed_loop import _rel
 
@@ -163,4 +173,162 @@ async def _seed_biz_records(db: AsyncSession, *, tenant: str, orders: list[Sales
             created_at=_rel(36.0),
         )
     )
+    await db.flush()
+
+
+async def _seed_biz_ops(db: AsyncSession, *, tenant: str, skus: list[Sku]) -> None:
+    """采购/财务/风控三页种子：供应商 + 采购单（状态机四档）+ 日结单 + 风控事件。
+
+    采购单只铺 draft/approved/received/returned（**不伪造 stocked**）：「已入库」必须由
+    真实质检流程写 inventory + stock_moves 才成立，种子造空壳会污染库存口径；
+    留一张已到货单，让「质检→入库」这条链路可由页面当场走通。
+    """
+    if not skus:
+        return
+    houses = list((await db.execute(select(Warehouse).where(Warehouse.tenant == tenant))).scalars())
+    house = houses[0].id if houses else ""
+    names = {
+        str(pid): (str(name), str(spu))
+        for pid, name, spu in (
+            await db.execute(
+                select(Product.id, Product.name, Product.spu_no).where(Product.tenant == tenant)
+            )
+        ).all()
+    }
+    suppliers = [
+        Supplier(
+            tenant=tenant,
+            name="杭州锦棉纺织",
+            pay_terms="月结 30 天",
+            pass_rate=0.98,
+            created_at=_rel(240.0),
+        ),
+        Supplier(
+            tenant=tenant,
+            name="苏州云锦制衣",
+            pay_terms="半月结",
+            pass_rate=0.94,
+            created_at=_rel(200.0),
+        ),
+        Supplier(
+            tenant=tenant,
+            name="东莞恒丰辅料",
+            pay_terms="现结",
+            pass_rate=0.885,
+            created_at=_rel(160.0),
+        ),
+    ]
+    for row in suppliers:
+        db.add(row)
+    await db.flush()
+
+    def _line(index: int, qty: int, price: int) -> dict:
+        sku = skus[index % len(skus)]
+        product = names.get(sku.product_id, ("", ""))
+        return {
+            "sku_id": sku.id,
+            "name": product[0],
+            "spu_no": product[1],
+            "color": sku.color,
+            "size": sku.size,
+            "qty": qty,
+            "price": price,
+        }
+
+    today = datetime.now()
+    # (供应商序号, 状态, 明细, 到货日偏移天, 质检结论, 质检说明, 创建时间回推小时)
+    for sup, status, lines, eta_days, qc, note, hours in (
+        (0, "draft", [_line(0, 200, 8900)], 7, "", "", 6.0),
+        (1, "approved", [_line(1, 120, 12900)], 10, "", "", 30.0),
+        (0, "received", [_line(2, 80, 29900)], 2, "", "", 54.0),
+        (1, "returned", [_line(3, 60, 9900)], -2, "fail", "到货色差超标，整批退供", 78.0),
+    ):
+        db.add(
+            PurchaseOrder(
+                tenant=tenant,
+                supplier_id=suppliers[sup].id,
+                warehouse_id=house if status in ("received", "stocked") else "",
+                items=json.dumps(lines, ensure_ascii=False),
+                status=status,
+                eta=(today + timedelta(days=eta_days)).strftime("%Y-%m-%d"),
+                qc_result=qc,
+                qc_note=note,
+                created_at=_rel(hours),
+            )
+        )
+    # (距今天数, 应收, 退款, 扣点, 运费, 实收偏差)：偏差 0 即对平，负数=少收（绝对值超阈值亮红）
+    for days, receivable, refund, fee, freight, delta in (
+        (0, 1286000, 32000, 25700, 0, 0),
+        (1, 1146000, 18000, 22900, 0, -12000),
+        (2, 980000, 26000, 19600, 0, 600),
+        (3, 1342000, 41000, 26800, 1200, -800),
+        (4, 906000, 12000, 18100, 0, 0),
+    ):
+        day = (today - timedelta(days=days)).strftime("%Y-%m-%d")
+        expected = receivable - refund - fee + freight
+        db.add(
+            FinanceBill(
+                tenant=tenant,
+                biz_date=day,
+                receivable=receivable,
+                received=expected + delta,
+                refund=refund,
+                fee=fee,
+                freight=freight,
+                diff=delta,
+                # 最新账期待日结（保证 /finance 首屏有可确认单），历史账期视为已日结
+                settled_by="" if days == 0 else settings.SEED_USERNAME,
+                created_at=_rel(days * 24 + 1),
+            )
+        )
+    for user_ref, kind, status, detail, reviewer, reason, hours in (
+        (
+            "buyer-2088",
+            "refund_abuse",
+            "pending",
+            '{"device":"D-88f1","payment":"PA-7732","refund_30d":7,"linked_accounts":3}',
+            "",
+            "",
+            3.0,
+        ),
+        (
+            "buyer-1902",
+            "order_risk",
+            "pending",
+            '{"device":"D-21a9","payment":"PA-1180","refund_30d":4,"linked_accounts":2}',
+            "",
+            "",
+            9.0,
+        ),
+        (
+            "buyer-1003",
+            "coupon_abuse",
+            "passed",
+            '{"device":"D-77c2","payment":"PA-9021","refund_30d":0,"linked_accounts":0}',
+            settings.SEED_USERNAME,
+            "新客首单，非团伙特征",
+            26.0,
+        ),
+        (
+            "buyer-2077",
+            "account_link",
+            "blocked",
+            '{"device":"D-88f1","payment":"PA-7732","refund_30d":9,"linked_accounts":5}',
+            "liuwei",
+            "与 3 个退款高风险账号共用设备与支付账号",
+            50.0,
+        ),
+    ):
+        db.add(
+            RiskEvent(
+                tenant=tenant,
+                user_ref=user_ref,
+                kind=kind,
+                detail=detail,
+                status=status,
+                reviewer=reviewer,
+                reason=reason,
+                created_at=_rel(hours),
+            )
+        )
     await db.flush()

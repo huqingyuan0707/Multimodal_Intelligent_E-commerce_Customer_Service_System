@@ -25,7 +25,7 @@ from app.config import settings
 from app.core.security import hash_password
 from app.db.models import Product, SalesOrder, Session, Sku, Tenant, User
 from app.db.seed_b2b import _seed_backfill_orders, ensure_b2b_demo
-from app.db.seed_biz_records import _seed_biz_records
+from app.db.seed_biz_records import _seed_biz_ops, _seed_biz_records
 from app.db.seed_closed_loop import _DEMO_AGENTS, _seed_ops_records, _seed_sessions
 from app.db.session import get_engine
 
@@ -226,6 +226,7 @@ async def ensure_closed_loop_demo(db: AsyncSession) -> bool:
     sessions_results = await _seed_sessions(db, tenant=tenant, username=username)
     await _seed_ops_records(db, tenant=tenant, username=username, sessions_results=sessions_results)
     await _seed_biz_records(db, tenant=tenant, orders=orders)
+    await _seed_biz_ops(db, tenant=tenant, skus=skus)
     await db.commit()
     return True
 

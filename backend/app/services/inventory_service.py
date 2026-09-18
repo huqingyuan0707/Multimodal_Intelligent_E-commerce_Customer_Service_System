@@ -1,11 +1,13 @@
-"""库存服务（/inventory：可用量唯一口径 + 出入库 / 调拨 / 盘点 / 补货需求）
+"""库存服务（/inventory：可用量唯一口径 + 出入库 / 调拨；预占与盘点已分家）
 
-链路：endpoints/inventory → 本模块 → inventory/stock_moves 表 + approval_service（盘点差异）。
+链路：endpoints/inventory → 本模块 → inventory/stock_moves 表。
+分家：预占/释放/确认 → reserve_service；盘点/差异生效/补货 → stocktake_service；
+      本模块保留可用量口径、库存行读写与出入库（两者反向 import 本模块的共用件）。
 红线：
 - available = qty - reserved - locked，**全站唯一在此计算**（数据模型文档 §2.1），
   前端与各页禁止自算。
 - 每行出入库必须带原因（缺原因 1001）；调拨拆「出 A 仓 + 入 B 仓」两行流水。
-- 盘点账实不一致**不直接改账**，生成审批单，批准后生效。
+- 库存数量/预占变更后必须 sync_gate 回写预占闸门，否则闸门停在旧值（数据模型 §4）。
 """
 
 from __future__ import annotations
@@ -16,9 +18,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.core import cache
 from app.core.exceptions import BusinessError, ErrorCode
-from app.db.models import Approval, Inventory, Product, Sku, StockMove, Warehouse
-from app.services import approval_service
+from app.db.models import Inventory, Product, Sku, StockMove, Warehouse
 
 # 出入库类型口径（唯一出处，前后端以此为准）：
 # - 用户可提交：in 入库 / out 出库 / move 调拨（move 必带 to_warehouse_id，自动拆两行流水）。
@@ -30,6 +32,22 @@ KIND_LABELS = {"in": "入库", "out": "出库", "move": "调拨", "adjust": "调
 def available_of(row: Inventory) -> int:
     """可用量唯一口径（改这里等于改全站，其他模块只读不重算）。"""
     return row.qty - row.reserved - row.locked
+
+
+def stock_key(tenant: str, warehouse_id: str, sku_id: str) -> str:
+    """库存预占闸门键（数据模型 §4：stock:{tenant}:{warehouse}:{sku}）。"""
+    return f"stock:{tenant}:{warehouse_id}:{sku_id}"
+
+
+async def sync_gate(row: Inventory) -> None:
+    """把预占闸门对齐到 DB 真值（库存数量变更后唯一回写口，防闸门停在旧值）。
+
+    闸门只在首次预占时以 base_available 初始化，此后出入库/调拨/盘点都必须经此回写，
+    否则预占按过期可用量判定。DB 始终是事实源，闸门只是原子闸门。
+    """
+    await cache.stock_sync(
+        stock_key(row.tenant, row.warehouse_id, row.sku_id), row.qty, row.reserved, row.locked
+    )
 
 
 async def get_row(
@@ -63,7 +81,7 @@ async def get_row(
     return row
 
 
-async def _sku_or_raise(db: AsyncSession, tenant: str, sku_id: str) -> tuple[Sku, Product]:
+async def sku_or_raise(db: AsyncSession, tenant: str, sku_id: str) -> tuple[Sku, Product]:
     sku = (
         await db.execute(select(Sku).where(Sku.tenant == tenant, Sku.id == sku_id))
     ).scalar_one_or_none()
@@ -79,7 +97,7 @@ async def _sku_or_raise(db: AsyncSession, tenant: str, sku_id: str) -> tuple[Sku
     return sku, product
 
 
-async def _warehouse_or_raise(db: AsyncSession, tenant: str, warehouse_id: str) -> Warehouse:
+async def warehouse_or_raise(db: AsyncSession, tenant: str, warehouse_id: str) -> Warehouse:
     row = (
         await db.execute(
             select(Warehouse).where(Warehouse.tenant == tenant, Warehouse.id == warehouse_id)
@@ -183,12 +201,12 @@ async def list_moves(
     return list(rows)
 
 
-def _check_delta(delta: int) -> None:
+def check_delta(delta: int) -> None:
     if delta <= 0:
         raise BusinessError(ErrorCode.PARAM_INVALID, "数量必须是正整数")
 
 
-def _check_reason(reason: str) -> str:
+def check_reason(reason: str) -> str:
     """出入库原因必填（报损/退货/盘盈盘亏都要留痕）。"""
     text = reason.strip()
     if not text:
@@ -219,10 +237,10 @@ async def move_stock(
         raise BusinessError(
             ErrorCode.PARAM_INVALID, f"出入库类型非法：{kind}（可选 {'/'.join(MOVE_KINDS)}）"
         )
-    _check_delta(delta)
-    text = _check_reason(reason)
-    await _sku_or_raise(db, tenant, sku_id)
-    source = await _warehouse_or_raise(db, tenant, warehouse_id)
+    check_delta(delta)
+    text = check_reason(reason)
+    await sku_or_raise(db, tenant, sku_id)
+    source = await warehouse_or_raise(db, tenant, warehouse_id)
 
     if kind == "in":
         row = await get_row(db, tenant, warehouse_id, sku_id, create_if_missing=True)
@@ -266,7 +284,7 @@ async def move_stock(
     else:  # move
         if not to_warehouse_id or to_warehouse_id == warehouse_id:
             raise BusinessError(ErrorCode.PARAM_INVALID, "调拨需要选择与原仓库不同的目标仓库")
-        target = await _warehouse_or_raise(db, tenant, to_warehouse_id)
+        target = await warehouse_or_raise(db, tenant, to_warehouse_id)
         row = await get_row(db, tenant, warehouse_id, sku_id)
         if row is None:
             raise BusinessError(ErrorCode.NOT_FOUND, "该仓库无此 SKU 库存记录", 404)
@@ -307,6 +325,12 @@ async def move_stock(
 
     await db.commit()
     final = await get_row(db, tenant, warehouse_id, sku_id)
+    if final is not None:
+        await sync_gate(final)
+    if kind == "move":
+        target_final = await get_row(db, tenant, to_warehouse_id, sku_id)
+        if target_final is not None:
+            await sync_gate(target_final)
     return {
         "kind": kind,
         "kind_label": KIND_LABELS[kind],
@@ -314,112 +338,3 @@ async def move_stock(
         "qty": final.qty if final else 0,
         "available": available_of(final) if final else 0,
     }
-
-
-async def stocktake(
-    db: AsyncSession,
-    *,
-    tenant: str,
-    lines: list[dict[str, Any]],
-    reason: str,
-    actor: str,
-) -> dict[str, Any]:
-    """盘点：账实一致的直接记为已核对，有差异的行生成审批单（不自动改账）。"""
-    if not lines:
-        raise BusinessError(ErrorCode.PARAM_INVALID, "盘点明细不能为空")
-    text = _check_reason(reason)
-    checked = 0
-    approvals: list[Approval] = []
-    for line in lines:
-        warehouse_id = str(line.get("warehouse_id", ""))
-        sku_id = str(line.get("sku_id", ""))
-        counted = line.get("counted")
-        if not warehouse_id or not sku_id or not isinstance(counted, int) or counted < 0:
-            raise BusinessError(
-                ErrorCode.PARAM_INVALID,
-                "盘点明细非法：需要 warehouse_id、sku_id 与非负整数 counted",
-            )
-        row = await get_row(db, tenant, warehouse_id, sku_id)
-        if row is None:
-            raise BusinessError(ErrorCode.NOT_FOUND, "该仓库无此 SKU 库存记录，无法盘点", 404)
-        checked += 1
-        diff = counted - row.qty
-        if diff == 0:
-            continue
-        sku, product = await _sku_or_raise(db, tenant, sku_id)
-        warehouse = await _warehouse_or_raise(db, tenant, warehouse_id)
-        approvals.append(
-            await approval_service.create(
-                db,
-                tenant=tenant,
-                action="inventory.stocktake_diff",
-                target=f"{product.spu_no} {sku.color}/{sku.size}｜{warehouse.name}",
-                args={
-                    "warehouse_id": warehouse_id,
-                    "sku_id": sku_id,
-                    "qty_before": row.qty,
-                    "counted": counted,
-                },
-                reason=f"盘点差异 {diff:+d}：{text}",
-                applicant=actor,
-            )
-        )
-    await db.commit()
-    return {
-        "checked": checked,
-        "diff_count": len(approvals),
-        "approval_ids": [a.id for a in approvals],
-    }
-
-
-async def apply_stocktake(
-    db: AsyncSession, *, tenant: str, args: dict[str, Any], actor: str
-) -> None:
-    """盘点差异审批通过后的生效动作：账面数量改为实盘数。"""
-    warehouse_id = str(args.get("warehouse_id", ""))
-    sku_id = str(args.get("sku_id", ""))
-    counted = args.get("counted")
-    if not warehouse_id or not sku_id or not isinstance(counted, int) or counted < 0:
-        raise BusinessError(ErrorCode.PARAM_INVALID, "审批参数缺失：需要实盘数量")
-    row = await get_row(db, tenant, warehouse_id, sku_id)
-    if row is None:
-        raise BusinessError(ErrorCode.NOT_FOUND, "库存行已不存在，无法应用盘点结果", 404)
-    diff = counted - row.qty
-    row.qty = counted
-    db.add(
-        StockMove(
-            tenant=tenant,
-            warehouse_id=warehouse_id,
-            sku_id=sku_id,
-            kind="adjust",
-            delta=diff,
-            reason=f"盘点差异审批通过（操作人 {actor}）",
-            actor=actor,
-        )
-    )
-
-
-async def replenish(
-    db: AsyncSession,
-    *,
-    tenant: str,
-    sku_id: str,
-    qty: int,
-    reason: str,
-    applicant: str,
-) -> Approval:
-    """低于安全线一键生成补货需求：进审批，采购单落地在 P2（/purchase）。"""
-    _check_delta(qty)
-    sku, product = await _sku_or_raise(db, tenant, sku_id)
-    text = reason.strip() or f"{product.spu_no} {sku.color}/{sku.size} 低于安全线补货"
-    approval = await approval_service.create(
-        db,
-        tenant=tenant,
-        action="inventory.replenish",
-        target=f"{product.spu_no} {product.name}｜{sku.color}/{sku.size}",
-        args={"sku_id": sku_id, "qty": qty},
-        reason=text,
-        applicant=applicant,
-    )
-    await db.commit()
-    return approval

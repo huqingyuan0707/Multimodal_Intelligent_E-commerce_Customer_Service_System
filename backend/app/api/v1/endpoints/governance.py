@@ -1,6 +1,6 @@
 """治理与可观测端点（13 步巡检，对齐 RAG 规范 §5/数据模型 §3）
 
-链路：GET /governance/status → 向量/关键词/重排/LLM/VLM/ASR/缓存 七适配层 status()；
+链路：GET /governance/status → 向量/关键词/重排/LLM/VLM/ASR/对象存储/缓存 八适配层 status()；
       POST /governance/track → 前端行为埋点（发送/上传/播放/引用/转人工/赞踩）→ observability。
 """
 
@@ -17,7 +17,14 @@ from app.core.observability import record
 from app.core.rbac import get_current_user
 from app.core.responses import ok
 from app.core.user_context import CurrentUser
-from app.services import llm_service, rerank_service, speech_service, vector_store, vision_service
+from app.services import (
+    llm_service,
+    media_store,
+    rerank_service,
+    speech_service,
+    vector_store,
+    vision_service,
+)
 
 router = APIRouter(prefix="/governance", tags=["governance"])
 
@@ -51,7 +58,7 @@ async def track(
 
 @router.get("/status")
 async def status() -> dict[str, Any]:
-    """七层巡检：向量+重排+VLM+ASR+缓存 走真实 status()，关键词本地恒可用，阈值全回显。"""
+    """八层巡检：向量+重排+VLM+ASR+对象存储+缓存 走真实 status()，关键词本地恒可用，阈值全回显。"""
     llm = await llm_service.probe()
     vector = vector_store.status()
     reranker = rerank_service.status()
@@ -64,6 +71,7 @@ async def status() -> dict[str, Any]:
         "reranker": reranker,
         "vlm": vlm,
         "speech": speech,
+        "media": media_store.status(),
         "cache": cache.status(),
         "thresholds": {
             "top_k": settings.TOP_K,

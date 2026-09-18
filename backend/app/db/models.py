@@ -13,11 +13,12 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, _now, _uid
 
-# 前置地基表（messages/tasks/tool_calls/kb_docs/kb_chunks/cost_records）见 models_foundation，
-# 质检评分表见 models_quality，Studio（Prompt 版本/评测 runs）见 models_studio，
-# 管理后台扩展（密钥/SLO 规则/消息模板/排班）见 models_admin；
+# 前置地基表（messages/tasks/kb/cost_records）见 models_foundation，质检评分见 models_quality，
+# Studio（Prompt 版本/评测 runs）见 models_studio，管理后台扩展见 models_admin，
+# B 端二期与风控（供应商/采购单/日结单/风控事件）见 models_biz_ops；
 # 此处重导出以保持 `from app.db.models import X` 口径唯一，Alembic env 同步 import 各模块。
 from app.db.models_admin import ApiKey, MessageTemplate, Shift, SloRule
+from app.db.models_biz_ops import FinanceBill, PurchaseOrder, RiskEvent, Supplier
 from app.db.models_foundation import (
     CostRecord,
     Feedback,
@@ -38,17 +39,21 @@ __all__ = [
     "CostRecord",
     "EvalRun",
     "Feedback",
+    "FinanceBill",
     "KbChunk",
     "KbDoc",
     "KbDocVersion",
     "Message",
     "MessageTemplate",
     "PromptVersion",
+    "PurchaseOrder",
+    "RiskEvent",
     "Session",
     "SessionNote",
     "SessionScore",
     "Shift",
     "SloRule",
+    "Supplier",
     "Task",
     "ToolCall",
     "User",

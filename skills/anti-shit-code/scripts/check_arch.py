@@ -37,7 +37,6 @@ BASELINE: dict[tuple[str, str], int] = {
 FILE_LINE_BUDGET: dict[str, int] = {
     "backend/app/modules/agent/runtime.py": 497,
     "backend/app/services/goods_service.py": 413,
-    "backend/app/services/inventory_service.py": 425,
     "backend/app/services/order_service.py": 569,
     "backend/app/services/vision_service.py": 498,
 }
