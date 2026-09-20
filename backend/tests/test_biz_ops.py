@@ -1,10 +1,12 @@
 """B 端二期与风控单测（采购状态机 / 日结差异 / 风控复核，对齐 API 规范 §4.7/§4.8）
 
 覆盖：
-- 采购：驳回空理由 1001、非法流转 3005、驳回为终态、跨租户单 404、SKU 跨租户 404、
+- 采购：建单即落审批中心（purchase.approve）、批准/驳回只走审批中心、驳回空理由 1001、
+  非法流转 3005、驳回为终态、跨租户单 404、SKU 跨租户 404、
   数量非法 1001、未指定收货仓质检 1001；合格才写 inventory + stock_moves、不合格不入库；
 - 财务：差异公式（应收-退款-扣点+运费）与 diff_warn 阈值、重复日结 1001、无单 404；
-- 风控：拦截空理由 1001、重复复核 3005、放行/拦截均留 reviewer 与审计且不改用户状态。
+- 风控：拦截空理由 1001、重复复核 3005、放行/拦截均留 reviewer 与审计且不改用户状态；
+- 业务动作侧拦截（3007 黑名单口径）：blocked 买家发券/触达被拒且不扣预算，pending 不拦。
 运行（backend/ 目录）：pytest tests/test_biz_ops.py
 """
 
@@ -21,6 +23,7 @@ from app.config import settings
 from app.core.exceptions import BusinessError, ErrorCode
 from app.db import session as session_mod
 from app.db.models import (
+    Approval,
     AuditLog,
     FinanceBill,
     Inventory,
@@ -32,7 +35,15 @@ from app.db.models import (
     Warehouse,
 )
 from app.db.session import get_engine, init_models
-from app.services import finance_service, procurement_service, risk_service, supplier_service
+from app.services import (
+    approval_service,
+    finance_service,
+    notify_service,
+    procurement_service,
+    promo_service,
+    risk_service,
+    supplier_service,
+)
 
 TENANT = settings.SEED_TENANT
 OTHER_TENANT = "other-tenant"
@@ -90,6 +101,41 @@ async def _draft(
     )
 
 
+async def _approval_of(db: AsyncSession, order_id: str) -> Approval:
+    """取采购单对应的审批单（建单即同事务落 purchase.approve，args.order_id 关联）。"""
+    row = (
+        await db.execute(
+            select(Approval).where(
+                Approval.tenant == TENANT,
+                Approval.action == "purchase.approve",
+                Approval.args.like(f"%{order_id}%"),
+            )
+        )
+    ).scalar_one()
+    return row
+
+
+async def _decide_purchase(
+    db: AsyncSession,
+    order_id: str,
+    *,
+    approve: bool,
+    reason: str = "",
+    approver: str = "boss",
+    tenant: str = TENANT,
+) -> Approval:
+    """走审批中心批/驳采购单（v0.3.31 起唯一审批入口，采购单自身无直批端点）。"""
+    approval = await _approval_of(db, order_id)
+    return await approval_service.decide(
+        db,
+        tenant=tenant,
+        approval_id=approval.id,
+        approve=approve,
+        approver=approver,
+        reason=reason,
+    )
+
+
 async def _approved_flow(db: AsyncSession) -> tuple[PurchaseOrder, Warehouse, Sku]:
     """备齐供应商/仓/SKU 并推进到「已审批」，返回采购单。"""
     supplier = await supplier_service.create_supplier(
@@ -98,33 +144,65 @@ async def _approved_flow(db: AsyncSession) -> tuple[PurchaseOrder, Warehouse, Sk
     warehouse = await _warehouse(db)
     sku = await _sku(db)
     order = await _draft(db, supplier_id=supplier.id, warehouse_id=warehouse.id, sku=sku)
-    await procurement_service.approve_purchase_order(
-        db, tenant=TENANT, order_id=order.id, approved=True, actor="boss"
-    )
+    await _decide_purchase(db, order.id, approve=True)
     return order, warehouse, sku
 
 
 # ---------------- 采购 ----------------
 
 
+async def test_create_lands_approval_center(db: AsyncSession) -> None:
+    """建单即落审批单（同事务）：采购页无直批动作，批准/驳回只能走审批中心。"""
+    supplier = await supplier_service.create_supplier(db, tenant=TENANT, name="苏州云锦制衣")
+    warehouse = await _warehouse(db)
+    sku = await _sku(db)
+    order = await _draft(db, supplier_id=supplier.id, warehouse_id=warehouse.id, sku=sku)
+
+    # 采购页口径：draft 无本地动作（审批在审批中心）
+    assert procurement_service.purchase_to_dict(order)["allowed_actions"] == []
+    approval = await _approval_of(db, order.id)
+    assert approval.status == "pending"
+    assert approval.applicant == "ops1"
+    assert order.id in approval.target
+    args = approval_service.to_dict(approval)["args"]
+    assert args["order_id"] == order.id and args["amount"] == 88000
+
+    # 批准：审批单与采购单同事务生效（draft → approved，账不动）
+    decided = await _decide_purchase(db, order.id, approve=True, approver="boss")
+    assert decided.status == "approved" and decided.approver == "boss"
+    assert order.status == "approved"
+    audits = (
+        await db.execute(
+            select(func.count()).select_from(AuditLog).where(AuditLog.action == "purchase.approve")
+        )
+    ).scalar_one()
+    assert audits == 1
+    # 重复处理：审批单已决 → decide 4004；即使绕过也因非草稿 3005
+    with pytest.raises(BusinessError) as exc:
+        await approval_service.decide(
+            db, tenant=TENANT, approval_id=approval.id, approve=True, approver="boss2"
+        )
+    assert exc.value.code == ErrorCode.APPROVAL_DENIED
+
+
 async def test_reject_requires_reason_and_is_final(db: AsyncSession) -> None:
-    """驳回理由必填（1001）；驳回为终态，再审批/到货一律 3005。"""
+    """驳回理由必填（1001）；驳回为终态并回写理由，再审批/到货一律 3005。"""
     supplier = await supplier_service.create_supplier(db, tenant=TENANT, name="苏州云锦制衣")
     warehouse = await _warehouse(db)
     sku = await _sku(db)
     order = await _draft(db, supplier_id=supplier.id, warehouse_id=warehouse.id, sku=sku)
 
     with pytest.raises(BusinessError) as exc:
-        await procurement_service.approve_purchase_order(
-            db, tenant=TENANT, order_id=order.id, approved=False, reason="  ", actor="boss"
-        )
+        await _decide_purchase(db, order.id, approve=False, reason="  ")
     assert exc.value.code == ErrorCode.PARAM_INVALID
 
-    rejected = await procurement_service.approve_purchase_order(
-        db, tenant=TENANT, order_id=order.id, approved=False, reason="报价高于市场价", actor="boss"
+    decided = await _decide_purchase(
+        db, order.id, approve=False, reason="报价高于市场价", approver="boss"
     )
-    assert rejected.status == "rejected"
-    assert rejected.qc_note == "报价高于市场价"
+    assert decided.status == "rejected"
+    assert "报价高于市场价" in decided.reason
+    assert order.status == "rejected"
+    assert order.qc_note == "报价高于市场价"
     with pytest.raises(BusinessError) as exc2:
         await procurement_service.receive_purchase_order(
             db, tenant=TENANT, order_id=order.id, actor="ops1"
@@ -149,10 +227,9 @@ async def test_illegal_transition_and_cross_tenant(db: AsyncSession) -> None:
             db, tenant=TENANT, order_id=order.id, passed=True, note="全检合格", actor="qc1"
         )
     assert exc2.value.code == ErrorCode.ORDER_STATE_ILLEGAL
+    # 审批单按租户隔离：跨租户决定 404
     with pytest.raises(BusinessError) as exc3:
-        await procurement_service.approve_purchase_order(
-            db, tenant=OTHER_TENANT, order_id=order.id, approved=True, actor="boss"
-        )
+        await _decide_purchase(db, order.id, approve=True, tenant=OTHER_TENANT)
     assert exc3.value.code == ErrorCode.NOT_FOUND
 
 
@@ -176,7 +253,7 @@ async def test_create_rejects_bad_lines_and_warehouse(db: AsyncSession) -> None:
     order = await _draft(db, supplier_id=supplier.id, warehouse_id=warehouse.id, sku=sku)
     data = procurement_service.purchase_to_dict(order, supplier_name=supplier.name)
     assert data["status"] == "draft"
-    assert data["allowed_actions"] == ["approve"]
+    assert data["allowed_actions"] == []  # draft 无本地动作：审批在审批中心
     assert data["qty_total"] == 10
     assert data["amount"] == 88000
     # 行名/颜色/尺码全部服务端快照，前端传什么都不影响
@@ -247,9 +324,7 @@ async def test_qc_requires_warehouse(db: AsyncSession) -> None:
     supplier = await supplier_service.create_supplier(db, tenant=TENANT, name="杭州锦棉纺织")
     sku = await _sku(db)
     order = await _draft(db, supplier_id=supplier.id, warehouse_id="", sku=sku)
-    await procurement_service.approve_purchase_order(
-        db, tenant=TENANT, order_id=order.id, approved=True, actor="boss"
-    )
+    await _decide_purchase(db, order.id, approve=True)
     await procurement_service.receive_purchase_order(
         db, tenant=TENANT, order_id=order.id, actor="ops1"
     )
@@ -313,8 +388,12 @@ async def test_diff_formula_and_warn(db: AsyncSession) -> None:
     assert finance_service.bill_to_dict(big)["settled"] is False
 
 
-async def test_settle_once_and_missing(db: AsyncSession) -> None:
-    """日结确认幂等红线：重复确认 1001，账单不存在 404，确认人落库并记审计。"""
+async def test_settle_review_two_steps(db: AsyncSession) -> None:
+    """双人复核两步（FR-10.5 制单与复核分离）：settle 制单 → confirm_settle 换人复核结清。
+
+    账单不存在 404、日期格式 1001；未制单复核 1001；同人自审自复 1001（红线）；
+    重复制单/重复复核 1001；出参 settled = reviewed_by 非空；两步各记审计。
+    """
     await _bill(db, biz_date="2026-09-17", diff=0)
     with pytest.raises(BusinessError) as exc:
         await finance_service.settle(db, tenant=TENANT, biz_date="2026-09-15", actor="fin1")
@@ -323,17 +402,49 @@ async def test_settle_once_and_missing(db: AsyncSession) -> None:
         await finance_service.settle(db, tenant=TENANT, biz_date="2026-9-17", actor="fin1")
     assert exc2.value.code == ErrorCode.PARAM_INVALID
 
+    # 第一步制单：落 settled_by，未复核不算已结算
     done = await finance_service.settle(db, tenant=TENANT, biz_date="2026-09-17", actor="fin1")
-    assert done.settled_by == "fin1"
+    assert done.settled_by == "fin1" and done.reviewed_by == ""
+    assert finance_service.bill_to_dict(done)["settled"] is False
+
+    # 未制单账期直接复核 1001；同人自审自复 1001（双人复核红线）；重复制单 1001
+    await _bill(db, biz_date="2026-09-18", diff=0)
     with pytest.raises(BusinessError) as exc3:
-        await finance_service.settle(db, tenant=TENANT, biz_date="2026-09-17", actor="fin2")
+        await finance_service.confirm_settle(db, tenant=TENANT, biz_date="2026-09-18", actor="fin9")
     assert exc3.value.code == ErrorCode.PARAM_INVALID
-    audits = (
+    with pytest.raises(BusinessError) as exc4:
+        await finance_service.confirm_settle(db, tenant=TENANT, biz_date="2026-09-17", actor="fin1")
+    assert exc4.value.code == ErrorCode.PARAM_INVALID
+    with pytest.raises(BusinessError) as exc5:
+        await finance_service.settle(db, tenant=TENANT, biz_date="2026-09-17", actor="fin2")
+    assert exc5.value.code == ErrorCode.PARAM_INVALID
+
+    # 第二步换人复核：落 reviewed_by/reviewed_at 并置已结算；重复复核 1001
+    settled = await finance_service.confirm_settle(
+        db, tenant=TENANT, biz_date="2026-09-17", actor="fin2"
+    )
+    assert settled.reviewed_by == "fin2" and settled.reviewed_at is not None
+    data = finance_service.bill_to_dict(settled)
+    assert (
+        data["settled"] is True and data["settled_by"] == "fin1" and data["reviewed_by"] == "fin2"
+    )
+    with pytest.raises(BusinessError) as exc6:
+        await finance_service.confirm_settle(db, tenant=TENANT, biz_date="2026-09-17", actor="fin9")
+    assert exc6.value.code == ErrorCode.PARAM_INVALID
+
+    settle_audits = (
         await db.execute(
             select(func.count()).select_from(AuditLog).where(AuditLog.action == "finance.settle")
         )
     ).scalar_one()
-    assert audits == 1
+    review_audits = (
+        await db.execute(
+            select(func.count())
+            .select_from(AuditLog)
+            .where(AuditLog.action == "finance.settle_review")
+        )
+    ).scalar_one()
+    assert settle_audits == 1 and review_audits == 1
 
 
 # ---------------- 风控 ----------------
@@ -413,3 +524,51 @@ async def test_review_pass_and_list_filter(db: AsyncSession) -> None:
             db, tenant=OTHER_TENANT, event_id=first.id, block=False, reviewer="sec9"
         )
     assert exc2.value.code == ErrorCode.NOT_FOUND
+
+
+async def test_blocked_user_intercepts_biz_actions(db: AsyncSession) -> None:
+    """业务动作侧强制拦截（3007 黑名单口径）：blocked 买家发券/触达被拒，pending 不拦。
+
+    - pending（疑似）不拦：不误伤正常买家，走转人工复核；
+    - 复核 blocked 后：发券 3007 且不扣预算、消息触达 3007；空 user_ref 直接放行；
+    - 红线不变：拦截只拒动作，不写 users.status、不发任何处置。
+    """
+    row = await _event(db, user_ref="buyer-9001")
+    await risk_service.ensure_not_blocked(
+        db, tenant=TENANT, user_ref="buyer-9001", action_label="发券"
+    )
+    await risk_service.review_event(
+        db, tenant=TENANT, event_id=row.id, block=True, reason="同设备团伙刷单", reviewer="sec1"
+    )
+    with pytest.raises(BusinessError) as exc:
+        await risk_service.ensure_not_blocked(
+            db, tenant=TENANT, user_ref="buyer-9001", action_label="发券"
+        )
+    assert exc.value.code == ErrorCode.RISK_BLOCKED
+    await risk_service.ensure_not_blocked(db, tenant=TENANT, user_ref="", action_label="发券")
+
+    promo = await promo_service.create_promo(db, tenant=TENANT, name="风控黑名单活动", budget=5)
+    with pytest.raises(BusinessError) as exc2:
+        await promo_service.grant(
+            db, tenant=TENANT, promo_id=promo.id, user_ref="buyer-9001", idem_key="risk-grant-1"
+        )
+    assert exc2.value.code == ErrorCode.RISK_BLOCKED
+    assert promo.granted == 0  # 拦截置于预算扣减前，黑名单不消耗预算
+    # 正常买家发券不受影响（正向对照）
+    granted, replayed = await promo_service.grant(
+        db, tenant=TENANT, promo_id=promo.id, user_ref="buyer-normal", idem_key="risk-grant-2"
+    )
+    assert replayed is False and granted["user_ref"] == "buyer-normal"
+
+    template = await notify_service.create_template(
+        db, tenant=TENANT, name="risk-tpl", content="您好 {user_ref}", status="active", actor="sec1"
+    )
+    with pytest.raises(BusinessError) as exc3:
+        await notify_service.send(
+            db, tenant=TENANT, name=template.name, user_ref="buyer-9001", actor="sec1"
+        )
+    assert exc3.value.code == ErrorCode.RISK_BLOCKED
+    sent = await notify_service.send(
+        db, tenant=TENANT, name=template.name, user_ref="buyer-normal", actor="sec1"
+    )
+    assert sent["user_ref"] == "buyer-normal" and sent["degraded"] is True

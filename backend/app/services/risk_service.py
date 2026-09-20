@@ -8,8 +8,9 @@
 - 已复核事件不可重复处理（3005）；block 必填理由（1001），通过可不填；
 - detail 存关联图谱摘要（同设备/同支付账号/近 30 天退款次数等），只读展示不参与判定；
 - 复核写操作同步记 audit_logs（只追加不改）。
-- 边界：`3007 RISK_BLOCKED` 是**业务动作侧**错误码（下单/退款命中拦截时返回），
-  本期风控只做复核留痕，业务动作侧的强制拦截待 P2 接入，勿读作已达成。
+- 业务动作侧强制拦截（3007 RISK_BLOCKED）：`ensure_not_blocked` 按 (tenant, user_ref)
+  查已复核 blocked 黑名单结论即拒（挂点：发券 promo_service.grant、消息触达 notify_service.send）；
+  订单/售后表暂无买家 user_ref 字段（平台镜像单），下单/退款侧拦截待订单模型补买家标识后接入。
 """
 
 from __future__ import annotations
@@ -152,3 +153,33 @@ async def review_event(
     )
     await db.commit()
     return row
+
+
+async def ensure_not_blocked(
+    db: AsyncSession, *, tenant: str, user_ref: str, action_label: str
+) -> None:
+    """业务动作侧强制拦截（3007 黑名单口径）：该买家存在已复核 blocked 结论即拒。
+
+    口径（FRD FR-10.8「拦截 → 人工复核 → 黑名单/放行」）：
+    - 只拦已复核 `blocked` 的事件（黑名单结论）；`pending` 是疑似不拦（转人工，不误伤正常买家）；
+    - 本守卫只拒动作、不发任何处置（禁全自动封号红线不变），放行/处置走风控复核人工流程。
+    """
+    ref = (user_ref or "").strip()
+    if not ref:
+        return
+    hit = (
+        await db.execute(
+            select(RiskEvent.id)
+            .where(
+                RiskEvent.tenant == tenant,
+                RiskEvent.user_ref == ref,
+                RiskEvent.status == "blocked",
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if hit is not None:
+        raise BusinessError(
+            ErrorCode.RISK_BLOCKED,
+            f"该买家已被风控拦截（黑名单），{action_label}已拒绝；如需放行请走风控复核流程",
+        )

@@ -60,6 +60,7 @@ export const APPROVAL_ACTION_OPTIONS = [
   { value: 'inventory.stocktake_diff', label: '盘点差异' },
   { value: 'inventory.replenish', label: '补货需求' },
   { value: 'order.refund', label: '退款' },
+  { value: 'purchase.approve', label: '采购审批' },
 ];
 
 // 金额口径：退款 amount / 改价 new_price-old_price 均为分，转元展示（无金额返回空串）

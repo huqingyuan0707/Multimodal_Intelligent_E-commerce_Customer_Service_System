@@ -67,6 +67,14 @@ def main() -> int:
         headers={**headers, "Idempotency-Key": f"smoke-{promo_id}-2"},
     )
     check("grant 3006 exhausted", r.json().get("code") == 3006, r.text[:200])
+    # 风控黑名单拦截（3007）：buyer-2077 是种子里的已复核 blocked 买家（账号关联），
+    # 守卫置于预算扣减前——即便预算已耗尽也应先回 3007 而非 3006。
+    r = client.post(
+        f"/api/v1/promos/{promo_id}/grant",
+        json={"user_ref": "buyer-2077"},
+        headers={**headers, "Idempotency-Key": f"smoke-{promo_id}-3"},
+    )
+    check("grant 3007 risk blocked", r.json().get("code") == 3007, r.text[:200])
 
     r = client.post("/api/v1/members/u-smoke/points", json={"delta": 1500}, headers=headers)
     check(

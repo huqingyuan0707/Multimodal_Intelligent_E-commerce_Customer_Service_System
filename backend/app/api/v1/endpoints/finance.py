@@ -1,7 +1,8 @@
-"""对账端点（日结单列表 + 日结确认，对齐 API 规范 §4.7 财务节）
+"""对账端点（日结单列表 + 日结制单/复核两步，对齐 API 规范 §4.7 财务节）
 
 链路：前端 /finance → 本模块（解析入参 + 组装信封）→ finance_service → finance_bills。
 权限：读 `finance:read|write`、写 `finance:write`；差异阈值由服务层随列表下发，前端不硬编码。
+双人复核（FR-10.5）：POST /settle 制单 → POST /settle/confirm 换人复核结清（同人 1001）。
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ router = APIRouter(prefix="/finance", tags=["finance"])
 
 
 class SettleRequest(BaseModel):
-    """日结确认（按账期日；财务双人复核为 P2 预留位）。"""
+    """日结制单/复核共用入参（按账期日）。"""
 
     biz_date: str
 
@@ -48,8 +49,21 @@ async def settle(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(require_any_perm("finance:write")),
 ) -> dict[str, Any]:
-    """日结确认（重复确认 1001；已结账单不覆盖原确认人）。"""
+    """日结制单（第一步，落制单人；重复制单 1001，复核完成前可被换人复核）。"""
     row = await finance_service.settle(
         db, tenant=user.tenant, biz_date=payload.biz_date, actor=user.username
     )
-    return ok(finance_service.bill_to_dict(row), f"{row.biz_date} 已完成日结确认")
+    return ok(finance_service.bill_to_dict(row), f"{row.biz_date} 已制单，待复核")
+
+
+@router.post("/settle/confirm")
+async def confirm_settle(
+    payload: SettleRequest,
+    db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(require_any_perm("finance:write")),
+) -> dict[str, Any]:
+    """日结复核（第二步，换人复核通过才置已结算；同人 1001，重复复核 1001）。"""
+    row = await finance_service.confirm_settle(
+        db, tenant=user.tenant, biz_date=payload.biz_date, actor=user.username
+    )
+    return ok(finance_service.bill_to_dict(row), f"{row.biz_date} 已复核结清")

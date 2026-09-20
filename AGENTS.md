@@ -18,6 +18,7 @@
 | 后端风格                      | `skills/backend-code-style/SKILL.md`                                                                  |
 | 前端风格                      | `skills/frontend-code-style/SKILL.md`                                                                 |
 | 架构健康/防屎山（提交前自检） | `skills/anti-shit-code/SKILL.md`（含硬检查脚本 `skills/anti-shit-code/scripts/check_arch.py`）  |
+| 命名质量（命名是否合格）       | `skills/naming-check/SKILL.md`（含硬检查脚本 `skills/naming-check/scripts/check_naming.py`）   |
 | UI/设计稿（画板）             | `design.pen`（画板名 `<中文标题>-/<route>`）+ `skills/design-first/SKILL.md`                           |
 
 ## 2. AI 工作流（强制）
@@ -73,6 +74,8 @@ ruff check . ; ruff format --check .
 mypy app
 pytest --cov=app --cov-report=term-missing
 python tests/smoke_x.py [http://127.0.0.1:8000]
+python skills/naming-check/scripts/check_naming.py        # 命名质量门禁（仓库根运行）
+python skills/anti-shit-code/scripts/check_arch.py        # 架构健康门禁（仓库根运行）
 
 # 前端（frontend/）
 pnpm lint ; pnpm typecheck ; pnpm build

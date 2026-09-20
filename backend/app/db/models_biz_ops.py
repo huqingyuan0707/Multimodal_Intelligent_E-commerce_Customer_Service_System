@@ -66,8 +66,9 @@ class PurchaseOrder(Base):
 class FinanceBill(Base):
     """日结单（应收/实收/退款/运费/扣点/差异，金额分；无 PII 列）。
 
-    diff = received - (receivable - refund - fee + freight)（口径唯一出处见 finance_service），
-    settled_by 非空即当日已日结确认（重复确认 1001）；双人复核为 P2 预留位。
+    diff = received - (receivable - refund - fee + freight)（口径唯一出处见 finance_service）。
+    双人复核两步（v0.3.32 起启用）：settled_by=制单人（第一步日结制单），reviewed_by=复核人
+    （第二步复核结清，不得与制单人同一账号）；出参 settled = reviewed_by 非空。
     """
 
     __tablename__ = "finance_bills"
@@ -84,6 +85,8 @@ class FinanceBill(Base):
     freight: Mapped[int] = mapped_column(Integer, default=0)
     diff: Mapped[int] = mapped_column(Integer, default=0)
     settled_by: Mapped[str] = mapped_column(String(64), default="")
+    reviewed_by: Mapped[str] = mapped_column(String(64), default="")
+    reviewed_at: Mapped[datetime | None] = mapped_column(default=None)
     created_at: Mapped[datetime] = mapped_column(default=_now)
 
 

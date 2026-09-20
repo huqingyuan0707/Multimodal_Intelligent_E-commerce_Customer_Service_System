@@ -1,13 +1,15 @@
-"""对账结算服务（日结单列表 + 差异告警 + 日结确认，对齐 API 规范 §4.7 财务节 / 页面设计 §3.14）
+"""对账结算服务（日结单列表 + 差异告警 + 日结制单/复核两步，对齐 API 规范 §4.7 财务节 / 页面设计 §3.14）
 
 链路：endpoints/finance → 本模块 → finance_bills（按 tenant + biz_date 唯一视角）
-      → /finance 页：账单表 + 差异红字 + 日结确认。
+      → /finance 页：账单表 + 差异红字 + 日结制单 + 复核结清。
 口径：
 - 金额一律整数分；biz_date 存 "YYYY-MM-DD" 文本（字典序即时间序）；
 - 差异公式唯一：expected = receivable - refund - fee + freight，diff = received - expected
   （应收减退款减扣点加运费＝应到账，与实收之差即差异；正数=多收，负数=少收）；
 - 差异绝对值超 Settings.FINANCE_DIFF_WARN_CENTS 即 diff_warn=true（红字，阈值不进前端硬编码）；
-- 日结确认只落 settled_by（财务双人复核为 P2 预留位），重复确认 1001；无 PII 列。
+- **双人复核两步（FR-10.5 制单与复核分离）**：settle 落 settled_by（制单），confirm_settle 落
+  reviewed_by/reviewed_at（复核结清）；复核人不得与制单人同一账号（同人 1001）；出参
+  settled = reviewed_by 非空（复核完成才算已结算）；无 PII 列。
 """
 
 from __future__ import annotations
@@ -21,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.core.exceptions import BusinessError, ErrorCode
+from app.db.base import _now
 from app.db.models import FinanceBill
 from app.services import admin_service
 
@@ -51,7 +54,10 @@ def bill_to_dict(row: FinanceBill) -> dict[str, Any]:
         "diff": diff,
         "diff_warn": abs(diff) > settings.FINANCE_DIFF_WARN_CENTS,
         "settled_by": row.settled_by,
-        "settled": bool(row.settled_by),
+        "reviewed_by": row.reviewed_by,
+        "reviewed_at": _dt_text(row.reviewed_at),
+        # settled 出参口径 = 复核完成（reviewed_by 非空），仅制单未复核仍是「待复核」
+        "settled": bool(row.reviewed_by),
         "created_at": _dt_text(row.created_at),
     }
 
@@ -97,7 +103,7 @@ async def list_bills(
 
 
 async def settle(db: AsyncSession, *, tenant: str, biz_date: str, actor: str = "") -> FinanceBill:
-    """日结确认（按账期日）：未结则落 settled_by，已结重复确认 1001。"""
+    """日结制单（第一步）：未制单则落 settled_by，已制单重复提交 1001（账单不存在 404）。"""
     checked = _check_date(biz_date)
     row = (
         await db.execute(
@@ -108,7 +114,7 @@ async def settle(db: AsyncSession, *, tenant: str, biz_date: str, actor: str = "
         raise BusinessError(ErrorCode.NOT_FOUND, f"未找到 {checked} 的日结单", 404)
     if row.settled_by:
         raise BusinessError(
-            ErrorCode.PARAM_INVALID, f"{checked} 已由 {row.settled_by} 日结，请勿重复确认"
+            ErrorCode.PARAM_INVALID, f"{checked} 已由 {row.settled_by} 制单，请勿重复制单"
         )
     row.settled_by = actor or "system"
     await db.flush()
@@ -119,6 +125,53 @@ async def settle(db: AsyncSession, *, tenant: str, biz_date: str, actor: str = "
         action="finance.settle",
         target=row.id,
         detail={"biz_date": checked, "diff": int(row.received) - expected_receipt(row)},
+    )
+    await db.commit()
+    return row
+
+
+async def confirm_settle(
+    db: AsyncSession, *, tenant: str, biz_date: str, actor: str = ""
+) -> FinanceBill:
+    """日结复核（第二步，FR-10.5 双人复核）：换人复核通过才落 reviewed_by 置已结算。
+
+    红线：制单人与复核人不得为同一账号（同人 1001，与知识库「发布需换人复核」同口径）；
+    未制单 1001、已复核重复 1001、账单不存在 404。
+    """
+    checked = _check_date(biz_date)
+    row = (
+        await db.execute(
+            select(FinanceBill).where(FinanceBill.tenant == tenant, FinanceBill.biz_date == checked)
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        raise BusinessError(ErrorCode.NOT_FOUND, f"未找到 {checked} 的日结单", 404)
+    if not row.settled_by:
+        raise BusinessError(ErrorCode.PARAM_INVALID, f"{checked} 尚未制单，请先执行日结制单")
+    if row.reviewed_by:
+        raise BusinessError(
+            ErrorCode.PARAM_INVALID, f"{checked} 已由 {row.reviewed_by} 复核结清，请勿重复复核"
+        )
+    maker = row.settled_by
+    if actor and actor == maker:
+        raise BusinessError(
+            ErrorCode.PARAM_INVALID,
+            f"双人复核红线：{checked} 由 {maker} 制单，制单人与复核人不能为同一人，请换人复核",
+        )
+    row.reviewed_by = actor or "system"
+    row.reviewed_at = _now()
+    await db.flush()
+    await admin_service.record_audit(
+        db,
+        tenant=tenant,
+        actor=actor,
+        action="finance.settle_review",
+        target=row.id,
+        detail={
+            "biz_date": checked,
+            "maker": maker,
+            "diff": int(row.received) - expected_receipt(row),
+        },
     )
     await db.commit()
     return row

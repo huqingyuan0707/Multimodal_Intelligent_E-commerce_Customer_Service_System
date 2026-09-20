@@ -34,7 +34,8 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'approvals',
         component: () => import('@/views/agent/ApprovalCenterView.vue'),
-        meta: { title: '审批中心', roles: ['cs', 'admin'] },
+        // 采购审批并入审批中心后，采购操作角色（店长/仓管）也需进入（批/驳权限仍由后端 RBAC 把关）
+        meta: { title: '审批中心', roles: ['cs', 'shop', 'stock', 'ops', 'admin'] },
       },
       {
         path: 'knowledge',

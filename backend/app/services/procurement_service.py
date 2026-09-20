@@ -4,9 +4,12 @@
       → /purchase 页：供应商表 + 采购单流转 + 质检卡。
 口径：
 - 状态机唯一合法路径 draft→approved→received→stocked；rejected（审批驳回）/ returned（质检不合格）为终态；
+- **审批恒进审批中心**（对齐 FRD「采购恒进审批」红线）：建采购单即同事务落一条
+  `purchase.approve` 审批单，批准/驳回由 approval_service.decide 派发 apply_approval/apply_rejection
+  （本模块不再提供直批入口，防止绕过审批中心双入口）；
 - 审批前不动账：只有 qc(pass) 才写库存与流水（同改价/盘点「批准才生效」红线）；
 - 采购单行快照（name/color/size）由服务端从 SKU 取，**不接受前端传入的行名**（防伪造）；
-- approve/receive/qc 写操作同步记 audit_logs（与业务同事务，只追加不改）。
+- 审批/到货/质检写操作同步记 audit_logs（只追加不改）。
 """
 
 from __future__ import annotations
@@ -22,7 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import BusinessError, ErrorCode
 from app.db.models import Product, PurchaseOrder, Sku, Warehouse
 from app.db.models_biz_ops import PURCHASE_STATUSES
-from app.services import admin_service, inventory_service, supplier_service
+from app.services import admin_service, approval_service, inventory_service, supplier_service
 
 # 到货日格式：YYYY-MM-DD（空串=未定，供客服承诺交期）
 _ETA_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -36,8 +39,9 @@ STATUS_LABELS: dict[str, str] = {
     "returned": "已退供",
 }
 # 状态 → 可执行动作（前端据此置灰按钮，非法流转后端仍 3005 兜底）
+# draft 无本地动作：审批在审批中心处理（建单即落审批单），采购页只读展示「审批中」。
 ALLOWED_ACTIONS: dict[str, list[str]] = {
-    "draft": ["approve"],
+    "draft": [],
     "approved": ["receive"],
     "received": ["qc"],
     "rejected": [],
@@ -219,10 +223,14 @@ async def create_purchase_order(
     eta: str = "",
     actor: str = "",
 ) -> PurchaseOrder:
-    """建采购单（恒为草稿）；审批前不动账，到货质检合格才入库。"""
-    await supplier_service.supplier_or_raise(db, tenant=tenant, supplier_id=supplier_id)
+    """建采购单（恒为草稿）；同事务落 `purchase.approve` 审批单，批准后才可到货登记。
+
+    审批前不动账，到货质检合格才入库；审批单与采购单同事务成则同成（防「单已建、审未立」半提交）。
+    """
+    supplier = await supplier_service.supplier_or_raise(db, tenant=tenant, supplier_id=supplier_id)
     warehouse = await _check_warehouse(db, tenant=tenant, warehouse_id=warehouse_id)
     items = await _build_items(db, tenant=tenant, lines=lines)
+    qty_total, amount = _amount_of(items)
     row = PurchaseOrder(
         tenant=tenant,
         supplier_id=supplier_id,
@@ -233,50 +241,69 @@ async def create_purchase_order(
     )
     db.add(row)
     await db.flush()
+    approval = await approval_service.create(
+        db,
+        tenant=tenant,
+        action="purchase.approve",
+        target=f"采购单 {row.id}｜{supplier.name}",
+        args={
+            "order_id": row.id,
+            "supplier_id": supplier_id,
+            "qty_total": qty_total,
+            "amount": amount,
+        },
+        reason="采购单创建后待审批（批准后才可登记到货）",
+        applicant=actor,
+    )
     await admin_service.record_audit(
         db,
         tenant=tenant,
         actor=actor,
         action="purchase.create",
         target=row.id,
-        detail={"supplier_id": supplier_id, "qty": _amount_of(items)[0]},
+        detail={"supplier_id": supplier_id, "qty": qty_total, "approval_id": approval.id},
     )
     await db.commit()
     return row
 
 
-async def approve_purchase_order(
-    db: AsyncSession,
-    *,
-    tenant: str,
-    order_id: str,
-    approved: bool,
-    reason: str = "",
-    actor: str = "",
-) -> PurchaseOrder:
-    """采购审批（仅草稿可审；驳回为终态，驳回理由必填）。"""
-    row = await _order_or_raise(db, tenant, order_id)
+async def _draft_order_or_raise(db: AsyncSession, tenant: str, args: dict[str, Any]) -> PurchaseOrder:
+    """审批生效/驳回共用的取单校验：单不存在 404，非草稿 3005（不可重复生效）。"""
+    row = await _order_or_raise(db, tenant, str(args.get("order_id", "")))
     if row.status != "draft":
         raise BusinessError(
             ErrorCode.ORDER_STATE_ILLEGAL,
-            f"采购单当前为「{STATUS_LABELS.get(row.status, row.status)}」，仅草稿可审批",
+            f"采购单当前为「{STATUS_LABELS.get(row.status, row.status)}」，审批已处理过",
         )
-    if not approved and not reason.strip():
-        raise BusinessError(ErrorCode.PARAM_INVALID, "驳回采购单必须填写理由")
-    row.status = "approved" if approved else "rejected"
-    if not approved:
-        row.qc_note = reason.strip()
+    return row
+
+
+async def apply_approval(db: AsyncSession, *, tenant: str, args: dict[str, Any], actor: str) -> None:
+    """采购审批单批准后的生效动作：draft → approved（不动账，到货质检合格才入库）。"""
+    row = await _draft_order_or_raise(db, tenant, args)
+    row.status = "approved"
+    await db.flush()
+    await admin_service.record_audit(
+        db, tenant=tenant, actor=actor, action="purchase.approve", target=row.id, detail={}
+    )
+
+
+async def apply_rejection(
+    db: AsyncSession, *, tenant: str, args: dict[str, Any], actor: str, reason: str
+) -> None:
+    """采购审批单驳回后的终态动作：draft → rejected，驳回理由回写 qc_note 留痕。"""
+    row = await _draft_order_or_raise(db, tenant, args)
+    row.status = "rejected"
+    row.qc_note = (reason or "").strip()
     await db.flush()
     await admin_service.record_audit(
         db,
         tenant=tenant,
         actor=actor,
-        action="purchase.approve" if approved else "purchase.reject",
+        action="purchase.reject",
         target=row.id,
-        detail={"reason": reason.strip()},
+        detail={"reason": (reason or "").strip()},
     )
-    await db.commit()
-    return row
 
 
 async def receive_purchase_order(

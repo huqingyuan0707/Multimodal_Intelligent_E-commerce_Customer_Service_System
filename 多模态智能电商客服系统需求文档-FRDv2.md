@@ -368,7 +368,7 @@ Out（v1 不做，预留接口）：实时电话外呼、视频客服、跨境�
 
 | # | 通用约束 | 本平台落地状态 | 代码/文档落点 |
 |---|---|---|---|
-| 8 | MCP 统一协议（封装 OMS/WMS/物流/优惠/退款，沿用审批/幂等策略） | 🔶 部分落地：内部等价物已有——注册中心（ToolSpec + JSON Schema 子集校验 + Scope + 幂等键 + 审批标记）+ 6 连接器薄适配，审批/幂等策略原生内置；**标准 MCP wire 协议为演进方向（P2）**，接口形态不变则连接器可平迁 | `modules/agent/registry.py`、`connectors.py`、`executor.py` |
+| 8 | MCP 统一协议（封装 OMS/WMS/物流/优惠/退款，沿用审批/幂等策略） | 🔶 部分落地：内部等价物已有——注册中心（ToolSpec + JSON Schema 子集校验 + Scope + 幂等键 + 审批标记）+ 6 连接器薄适配，审批/幂等策略原生内置；**标准 MCP wire 协议为演进方向（P2）**，接口形态不变则连接器可平迁（办公 Agent 拆分独立开源决策见 ADR-0003）| `modules/agent/registry.py`、`connectors.py`、`executor.py` |
 | 9 | 异步任务（图片处理/文档入库/退款执行/通知/质检/人工回访剥离主链路；重试、限流） | ✅ 已落地（异步框架）：会话超 30s 自动转任务态 + `tasks` 表驱动（暂停/恢复/重试/死信）；文档入库异步 reindex、退款走审批、降级/转人工由规则表后置；图片收发已接 `media_store` | `services/task_service.py`、`document_lifecycle.py`、`approval_service.py`、`media_store.py` |
 | 10 | 全链路 Trace/Replay（为什么答、查了什么、调什么工具、为何转人工/送审） | ✅ 已落地（Trace）+ 🔶 Replay：`trace_id` 贯穿 `done` 帧（references+guard+faithfulness）；`core/observability.record` 事件 JSONL（handoff/tool/rag/chat 全审计）；坐席工作台 Trace 三栏回看规划/检索/工具/Token；**独立回放播放器未建**（可由 tasks.checkpoint + 事件回放实现） | `core/observability.py`、API 规范 §5、`workbench_service.py`、`runtime.py` |
 
@@ -504,7 +504,7 @@ sequenceDiagram
 | RAG 双通道 / 记忆 / Skill 化 | FR-4 RAG 知识库 + FR-13 企业知识库 | 多Agent 约束 #4-6 的"业务事实走工具、商品知识走检索、SOP 转 Skill"落地于此 |
 | 审批 / 转人工 / 工作台 | FR-7 人机协同、审批与坐席工作台 | 多Agent 约束 #11-12 的"守卫+策略双闸 + 一键接管"落地于此；FR-7 定义了完整队列/Trace/审批流 |
 | 可观测 / 指标 / Harness | FR-9 可观测与评估 + §7 验收标准 + §8 分期路线 | 多Agent 约束 #10/13/14 的"Trace+JSONL+黄金集+指标"落地于此；退款误触发率/在线自动解决率 P2 补位 |
-| 标准 MCP wire 协议 / Replay 播放器 / 模型路由网关 | FR-5（预留位）+ §8 分期路线 P2 | 多Agent 约束 #7-8-10 的 P2 缺口对齐此处分期；连接器接口形态不变，P2 只迁协议栈 |
+| 标准 MCP wire 协议 / Replay 播放器 / 模型路由网关 | FR-5（预留位）+ §8 分期路线 P2 | 多Agent 约束 #7-8-10 的 P2 缺口对齐此处分期；连接器接口形态不变，P2 只迁协议栈（办公 Agent 拆分独立开源决策见 ADR-0003）|
 | 角色边界表（§11.3） | FR-3 + FR-7 + FR-9 | 本表是 FR 定义的角色在系统层的细化映射；验收时按本表逐角色审查工具清单与权限边界 |
 
 ---

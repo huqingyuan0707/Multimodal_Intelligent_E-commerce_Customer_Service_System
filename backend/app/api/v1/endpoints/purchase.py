@@ -2,6 +2,8 @@
 
 链路：前端 /purchase → 本模块（解析入参 + 组装信封）→ supplier_service / procurement_service。
 权限：读 `purchase:read|write`、写 `purchase:write`（与商品/库存同款「域角色即权限」口径）。
+审批口径：建单即同事务落 `purchase.approve` 审批单进 §4.5 审批中心（本文件无直批端点，
+防止绕过审批中心双入口）；批准/驳回走 `POST /approvals/{id}/approve|reject`。
 """
 
 from __future__ import annotations
@@ -38,19 +40,12 @@ class PurchaseLine(BaseModel):
 
 
 class PurchaseOrderRequest(BaseModel):
-    """建采购单（恒为草稿，审批前不动账）。"""
+    """建采购单（恒为草稿，审批走审批中心，审批前不动账）。"""
 
     supplier_id: str
     warehouse_id: str = ""
     items: list[PurchaseLine] = []
     eta: str = ""
-
-
-class ApproveRequest(BaseModel):
-    """审批：approved=false 即驳回（驳回理由必填）。"""
-
-    approved: bool = True
-    reason: str = ""
 
 
 class ReceiveRequest(BaseModel):
@@ -119,7 +114,7 @@ async def create_purchase_order(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(require_any_perm("purchase:write")),
 ) -> dict[str, Any]:
-    """建采购单（草稿）；到货质检合格才入库，审批前不动账。"""
+    """建采购单（草稿）；同事务落审批单进审批中心，批准后才可到货登记。"""
     row = await procurement_service.create_purchase_order(
         db,
         tenant=user.tenant,
@@ -129,27 +124,7 @@ async def create_purchase_order(
         eta=payload.eta,
         actor=user.username,
     )
-    return ok(procurement_service.purchase_to_dict(row), "采购单已创建（草稿）")
-
-
-@router.post("/purchase/{order_id}/approve")
-async def approve_purchase_order(
-    order_id: str,
-    payload: ApproveRequest,
-    db: AsyncSession = Depends(get_db),
-    user: CurrentUser = Depends(require_any_perm("purchase:write")),
-) -> dict[str, Any]:
-    """采购审批（仅草稿可审；驳回理由必填，驳回为终态）。"""
-    row = await procurement_service.approve_purchase_order(
-        db,
-        tenant=user.tenant,
-        order_id=order_id,
-        approved=payload.approved,
-        reason=payload.reason,
-        actor=user.username,
-    )
-    msg = "采购单已审批通过" if payload.approved else "采购单已驳回"
-    return ok(procurement_service.purchase_to_dict(row), msg)
+    return ok(procurement_service.purchase_to_dict(row), "采购单已创建，审批已转审批中心")
 
 
 @router.post("/purchase/{order_id}/receive")

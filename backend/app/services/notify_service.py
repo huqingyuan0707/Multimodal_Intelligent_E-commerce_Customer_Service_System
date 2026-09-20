@@ -9,6 +9,7 @@
   并把该次记账为「未送达」。不返回假成功，也不因此抛 500 —— 到达率报表会如实显示 0%，
   这正确反映了「当前确实发不出去」，而不是「接入后也发不出去」。
 - 频控超限回 `1006`（与对话限流同号段），**不静默丢弃**：调用方必须知道自己被限流了。
+- 风控黑名单（blocked 复核结论）买家触达回 `3007`：对已拦截用户停止自动外呼/营销触达。
 - 到达率为「累计口径」（表里是累计计数，无时间窗）—— 响应里 `window_note` 如实标注，
   不做「近 30 天到达率」这种当前数据支撑不了的表述。
 """
@@ -25,6 +26,7 @@ from app.core import cache
 from app.core.exceptions import BusinessError, ErrorCode
 from app.db.models import MessageTemplate
 from app.db.models_admin import TEMPLATE_CHANNELS, TEMPLATE_STATUSES
+from app.services import risk_service
 from app.services.admin_service import dt_text, record_audit
 
 CHANNEL_LABELS = {"sms": "短信", "wechat": "企微", "dingtalk": "钉钉", "email": "邮件"}
@@ -283,6 +285,10 @@ async def send(
         raise BusinessError(ErrorCode.PARAM_INVALID, "请选择发送所属租户")
     if not target_ref:
         raise BusinessError(ErrorCode.PARAM_INVALID, "接收方（user_ref）不能为空")
+    # 风控黑名单拦截（3007）：已拦截买家停止自动触达（防营销骚扰，放行走风控复核）。
+    await risk_service.ensure_not_blocked(
+        db, tenant=cleaned_tenant, user_ref=target_ref, action_label="消息触达"
+    )
 
     row = (
         await db.execute(

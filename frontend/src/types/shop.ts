@@ -255,3 +255,95 @@ export const reviewTagOf = (status: string) =>
 
 export const ticketTagOf = (status: string) =>
   TICKET_TAG[status as keyof typeof TICKET_TAG] ?? 'info';
+
+// 采购协同（供应商 + 采购单状态机；金额一律分；状态机口径对齐后端 procurement_service，对齐页面设计 §3.12）
+// 状态机唯一路径 draft→approved→received→stocked；rejected/returned 终态；allowed_actions 随列表下发供前端置灰
+export type SupplierItem = {
+  id: string;
+  name: string;
+  pay_terms: string;
+  pass_rate: number; // 0~1，展示层格式化为百分比
+  created_at: string;
+};
+
+export type PurchaseLineItem = {
+  sku_id: string;
+  name: string; // 行名/SKU 快照由服务端回填，前端不传展示名
+  spu_no: string;
+  color: string;
+  size: string;
+  qty: number;
+  price: number;
+};
+
+export type PurchaseOrderItem = {
+  id: string;
+  supplier_id: string;
+  supplier_name: string;
+  warehouse_id: string;
+  items: PurchaseLineItem[];
+  qty_total: number;
+  amount: number;
+  status: string;
+  status_label: string;
+  allowed_actions: string[];
+  eta: string;
+  qc_result: string; // pass/fail，空=未质检
+  qc_note: string;
+  created_at: string;
+};
+
+export const PURCHASE_TAG = {
+  draft: 'warning',
+  approved: 'primary',
+  rejected: 'danger',
+  received: 'info',
+  stocked: 'success',
+  returned: 'danger',
+} as const;
+
+export const purchaseTagOf = (status: string) =>
+  PURCHASE_TAG[status as keyof typeof PURCHASE_TAG] ?? 'info';
+
+// 对账结算（金额一律分；expected/diff/diff_warn 均由服务端算好下发，前端禁硬编码金额口径，对齐页面设计 §3.14）
+export type FinanceBillItem = {
+  id: string;
+  biz_date: string;
+  receivable: number;
+  received: number;
+  refund: number;
+  fee: number;
+  freight: number;
+  expected: number;
+  diff: number;
+  diff_warn: boolean;
+  settled_by: string;
+  // 双人复核：settled = reviewed_by 非空（复核完成才算已结算）
+  reviewed_by: string;
+  reviewed_at: string;
+  settled: boolean;
+  created_at: string;
+};
+
+// 风控事件（人工复核留痕，禁全自动封号；detail 为关联图谱摘要只读展示，对齐页面设计 §3.18）
+export type RiskEventItem = {
+  id: string;
+  user_ref: string;
+  kind: string;
+  kind_label: string;
+  detail: object;
+  status: string;
+  status_label: string;
+  reviewable: boolean;
+  reviewer: string;
+  reason: string;
+  created_at: string;
+};
+
+export const RISK_TAG = {
+  pending: 'warning',
+  passed: 'success',
+  blocked: 'danger',
+} as const;
+
+export const riskTagOf = (status: string) => RISK_TAG[status as keyof typeof RISK_TAG] ?? 'info';

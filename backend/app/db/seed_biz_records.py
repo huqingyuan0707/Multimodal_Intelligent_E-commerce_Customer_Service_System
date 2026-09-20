@@ -276,8 +276,10 @@ async def _seed_biz_ops(db: AsyncSession, *, tenant: str, skus: list[Sku]) -> No
                 fee=fee,
                 freight=freight,
                 diff=delta,
-                # 最新账期待日结（保证 /finance 首屏有可确认单），历史账期视为已日结
+                # 最新账期待日结（保证 /finance 首屏有可确认单），历史账期视为已复核结清
+                # （双人复核两步：settled_by=制单人 admin，reviewed_by=换人复核演示账号）
                 settled_by="" if days == 0 else settings.SEED_USERNAME,
+                reviewed_by="" if days == 0 else "liuwei",
                 created_at=_rel(days * 24 + 1),
             )
         )

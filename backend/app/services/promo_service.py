@@ -1,7 +1,8 @@
 """营销服务（活动/发券/会员，对齐 FRD FR-10.6/附录 D/F + API 规范 §4.8）
 
 链路：endpoints/promos → 本模块 → promos/coupon_grants/members。
-红线：发券预算原子扣减，超预算 3006；idem_key 唯一防重放，重复提交直接回放原结果。
+红线：发券预算原子扣减，超预算 3006；idem_key 唯一防重放，重复提交直接回放原结果；
+风控黑名单（blocked 复核结论）买家发券 3007 强制拦截（回放不受影响）。
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import BusinessError, ErrorCode
 from app.db.models import CouponGrant, Member, Promo
+from app.services import risk_service
 
 
 def _parse_json(text: str, fallback: Any) -> Any:
@@ -144,6 +146,8 @@ async def grant(
     ).scalar_one_or_none()
     if promo is None:
         raise BusinessError(ErrorCode.NOT_FOUND, "活动不存在")
+    # 风控黑名单拦截（3007）：blocked 买家不发券；置于预算扣减前，拦截不消耗预算。
+    await risk_service.ensure_not_blocked(db, tenant=tenant, user_ref=user_ref, action_label="发券")
     if promo.granted >= promo.budget:
         raise BusinessError(ErrorCode.COUPON_EXHAUSTED, "券预算已用完")
     row = CouponGrant(

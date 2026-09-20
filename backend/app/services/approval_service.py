@@ -1,9 +1,9 @@
-"""审批服务（改价 / 盘点差异 / 超阈值退款恒进审批，对齐 API 规范 §4.5、数据模型文档 §2.1）
+"""审批服务（改价 / 盘点差异 / 超阈值退款 / 采购 恒进审批，对齐 API 规范 §4.5、数据模型文档 §2.1）
 
-链路：goods/inventory/order_service.create() → 本模块落 approvals 表；
-      endpoints/approvals → decide() → _apply() 按 action 派发到域服务生效函数。
+链路：goods/inventory/order/procurement_service.create() → 本模块落 approvals 表；
+      endpoints/approvals → decide() → _apply()/_apply_reject() 按 action 派发到域服务生效函数。
 循环依赖口径：域服务在模块级 import 本模块创建审批；本模块只在 _apply() 内**延迟 import**
-             域服务，避免模块级循环导入（改价/盘点/退款的生效逻辑留在各自域服务里）。
+             域服务，避免模块级循环导入（改价/盘点/退款/采购的生效逻辑留在各自域服务里）。
 红线：审批单不可重复处理；未通过的申请绝不改账（改价前后 SKU 价格由 decide 才落库）。
 """
 
@@ -27,6 +27,7 @@ ACTION_LABELS: dict[str, str] = {
     "inventory.replenish": "补货需求",
     "order.refund": "退款",
     "aftersale.scrap": "售后报损",
+    "purchase.approve": "采购审批",
 }
 
 # 审批类型 → 政策引用检索关键词（详情抽屉「政策引用」行，同租户知识库标题模糊找 Top3）
@@ -36,6 +37,7 @@ ACTION_POLICY_KEYWORDS: dict[str, list[str]] = {
     "inventory.stocktake_diff": ["盘点", "库存"],
     "inventory.replenish": ["补货", "采购"],
     "aftersale.scrap": ["报损", "质检", "退货"],
+    "purchase.approve": ["采购", "供应商"],
 }
 
 STATUS_LABELS: dict[str, str] = {"pending": "待审批", "approved": "已通过", "rejected": "已驳回"}
@@ -230,10 +232,30 @@ async def _apply(
 
         await order_service.apply_scrap(db, tenant=tenant, args=args, actor=actor)
         return
+    if action == "purchase.approve":
+        from app.services import procurement_service
+
+        await procurement_service.apply_approval(db, tenant=tenant, args=args, actor=actor)
+        return
     if action == "inventory.replenish":
         # 采购单在 P2（/purchase）落地：此处仅确认审批通过，不产生库存变动。
         return
     raise BusinessError(ErrorCode.PARAM_INVALID, f"未知审批类型：{action}")
+
+
+async def _apply_reject(
+    db: AsyncSession, *, tenant: str, action: str, args: dict[str, Any], actor: str, reason: str
+) -> None:
+    """审批驳回时需要同步域状态的类型派发（其余类型驳回账不动，无需回写）。
+
+    目前仅采购审批需要：驳回后采购单置 rejected 终态并回写理由（否则单据永远卡在草稿）。
+    """
+    if action == "purchase.approve":
+        from app.services import procurement_service
+
+        await procurement_service.apply_rejection(
+            db, tenant=tenant, args=args, actor=actor, reason=reason
+        )
 
 
 async def policy_refs(db: AsyncSession, *, tenant: str, action: str, limit: int = 3) -> list[dict]:
@@ -294,6 +316,10 @@ async def decide(
         row.status = "rejected"
         if reason.strip():
             row.reason = f"{row.reason}｜驳回原因：{reason.strip()}"[:200]
+        # 驳回侧域状态派发（如采购单置 rejected 终态）；失败整体回滚，审批单不会被误置。
+        await _apply_reject(
+            db, tenant=tenant, action=row.action, args=args, actor=approver, reason=reason.strip()
+        )
     row.approver = approver
     row.decided_at = datetime.now(UTC).replace(tzinfo=None)
     # 批/驳同步记审计（只 flush，与审批同事务；审批中心可回溯谁何时动了哪单）

@@ -167,7 +167,7 @@ import {
   ElOption,
 } from 'element-plus';
 import { computed, onMounted, ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { getApprovalDetailApi, listApprovalsApi } from '@/api';
 import { useApproval } from '@/composables/useApproval';
 import AiButton from '@/shared/components/AiButton.vue';
@@ -183,6 +183,7 @@ import {
 import type { ApprovalItem, ApprovalPolicyRef } from '@/types/approval';
 
 const router = useRouter();
+const route = useRoute();
 const rows = ref<ApprovalItem[]>([]);
 const total = ref(0);
 const page = ref(1);
@@ -274,6 +275,11 @@ const batch = () => {
 };
 
 onMounted(() => {
+  // 外部入口可带 ?keyword= 预填（采购页按采购单号直达对应审批单）
+  const prefill = typeof route.query.keyword === 'string' ? route.query.keyword.trim() : '';
+  if (prefill) {
+    keyword.value = prefill;
+  }
   load();
 });
 </script>
