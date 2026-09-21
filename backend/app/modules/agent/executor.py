@@ -21,6 +21,7 @@ from typing import Any
 from app.config import settings
 from app.core.exceptions import BusinessError, ErrorCode
 from app.core.observability import record
+from app.core.user_context import current_on_behalf_of
 from app.db.models import ToolCall
 from app.modules.agent import policy, registry
 from app.modules.agent.contracts import ToolContext, ToolSpec, validate_args
@@ -127,12 +128,17 @@ async def _audit(
     latency_ms: int,
     trace_id: str,
 ) -> None:
-    """落 tool_calls 审计（只 flush 不 commit，由调用方统一提交，保证与业务同事务）。"""
+    """落 tool_calls 审计（只 flush 不 commit，由调用方统一提交，保证与业务同事务）。
+
+    on_behalf_of 从请求上下文取（服务账号入口写入），外部 Agent 调用时做到
+    「调用方 + 发起人」两列可查，审计链不断在系统边界。
+    """
     ctx.db.add(
         ToolCall(
             trace_id=trace_id or ctx.trace_id,
             tenant=ctx.tenant,
             username=ctx.username,
+            on_behalf_of=current_on_behalf_of(),
             name=name,
             args=json.dumps(args, ensure_ascii=False, default=str)[:4000],
             result=json.dumps(result, ensure_ascii=False, default=str)[:4000],

@@ -1,11 +1,16 @@
 """瑕疵分类离线评估（FRD §7 验收：F1 ≥0.85 / 召回 ≥0.9，200 张/类测试集）
 
-链路：文件名即弱标签（{类别}_*.jpg）→ stub/网关预测 → 按类别统计 P/R/F1 +
+链路：文件名/子目录即弱标签 → stub/网关预测 → 按类别统计 P/R/F1 +
 宏平均 → 输出 PASS/FAIL + RESULT。
 用法（backend/ 目录）：
   python scripts/eval_vision.py [数据集目录] [--gateway]
   默认 stub 模式（文件名规则）；--gateway 走 inspect_image 真图链路（读像素，
   在线 VLM 检测，失败自动降级，degraded 率同步输出）。
+真机集采集规范（FRD §7 验收集，目录名即标签，与银集 {类别}_*.jpg 平铺兼容）：
+  backend/data/vision-real/{类别}/{序号}.jpg   # 8 类目录名与 vision_service.CATEGORIES 一致
+  每类 ≥200 张；自然光 + 室内灯光两种环境；平铺/褶皱/悬挂三种形态；
+  手机主摄直出即可（≥1000px，禁止网图——版权与域偏移双重风险）；
+  涉人图片须去除面部（裁切/打码），验收集不入库 git（.gitignore data/）。
 现状：真机 200 张/类集待采；银集（make_silver_set.py 程序合成像素图）先行验证
   “真图链路通 + 网关可调”，FRD 验收仍以真机集为准。
 阈值口径：stub 置信 0.85/0.55 与线上同源，低置信计入转人工不计错分。
@@ -39,12 +44,25 @@ def _synthesize_bench(root: Path, per_class: int = 20) -> list[tuple[str, str]]:
 
 
 def _load_bench(root: Path) -> list[tuple[Path, str]]:
-    """读真实集：{类别}_*.jpg，类别取文件名下划线前缀且在 8 类内（返回路径供真图模式）。"""
+    """读真实集（返回路径供真图模式）：两种布局兼容——
+
+    ① 子目录（真机集规范）：{类别}/{序号}.jpg，目录名即标签；
+    ② 平铺（银集）：{类别}_*.jpg，文件名下划线前缀即标签。
+    """
     samples: list[tuple[Path, str]] = []
-    for path in sorted(root.glob("*.jpg")):
-        label = path.name.split("_")[0]
-        if label in CATEGORIES:
-            samples.append((path, label))
+    for category in CATEGORIES:
+        if (root / category).is_dir():
+            found = (
+                path
+                for path in sorted((root / category).iterdir())
+                if path.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp")
+            )
+            samples.extend((path, category) for path in found)
+    if not samples:
+        for path in sorted(root.glob("*.jpg")):
+            label = path.name.split("_")[0]
+            if label in CATEGORIES:
+                samples.append((path, label))
     return samples
 
 
@@ -111,7 +129,8 @@ async def main() -> int:
     ok = macro_f1 >= 0.85 and macro_recall >= 0.9
     print(f"宏平均：F1={macro_f1:.3f}（≥0.85） 召回={macro_recall:.3f}（≥0.9）")
     print(f"降级率：{degraded}/{total}（网关失败自动转 stub，不断流）")
-    print(f"RESULT: {'PASS' if ok else 'FAIL'}（真机 200 张/类集待采，管线已就绪）")
+    tail = "" if not synthetic else "（真机 200 张/类集待采，管线已就绪；采集规范见文件头）"
+    print(f"RESULT: {'PASS' if ok else 'FAIL'}{tail}")
     return 0 if ok else 1
 
 

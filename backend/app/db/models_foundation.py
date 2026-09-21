@@ -62,7 +62,11 @@ class Task(Base):
 
 
 class ToolCall(Base):
-    """工具调用审计（谁/何时/调什么/结果/耗时，全量留痕）。"""
+    """工具调用审计（谁/何时/调什么/结果/耗时，全量留痕）。
+
+    on_behalf_of：跨系统「代表谁」——外部 Agent（office-agent）以服务账号身份调用时，
+    username 记调用方（服务账号），本列记真实发起人，保证审批/审计的追责链不断在人机边界。
+    """
 
     __tablename__ = "tool_calls"
 
@@ -70,6 +74,7 @@ class ToolCall(Base):
     trace_id: Mapped[str] = mapped_column(String(40), default="", index=True)
     tenant: Mapped[str] = mapped_column(String(64), default="", index=True)
     username: Mapped[str] = mapped_column(String(64), default="")
+    on_behalf_of: Mapped[str] = mapped_column(String(64), default="")
     name: Mapped[str] = mapped_column(String(64), default="", index=True)
     args: Mapped[str] = mapped_column(Text, default="{}")
     result: Mapped[str] = mapped_column(Text, default="{}")

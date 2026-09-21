@@ -11,10 +11,20 @@ from __future__ import annotations
 import json
 import time
 import uuid
+from contextvars import ContextVar
 from typing import Any
 
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
+#: 本次请求的 trace（入站 X-Trace-Id 沿用，缺失则新生成）。
+#: 端点/审计经 current_trace_id() 取值，避免把 trace 塞进请求体（跨系统同一条线）。
+_trace_id: ContextVar[str] = ContextVar("trace_id", default="")
+
+
+def current_trace_id() -> str:
+    """取本次请求的 trace_id（中间件已写入；非 HTTP 上下文为空串）。"""
+    return _trace_id.get()
 
 
 def _elapsed_ms(started: float) -> str:
@@ -33,6 +43,7 @@ class TraceMiddleware:
             await self.app(scope, receive, send)
             return
         trace_id = Headers(scope=scope).get("x-trace-id", uuid.uuid4().hex[:16])
+        _trace_id.set(trace_id)
         sender = _TraceSender(send, trace_id, time.perf_counter())
         await self.app(scope, receive, sender)
 

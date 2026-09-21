@@ -12,6 +12,7 @@ from app.api.v1.endpoints import (
     admin_ops,
     admin_org,
     agent,
+    agent_gateway,
     approvals,
     auth,
     chat,
@@ -45,6 +46,8 @@ api_router.include_router(chat.router, dependencies=[Depends(get_current_user)])
 api_router.include_router(chat.router, prefix="/agent", dependencies=[Depends(get_current_user)])
 # Agent 内核（FR-3/FR-5）：/agent/tools 注册中心 + /agent/run 编排 + /agent/runtime/{id} 检查点
 api_router.include_router(agent.router, dependencies=[Depends(get_current_user)])
+# 外部 Agent 拉取出口（联动方案 §7）：入口权限在端点内 require_perm(agent:gateway) 把关
+api_router.include_router(agent_gateway.router, dependencies=[Depends(get_current_user)])
 api_router.include_router(sessions.router, dependencies=[Depends(get_current_user)])
 api_router.include_router(studio.router, dependencies=[Depends(get_current_user)])
 api_router.include_router(documents.router, dependencies=[Depends(get_current_user)])

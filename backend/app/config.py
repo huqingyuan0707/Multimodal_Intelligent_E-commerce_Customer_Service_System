@@ -228,6 +228,18 @@ class Settings(BaseSettings):
         True  # /chat 检索段走 Agent 编排；false 一键回退直调 knowledge_service
     )
 
+    # 外部 Agent（office-agent 开源仓库）拉取出口：/api/v1/agent-gateway/*
+    # 口径（方案 §7 数据不出域）：对端就是一个普通登录用户，不新造信任体系——
+    #   · 入口权限走既有 require_perm（角色即权限），令牌名在此声明不散落端点；
+    #   · X-On-Behalf-Of 只被白名单主体采纳，其余一律忽略并告警（防伪造发起人）；
+    #   · 凭据（服务账号口令/令牌）只走环境变量或建号脚本，绝不进配置与库。
+    OFFICE_AGENT_GATEWAY_PERM: str = "agent:gateway"
+    OFFICE_AGENT_SERVICE_ACCOUNTS: list[str] = []  # 可透传 X-On-Behalf-Of 的服务账号名（默认空=不采纳）
+    # 服务账号建号默认角色（scripts/create_service_account.py 用；读工具 Scope 缺一不可）
+    OFFICE_AGENT_SERVICE_ROLES: str = (
+        "svc,order:read,stock:read,promo:read,kb:read,agent:gateway"
+    )
+
     # 转人工触发规则表（FRD FR-7）：「什么时候该转人工」的唯一口径在 handoff_rules.py 规则表，
     # 词表与阈值在此；挂载点只有 handoff_service.auto_handoff()（对话落库 / Agent 编排共用）。
     HANDOFF_ENABLED: bool = (

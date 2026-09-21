@@ -20,11 +20,24 @@ class CurrentUser:
 
 
 _current: ContextVar[CurrentUser | None] = ContextVar("current_user", default=None)
+#: 跨系统「代表谁」标识（office-agent 经 X-On-Behalf-Of 透传）。
+#: 只由服务账号白名单主体写入；审计按 (username=调用方, on_behalf_of=发起人) 两列留痕。
+_on_behalf_of: ContextVar[str] = ContextVar("on_behalf_of", default="")
 
 
 def set_current_user(user: CurrentUser | None) -> None:
     """仅由鉴权依赖调用，业务代码只读。"""
     _current.set(user)
+
+
+def set_on_behalf_of(value: str) -> None:
+    """仅由已校验的服务账号入口调用（白名单判定在外，本函数不做信任判断）。"""
+    _on_behalf_of.set((value or "").strip())
+
+
+def current_on_behalf_of() -> str:
+    """取本次请求的代表人（未透传时为空串，审计据此留痕）。"""
+    return _on_behalf_of.get()
 
 
 def current_user() -> CurrentUser:
