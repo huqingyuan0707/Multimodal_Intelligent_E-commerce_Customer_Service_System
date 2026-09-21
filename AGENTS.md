@@ -20,6 +20,16 @@
 | 架构健康/防屎山（提交前自检） | `skills/anti-shit-code/SKILL.md`（含硬检查脚本 `skills/anti-shit-code/scripts/check_arch.py`）  |
 | 命名质量（命名是否合格）       | `skills/naming-check/SKILL.md`（含硬检查脚本 `skills/naming-check/scripts/check_naming.py`）   |
 | UI/设计稿（画板）             | `design.pen`（画板名 `<中文标题>-/<route>`）+ `skills/design-first/SKILL.md`                           |
+| 后端功能开发                  | `skills/doubao-coding-develop-backend-features/SKILL.md`                                             |
+| 前端功能开发                  | `skills/doubao-coding-develop-frontend-features/SKILL.md`                                            |
+| Bug 诊断修复                  | `skills/doubao-coding-diagnose-and-fix-bugs/SKILL.md`                                                |
+| 代码审查                      | `skills/doubao-coding-review-code/SKILL.md`                                                          |
+| 单元测试                      | `skills/doubao-coding-develop-unit-tests/SKILL.md`                                                   |
+| 性能优化                      | `skills/doubao-coding-optimize-performance/SKILL.md`                                                 |
+| 安全威胁评审（STRIDE）        | `skills/security-threat-review/SKILL.md`                                                             |
+| SQL 诊断与最小修复            | `skills/sql-diagnose-refine/SKILL.md`                                                                |
+| GitHub 远程操作               | `skills/github-remote/SKILL.md`                                                                      |
+| 应用/工程构建（全栈）         | `skills/doubao-app-builder/SKILL.md`                                                                 |
 
 ## 2. AI 工作流（强制）
 
