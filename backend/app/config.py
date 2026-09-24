@@ -236,8 +236,10 @@ class Settings(BaseSettings):
     OFFICE_AGENT_GATEWAY_PERM: str = "agent:gateway"
     OFFICE_AGENT_SERVICE_ACCOUNTS: list[str] = []  # 可透传 X-On-Behalf-Of 的服务账号名（默认空=不采纳）
     # 服务账号建号默认角色（scripts/create_service_account.py 用；读工具 Scope 缺一不可）
+    # ticket:write 是联动模式②（office 审批通过后回流建单）的写入口径——审批闸门在对端，
+    # 本侧只认 Scope + idem_key 幂等回放；存量账号需 --reset 补角色才会拿到。
     OFFICE_AGENT_SERVICE_ROLES: str = (
-        "svc,order:read,stock:read,promo:read,kb:read,agent:gateway"
+        "svc,order:read,stock:read,promo:read,kb:read,ticket:write,agent:gateway"
     )
 
     # 转人工触发规则表（FRD FR-7）：「什么时候该转人工」的唯一口径在 handoff_rules.py 规则表，

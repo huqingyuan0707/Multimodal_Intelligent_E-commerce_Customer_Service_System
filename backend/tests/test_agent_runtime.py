@@ -135,6 +135,7 @@ async def test_registry_specs_align_frd() -> None:
         "order.query",
         "refund.create",
         "stock.query",
+        "ticket.create",
     ]
     assert connectors.self_check() == []
     scopes = {spec.name: spec.scope for spec in registry.all_specs()}
@@ -145,6 +146,7 @@ async def test_registry_specs_align_frd() -> None:
         "coupon.query": "promo:read",
         "kb.retrieve": "kb:read",
         "refund.create": "trade:refund",
+        "ticket.create": "ticket:write",
     }
     refund = registry.get("refund.create")
     assert refund.requires_approval is True and refund.approval_action == "order.refund"
@@ -157,7 +159,7 @@ async def test_registry_specs_align_frd() -> None:
     )
     # 幂等注册：重复装载不报错也不重复计数（启动重放安全）
     connectors.register_all()
-    assert registry.count() == 6
+    assert registry.count() == 7
     with pytest.raises(BusinessError) as err:
         registry.get("nope.tool")
     assert err.value.code == ErrorCode.TOOL_NOT_FOUND
@@ -331,7 +333,7 @@ async def test_executor_business_error_not_retried(db: Any) -> None:
 async def test_agent_tools_endpoints(client: httpx.AsyncClient) -> None:
     """注册中心端点：清单带 Scope/Schema/超时重试/熔断态；未注册工具 4005。"""
     data = await _ok(await client.get("/api/v1/agent/tools"))
-    assert data["total"] == 6
+    assert data["total"] == 7
     by_name = {item["name"]: item for item in data["items"]}
     assert by_name["refund.create"]["requires_approval"] is True
     assert by_name["refund.create"]["breaker"]["open"] is False
@@ -380,7 +382,7 @@ async def test_agent_perm_and_isolation(client: httpx.AsyncClient) -> None:
         )
     )
     assert denied["code"] == 4006, "买家无 order:read，工具调用必须被策略拦下"
-    assert (await _ok(await client.get("/api/v1/agent/tools")))["total"] == 6, (
+    assert (await _ok(await client.get("/api/v1/agent/tools")))["total"] == 7, (
         "清单只读，登录即可见"
     )
     # 参数校验在策略之后：换成有 order:read 的客服，才能走到 1001 分支

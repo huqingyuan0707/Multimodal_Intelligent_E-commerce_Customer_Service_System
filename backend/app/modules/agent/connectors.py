@@ -1,4 +1,4 @@
-"""业务连接器（FRDv2 附录 A 其余 6 个工具：order / logistics / stock / coupon / kb / refund）
+"""业务连接器（FRDv2 附录 A 其余 6 个工具：order / logistics / stock / coupon / kb / refund + 回流建单）
 
 链路：bootstrap.register_builtin() → registry.register(本方 ToolSpec)
       → executor.call → handler(ctx, args) → 对应 services 域服务（不直连表、不复制业务规则）。
@@ -7,6 +7,8 @@
   改规则只改一处（避免两套真相）。
 - refund.create 标 requires_approval=True：调用即落审批单、订单状态不变，
   由 approval_service.decide 通过后才执行 apply_refund（FR-7 恒送审，账不动）。
+- ticket.create 是联动模式②（office-agent 回流）的写入口：审批闸门唯一在对端，
+  本侧经网关直接执行，幂等口径由 idem_key 闭环（同键重放返回原单，绝不双单）。
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ from app.services import (
     logistics_service,
     order_service,
     promo_service,
+    review_service,
 )
 
 # ---------------- 附录 A 工具契约（Scope 与入参口径与规范逐条对齐） ----------------
@@ -118,6 +121,35 @@ async def _refund_create(ctx: ToolContext, args: dict[str, Any]) -> dict[str, An
     )
 
 
+async def _ticket_create(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    """回流建单（联动模式②）：审批闸门在对端，本侧幂等执行——同 idem_key 重放返回原单。
+
+    出参带 replayed 标记：对端审计据此区分「本次生效」与「幂等回放」，不双单口径可验证。
+    """
+    ticket, replayed = await review_service.create_ticket_idempotent(
+        ctx.db,
+        tenant=ctx.tenant,
+        idem_key=str(args["idem_key"]).strip(),
+        kind=str(args["kind"]).strip(),
+        source_ref=str(args.get("source_ref") or "").strip(),
+        assignee=str(args.get("assignee") or "").strip(),
+        sla_hours=int(args.get("sla_hours") or 48),
+    )
+    return {
+        "ticket_id": ticket.id,
+        "kind": ticket.kind,
+        "source_ref": ticket.source_ref,
+        "assignee": ticket.assignee,
+        "status": ticket.status,
+        "sla_due": (
+            ticket.sla_due.isoformat(sep=" ", timespec="seconds") if ticket.sla_due else ""
+        ),
+        "idem_key": ticket.idem_key or "",
+        "replayed": replayed,
+        "created_by": ctx.username,
+    }
+
+
 # ---------------- 规格声明（params 即对外契约，Agent Studio 直接渲染） ----------------
 
 _ORDER_ID = {
@@ -211,6 +243,33 @@ SPECS: tuple[ToolSpec, ...] = (
         idempotent=False,  # 资金动作绝不自动重试
         requires_approval=True,
         approval_action="order.refund",
+    ),
+    ToolSpec(
+        name="ticket.create",
+        scope="ticket:write",
+        description=(
+            "回流创建协同工单（联动模式②：审批闸门在对端，本侧直接执行；"
+            "idem_key 必填，同键重放返回原单绝不双单）"
+        ),
+        params={
+            "type": "object",
+            "properties": {
+                "kind": {"type": "string", "title": "工单类型", "minLength": 1, "maxLength": 32},
+                "source_ref": {"type": "string", "title": "来源关联", "maxLength": 64},
+                "assignee": {"type": "string", "title": "处理人", "maxLength": 64},
+                "sla_hours": {"type": "integer", "title": "SLA 小时", "minimum": 1, "maximum": 720},
+                "idem_key": {
+                    "type": "string",
+                    "title": "幂等键",
+                    "minLength": 8,
+                    "maxLength": 64,
+                },
+            },
+            "required": ["kind", "idem_key"],
+            "additionalProperties": False,
+        },
+        handler=_ticket_create,
+        idempotent=True,  # 幂等键回放就绪：可重试、可重放，同键绝不双单
     ),
 )
 

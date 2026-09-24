@@ -11,6 +11,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import BusinessError, ErrorCode
@@ -132,6 +133,54 @@ async def create_ticket(
     db.add(row)
     await db.flush()
     return row
+
+
+async def ticket_by_idem_key(db: AsyncSession, *, tenant: str, idem_key: str) -> Ticket | None:
+    """按幂等键查回流工单（联动方案 §7.2 模式②：office 侧审批重放/重试同键不双单）。"""
+    return (
+        await db.execute(
+            select(Ticket).where(Ticket.tenant == tenant, Ticket.idem_key == idem_key)
+        )
+    ).scalar_one_or_none()
+
+
+async def create_ticket_idempotent(
+    db: AsyncSession,
+    *,
+    tenant: str,
+    idem_key: str,
+    kind: str,
+    source_ref: str = "",
+    assignee: str = "",
+    sla_hours: int = 48,
+) -> tuple[Ticket, bool]:
+    """幂等建单（外部 Agent 回流专用）：返回 (工单, 是否重放)。
+
+    双保险：先查库短路（常态重放路径），再靠 (tenant, idem_key) 唯一约束兜底并发窗口——
+    两个请求同时过了查库时，后到者撞 IntegrityError，回滚后查回原单按重放返回。
+    绝不抛「重复建单」错：对端审批重放是设计内行为，报错等于把幂等口径打碎。
+    """
+    existed = await ticket_by_idem_key(db, tenant=tenant, idem_key=idem_key)
+    if existed is not None:
+        return existed, True
+    row = Ticket(
+        tenant=tenant,
+        kind=kind,
+        source_ref=source_ref,
+        idem_key=idem_key,
+        assignee=assignee,
+        sla_due=datetime.now(UTC).replace(tzinfo=None) + timedelta(hours=sla_hours),
+    )
+    db.add(row)
+    try:
+        await db.flush()
+    except IntegrityError:
+        await db.rollback()
+        raced = await ticket_by_idem_key(db, tenant=tenant, idem_key=idem_key)
+        if raced is None:
+            raise
+        return raced, True
+    return row, False
 
 
 async def create_review_ticket(

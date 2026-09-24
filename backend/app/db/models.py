@@ -346,14 +346,20 @@ class Review(Base):
 
 
 class Ticket(Base):
-    """协同工单（SLA+关闭回填结论；对齐 FRD FR-12.3/附录 F）"""
+    """协同工单（SLA+关闭回填结论；对齐 FRD FR-12.3/附录 F）
+
+    idem_key：外部 Agent 回流写单的幂等键（联动方案 §7.2 模式②）——同一 (tenant, idem_key)
+    只允许一单，重放查库短路返回原单；内部建单（差评转工单等）不填，NULL 不参与唯一约束。
+    """
 
     __tablename__ = "tickets"
+    __table_args__ = (UniqueConstraint("tenant", "idem_key", name="uq_tickets_tenant_idem"),)
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uid)
     tenant: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     kind: Mapped[str] = mapped_column(String(32), default="general", index=True)
     source_ref: Mapped[str] = mapped_column(String(64), default="")
+    idem_key: Mapped[str | None] = mapped_column(String(64), default=None)
     assignee: Mapped[str] = mapped_column(String(64), default="")
     sla_due: Mapped[datetime | None] = mapped_column(default=None)
     status: Mapped[str] = mapped_column(String(16), default="open", index=True)
